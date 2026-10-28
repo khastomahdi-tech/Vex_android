@@ -210,7 +210,7 @@ class QrScanActivity : ComponentActivity() {
             isAntiAlias = true
         }
         private val dim = android.graphics.Paint().apply {
-            color = 0x88000000
+            color = 0x88000000.toInt()
             style = android.graphics.Paint.Style.FILL
         }
 

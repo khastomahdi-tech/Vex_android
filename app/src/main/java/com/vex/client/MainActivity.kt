@@ -12,7 +12,7 @@ import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
-import androidx.activity.result.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
