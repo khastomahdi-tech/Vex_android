@@ -198,6 +198,7 @@ body.selmode .srv .del{display:none}
 .selbar .b-all{background:var(--card2);color:var(--text)}
 .selbar .b-x{background:var(--card2);color:var(--text);padding:9px}
 .ping.testing{color:var(--muted);animation:blink 1s ease-in-out infinite}
+.ping.fail{color:var(--bad)}
 @keyframes blink{50%{opacity:.35}}
 
 /* ---------- add sheet ---------- */
@@ -961,7 +962,7 @@ function renderList(){
     el.querySelector(".name").textContent = s.name;
     el.querySelector(".addr").textContent = s.address || "—";
     const p = el.querySelector(".ping");
-    p.className = "ping " + (s.ping === -1 ? "testing" : pingClass(s.ping));
+    p.className = "ping " + (s.ping === -1 ? "testing" : s.ping === -2 ? "fail" : pingClass(s.ping));
     p.textContent = pingText(s.ping);
     el.querySelector(".del").innerHTML = icon("trash", 16);
 
@@ -1025,8 +1026,8 @@ function renderHome(){
   $("selName").textContent = sel ? sel.name : "هنوز سروری انتخاب نشده";
   $("selAddr").textContent = sel ? sel.address : "با + یک کانفیگ اضافه کن";
   const pe = $("selPing");
-  pe.className = "ping " + (sel ? pingClass(sel.ping) : "");
-  pe.textContent = sel && sel.ping != null && sel.ping >= 0 ? sel.ping + " ms" : (sel && sel.ping === -1 ? "..." : "");
+  pe.className = "ping " + (sel ? (sel.ping === -1 ? "testing" : sel.ping === -2 ? "fail" : pingClass(sel.ping)) : "");
+  pe.textContent = sel && sel.ping != null && sel.ping >= 0 ? sel.ping + " ms" : (sel && sel.ping === -1 ? "..." : (sel && sel.ping === -2 ? "×" : ""));
   document.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.mode === settings.mode));
   renderTraffic();
 }
