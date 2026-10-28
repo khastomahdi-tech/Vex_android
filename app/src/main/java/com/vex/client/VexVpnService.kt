@@ -47,6 +47,22 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
         @Volatile var stateListener: ((String, String) -> Unit)? = null
         @Volatile var statsListener: ((Long, Long, Long, Long) -> Unit)? = null
+
+        // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
+        private val logBuf = ArrayDeque<String>(400)
+        fun pushCoreLog(line: String) {
+            synchronized(logBuf) {
+                if (logBuf.size >= 400) logBuf.removeFirst()
+                logBuf.addLast(line)
+            }
+        }
+        fun coreLogTail(n: Int = 8): String = synchronized(logBuf) {
+            logBuf.takeLast(n).joinToString("\n")
+        }
+        fun coreLogAll(): String = synchronized(logBuf) {
+            logBuf.joinToString("\n")
+        }
+        fun clearCoreLogs() = synchronized(logBuf) { logBuf.clear() }
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -84,6 +100,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private fun startVpn(config: String) {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
         startForeground(NOTIF_ID, notif("در حال اتصال...", "راه‌اندازی هسته..."))
+        clearCoreLogs()
         val gen: Int
         synchronized(stateLock) { gen = ++generation }
         thread(name = "vex-core") {
@@ -123,7 +140,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 synchronized(stateLock) {
                     if (gen != generation) return@thread // کاربر وسط تست قطع کرده
                     if (testError != null) {
-                        stopVpn(error = testError)
+                        stopVpn(error = testError, includeLogs = true)
                         return@thread
                     }
                     verified = true
@@ -132,7 +149,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
-                if (gen == generation) stopVpn(error = e.message ?: "خطا در اتصال به هسته")
+                if (gen == generation) stopVpn(error = e.message ?: "خطا در اتصال به هسته", includeLogs = true)
             }
         }
     }
@@ -178,7 +195,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             "کانفیگ یا سرور را بررسی کن — اتصال قطع شد."
     }
 
-    private fun stopVpn(error: String? = null) {
+    private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
         timer?.cancel(); timer = null
         try { tun?.close() } catch (_: Exception) {}
@@ -188,7 +205,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         tunIfaceName = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        if (error != null) stateListener?.invoke("error", error)
+        if (error != null) {
+            // پیام خطا را کوتاه نگه می‌داریم؛ لاگ کامل از طریق VexNative.getLogs() در UI در دسترس است
+            val msg = if (includeLogs) "$error\n[برای مشاهده‌ی لاگ کامل، «جزئیات خطا» را باز کن]" else error
+            stateListener?.invoke("error", msg)
+        }
         else stateListener?.invoke("stopped", "")
     }
 
@@ -215,7 +236,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
     }
 
-    /** خواندن بایت‌های واقعی اینترفیس tun از /sys؛ در نبود آن از TrafficStats */
+    /** خواندن بایت‌های واقعی اینترفیس tun از /sys؛ در نبود آن آمار UID خود برنامه (ترافیک واقعی تونل) */
     private fun readCounters(): Pair<Long, Long>? {
         val name = tunIfaceName
         if (name != null) {
@@ -226,9 +247,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 return rx to tx
             } catch (_: Exception) { /* اینترفیس هنوز آماده نیست یا حذف شده */ }
         }
-        // جایگزین: آمار کل دستگاه (واقعی ولی شامل ترافیک خود اپ)
-        val rx = android.net.TrafficStats.getTotalRxBytes()
-        val tx = android.net.TrafficStats.getTotalTxBytes()
+        // جایگزین: فقط ترافیک UID خودِ برنامه (سوکت‌های محافظت‌شده‌ی هسته) —
+        // آمار «کل دستگاه» را عمداً استفاده نمی‌کنیم چون ترافیک بقیه‌ی اپ‌ها را هم می‌شمارد
+        val uid = android.os.Process.myUid()
+        val rx = android.net.TrafficStats.getUidRxBytes(uid)
+        val tx = android.net.TrafficStats.getUidTxBytes(uid)
         if (rx <= 0 && tx <= 0) return null
         if (statSource != 2) { statSource = 2; lastRx = -1L }
         return rx to tx
@@ -278,7 +301,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     override fun writeLog(message: String?) {
-        Log.i("VexCore", message ?: "")
+        val line = message ?: return
+        Log.i("VexCore", line)
+        pushCoreLog(line)
     }
 
     override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
@@ -286,7 +311,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     override fun findConnectionOwner(
         ipProtocol: Int, sourceAddress: String?, sourcePort: Int,
         destinationAddress: String?, destinationPort: Int
-    ): Int = throw Exception("process search is not supported")
+    ): Int = -1 // پشتیبانی نمی‌شود؛ -1 یعنی «نامشخص» — اتصال را نباید قطع کنیم
 
     override fun packageNameByUid(uid: Int): String {
         val name = packageManager.getPackagesForUid(uid)?.firstOrNull()
@@ -302,6 +327,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         val cm = getSystemService(ConnectivityManager::class.java)
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) { pushDefaultInterface(listener, network) }
+            override fun onLinkPropertiesChanged(network: Network, lp: android.net.LinkProperties) {
+                pushDefaultInterface(listener, network)
+            }
         }
         netCallback = cb
         try {

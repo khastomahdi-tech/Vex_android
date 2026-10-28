@@ -54,7 +54,15 @@ class VexBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
-    fun version(): String = "1.2.0"
+    fun version(): String = "1.2.1"
+
+    /** لاگ کامل هسته (برای نمایش در صفحه‌ی «جزئیات خطا») */
+    @JavascriptInterface
+    fun getLogs(): String = try {
+        VexVpnService.coreLogAll()
+    } catch (_: Throwable) {
+        ""
+    }
 
     /** زمان واقعی برقراری اتصال TCP به سرور به میلی‌ثانیه */
     private fun tcpPing(host: String, port: Int): Int = try {

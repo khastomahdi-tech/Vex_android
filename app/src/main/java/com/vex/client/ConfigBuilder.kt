@@ -11,9 +11,17 @@ import java.net.URLDecoder
  * خروجی: کانفیگ کامل sing-box (tun inbound + DNS + قوانین مسیریابی + outbound).
  * پشتیبانی: vless، trojan، ss، vmess (لینک) و تنظیم دستی.
  *
- * نکته‌ی مهم: یک inbound «mixed» روی 127.0.0.1:19085 هم اضافه می‌شود تا برنامه بتواند
- * بعد از بالا آمدن هسته، یک درخواست HTTP واقعی از مسیرِ سرور بفرستد.
- * «متصل» فقط وقتی اعلام می‌شود که این تست واقعاً جواب بدهد (رفع مشکل دیتای فیک).
+ * نکته‌ی حیاتی (رفع «هسته متصل شد ولی دیتا رد و بدل نشد»):
+ *  ۱) اگر آدرس سرور دامنه باشد، خودِ outbound برای شروع کار باید دامنه‌ی سرور را resolve کند.
+ *     اگر تنها DNSِ موجود از مسیرِ خودِ پروکسی برود (detour=proxy)، حلقه‌ی مرگبار ساخته می‌شود:
+ *     resolve دامنه‌ی سرور → پروکسی → resolve دامنه‌ی سرور → ... و هیچ داده‌ای رد و بدل نمی‌شود.
+ *     راه‌حل: یک DNS محلی (مستقیم، همان resolver سیستم مثل بقیه کلاینت‌ها) + قانون DNS که
+ *     دامنه‌ی سرور را از همان‌جا resolve کند.
+ *  ۲) قانون hijack-dns بدون sniff کار نمی‌کند (protocol هرگز تشخیص داده نمی‌شود)؛ پس یک
+ *     قانون sniff در ابتدای route rules اضافه می‌شود تا DNS واقعاً داخل هسته هندل شود.
+ *  ۳) یک inbound «mixed» روی 127.0.0.1:19085 هم اضافه می‌شود تا برنامه بتواند بعد از بالا
+ *     آمدن هسته، یک درخواست HTTP واقعی از مسیرِ سرور بفرستد. «متصل» فقط وقتی اعلام
+ *     می‌شود که این تست واقعاً جواب بدهد (رفع مشکل دیتای فیک).
  */
 object ConfigBuilder {
 
@@ -34,6 +42,9 @@ object ConfigBuilder {
         val logLevel = j.optString("logLevel", "warning").trim().ifEmpty { "warning" }
 
         val rules = JSONArray()
+        // بدون sniff، قانون protocol=dns هیچ‌وقت match نمی‌شود و درخواست‌های DNS
+        // به‌صورت UDP خام به مسیر final می‌روند؛ sniff باعث می‌شود DNS واقعاً hijack شود
+        rules.put(JSONObject().put("action", "sniff"))
         // همه‌ی درخواست‌های DNS داخل تونل به هسته برمی‌گردند (hijack)
         rules.put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
         if (bypassLan) rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
@@ -57,13 +68,33 @@ object ConfigBuilder {
                 .put("listen", "127.0.0.1")
                 .put("listen_port", LOCAL_TEST_PORT))
 
+        // ---- شکستن حلقه‌ی resolve دامنه‌ی سرور ----
+        // dns-local = resolver سیستم (مستقیم، بدون پروکسی) — دقیقاً همان چیزی که
+        // کلاینت‌های دیگر برای شروع کار استفاده می‌کنند.
+        val dnsServers = JSONArray()
+            .put(JSONObject()
+                .put("tag", "dns-remote")
+                .put("address", dnsAddress)
+                .put("detour", "proxy"))
+            .put(JSONObject()
+                .put("tag", "dns-local")
+                .put("address", "local")
+                .put("detour", "direct"))
+
+        val dnsRules = JSONArray()
+        val serverHost = outbound.optString("server").trim()
+        // اگر سرور دامنه است: resolve آن فقط از DNS محلی/مستقیم (حلقه‌ی مرگبار می‌شکند)
+        if (serverHost.isNotEmpty() && !isIpAddress(serverHost)) {
+            dnsRules.put(JSONObject()
+                .put("domain", JSONArray().put(serverHost.lowercase()))
+                .put("server", "dns-local"))
+        }
+
         val config = JSONObject()
             .put("log", JSONObject().put("level", logLevel).put("timestamp", true))
             .put("dns", JSONObject()
-                .put("servers", JSONArray().put(JSONObject()
-                    .put("tag", "dns-remote")
-                    .put("address", dnsAddress)
-                    .put("detour", "proxy")))
+                .put("servers", dnsServers)
+                .put("rules", dnsRules)
                 .put("final", "dns-remote")
                 .put("strategy", if (ipv6) "prefer_ipv4" else "ipv4_only"))
             .put("inbounds", inbounds)
@@ -83,7 +114,13 @@ object ConfigBuilder {
             "sni" to c.optString("sni"),
             "type" to c.optString("network", "tcp"),
             "path" to c.optString("path", "/"),
-            "insecure" to if (c.optBoolean("allowInsecure", false)) "1" else ""
+            "host" to c.optString("host"),
+            "serviceName" to c.optString("serviceName"),
+            "fp" to c.optString("fp"),
+            "pbk" to c.optString("pbk"),
+            "sid" to c.optString("sid"),
+            "alpn" to c.optString("alpn"),
+            "insecure" to (if (c.optBoolean("allowInsecure", false)) "1" else "")
         )
         return buildOutbound(
             c.optString("protocol").lowercase(),
@@ -92,6 +129,21 @@ object ConfigBuilder {
             c.optString("secret"),
             p
         )
+    }
+
+    /** تشخیص IP (v4/v6) — برای تصمیم‌گیریِ اینکه آیا resolve دامنه لازم است */
+    private fun isIpAddress(host: String): Boolean {
+        // IPv4
+        if (host.matches(Regex("^(\\d{1,3}\\.){3}\\d{1,3}$"))) return true
+        // IPv6 (با یا بدون براکت)
+        val h = host.removePrefix("[").removeSuffix("]")
+        if (h.contains(':')) {
+            try {
+                java.net.InetAddress.getByName(h)
+                return true
+            } catch (_: Exception) {}
+        }
+        return false
     }
 
     private fun fromLink(link: String): JSONObject = when {
@@ -199,8 +251,19 @@ object ConfigBuilder {
     private fun transport(p: Map<String, String>): JSONObject? = when (p["type"] ?: "tcp") {
         "ws" -> JSONObject().put("type", "ws").put("path", p["path"]?.takeIf { it.isNotEmpty() } ?: "/").also { t ->
             p["host"]?.takeIf { it.isNotEmpty() }?.let { t.put("headers", JSONObject().put("Host", it)) }
+            // پشتیبانی WebSocket Early Data (پارامتر ed در لینک)
+            val ed = p["ed"]?.toIntOrNull()
+            if (ed != null && ed > 0) {
+                t.put("max_early_data", ed)
+                t.put("early_data_header_name", "Sec-WebSocket-Protocol")
+            }
         }
         "grpc" -> JSONObject().put("type", "grpc").put("service_name", p["serviceName"] ?: "")
+        "http", "h2", "h2c" -> JSONObject().put("type", "http").also { t ->
+            t.put("path", p["path"]?.takeIf { it.isNotEmpty() } ?: "/")
+            val hosts = p["host"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            if (!hosts.isNullOrEmpty()) t.put("host", JSONArray().apply { hosts.forEach { put(it) } })
+        }
         else -> null
     }
 
