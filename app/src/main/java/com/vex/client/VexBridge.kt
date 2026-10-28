@@ -54,7 +54,7 @@ class VexBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
-    fun version(): String = "1.2.1"
+    fun version(): String = "1.2.2"
 
     /** لاگ کامل هسته (برای نمایش در صفحه‌ی «جزئیات خطا») */
     @JavascriptInterface
