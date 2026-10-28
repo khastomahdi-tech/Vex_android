@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
 
     buildTypes {
@@ -34,4 +34,12 @@ dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // دوربین برای اسکنر QR
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    // دیکودر QR به‌صورت آفلاین (مدل داخل APK؛ بدون نیاز به گوگل‌پلی)
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 }

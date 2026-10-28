@@ -7,11 +7,18 @@ import java.net.URI
 import java.net.URLDecoder
 
 /**
- * ورودی: JSON {protocol, name, raw, mtu, bypassLan, ipv6, dns} که از صفحه‌ی وب می‌آید.
+ * ورودی: JSON {protocol, name, raw, mtu, bypassLan, ipv6, dns, logLevel} که از صفحه‌ی وب می‌آید.
  * خروجی: کانفیگ کامل sing-box (tun inbound + DNS + قوانین مسیریابی + outbound).
  * پشتیبانی: vless، trojan، ss، vmess (لینک) و تنظیم دستی.
+ *
+ * نکته‌ی مهم: یک inbound «mixed» روی 127.0.0.1:19085 هم اضافه می‌شود تا برنامه بتواند
+ * بعد از بالا آمدن هسته، یک درخواست HTTP واقعی از مسیرِ سرور بفرستد.
+ * «متصل» فقط وقتی اعلام می‌شود که این تست واقعاً جواب بدهد (رفع مشکل دیتای فیک).
  */
 object ConfigBuilder {
+
+    /** پورت inbound محلی برای تست واقعی اتصال (فقط روی لوکال‌هاست گوش می‌دهد) */
+    const val LOCAL_TEST_PORT = 19085
 
     fun build(input: String): String {
         val j = JSONObject(input)
@@ -24,23 +31,16 @@ object ConfigBuilder {
         val ipv6 = j.optBoolean("ipv6", false)
         val dnsUser = j.optString("dns", "1.1.1.1").trim().ifEmpty { "1.1.1.1" }
         val dnsAddress = if (dnsUser.contains("://")) dnsUser else "tcp://$dnsUser"
+        val logLevel = j.optString("logLevel", "warning").trim().ifEmpty { "warning" }
 
         val rules = JSONArray()
         // همه‌ی درخواست‌های DNS داخل تونل به هسته برمی‌گردند (hijack)
         rules.put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
         if (bypassLan) rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
-        if (!ipv6) rules.put(JSONObject().put("ip_version", 6).put("outbound", "block"))
+        if (!ipv6) rules.put(JSONObject().put("ip_version", 6).put("action", "reject"))
 
-        val config = JSONObject()
-            .put("log", JSONObject().put("level", "warn").put("timestamp", true))
-            .put("dns", JSONObject()
-                .put("servers", JSONArray().put(JSONObject()
-                    .put("tag", "dns-remote")
-                    .put("address", dnsAddress)
-                    .put("detour", "proxy")))
-                .put("final", "dns-remote")
-                .put("strategy", if (ipv6) "prefer_ipv4" else "ipv4_only"))
-            .put("inbounds", JSONArray().put(JSONObject()
+        val inbounds = JSONArray()
+            .put(JSONObject()
                 .put("type", "tun")
                 .put("tag", "tun-in")
                 .put("address", JSONArray()
@@ -48,11 +48,28 @@ object ConfigBuilder {
                     .put("fdfe:dcba:9876::1/126"))
                 .put("mtu", mtu)
                 .put("auto_route", true)
-                .put("stack", "mixed")))
+                .put("strict_route", false)
+                .put("stack", "mixed"))
+            // inbound محلی فقط برای تست واقعی مسیر (بدون ریسک؛ روی 127.0.0.1 گوش می‌دهد)
+            .put(JSONObject()
+                .put("type", "mixed")
+                .put("tag", "local-test")
+                .put("listen", "127.0.0.1")
+                .put("listen_port", LOCAL_TEST_PORT))
+
+        val config = JSONObject()
+            .put("log", JSONObject().put("level", logLevel).put("timestamp", true))
+            .put("dns", JSONObject()
+                .put("servers", JSONArray().put(JSONObject()
+                    .put("tag", "dns-remote")
+                    .put("address", dnsAddress)
+                    .put("detour", "proxy")))
+                .put("final", "dns-remote")
+                .put("strategy", if (ipv6) "prefer_ipv4" else "ipv4_only"))
+            .put("inbounds", inbounds)
             .put("outbounds", JSONArray()
                 .put(outbound)
-                .put(JSONObject().put("type", "direct").put("tag", "direct"))
-                .put(JSONObject().put("type", "block").put("tag", "block")))
+                .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject()
                 .put("rules", rules)
                 .put("final", "proxy")
@@ -65,7 +82,8 @@ object ConfigBuilder {
             "security" to c.optString("security", "none"),
             "sni" to c.optString("sni"),
             "type" to c.optString("network", "tcp"),
-            "path" to c.optString("path", "/")
+            "path" to c.optString("path", "/"),
+            "insecure" to if (c.optBoolean("allowInsecure", false)) "1" else ""
         )
         return buildOutbound(
             c.optString("protocol").lowercase(),
@@ -156,13 +174,24 @@ object ConfigBuilder {
     private fun tls(p: Map<String, String>, host: String, defaultOn: Boolean): JSONObject? {
         val sec = p["security"] ?: if (defaultOn) "tls" else "none"
         if (sec.isEmpty() || sec == "none") return null
+        val insecure = p["allowInsecure"] == "1" || p["insecure"] == "1"
+                || p["allowInsecure"]?.equals("true", true) == true
+                || p["insecure"]?.equals("true", true) == true
         val t = JSONObject()
             .put("enabled", true)
             .put("server_name", p["sni"]?.takeIf { it.isNotEmpty() } ?: host)
+        if (insecure) t.put("insecure", true)
+        p["alpn"]?.takeIf { it.isNotEmpty() }?.let { raw ->
+            t.put("alpn", JSONArray().apply { raw.split(",").forEach { a -> put(a.trim()) } })
+        }
+        // اثر انگشت uTLS: برای Reality الزامی است و برای TLS معمولی هم اگر fp داده شده باشد اعمال می‌شود
+        val fp = p["fp"]?.takeIf { it.isNotEmpty() }
         if (sec == "reality") {
-            t.put("utls", JSONObject().put("enabled", true).put("fingerprint", p["fp"] ?: "chrome"))
+            t.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp ?: "chrome"))
             t.put("reality", JSONObject().put("enabled", true)
                 .put("public_key", p["pbk"] ?: "").put("short_id", p["sid"] ?: ""))
+        } else if (fp != null) {
+            t.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp))
         }
         return t
     }

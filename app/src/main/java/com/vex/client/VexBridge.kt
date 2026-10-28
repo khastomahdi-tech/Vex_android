@@ -18,6 +18,18 @@ class VexBridge(private val activity: MainActivity) {
         activity.runOnUiThread { activity.requestStop() }
     }
 
+    /** اسکن QR با دوربین واقعی (دسترسی دوربین در اکتیویتی نیتیو گرفته می‌شود) */
+    @JavascriptInterface
+    fun scanQr() {
+        activity.runOnUiThread { activity.startQrScan() }
+    }
+
+    /** انتخاب عکس QR از گالری و دیکود با ML Kit */
+    @JavascriptInterface
+    fun pickQr() {
+        activity.runOnUiThread { activity.startQrGallery() }
+    }
+
     /**
      * پینگ واقعی سرورها: زمان کامل TCP handshake ( مانند v2rayNG ).
      * ورودی: JSON آرایه‌ای از {id, host, port}
@@ -42,7 +54,7 @@ class VexBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
-    fun version(): String = "1.1.0"
+    fun version(): String = "1.2.0"
 
     /** زمان واقعی برقراری اتصال TCP به سرور به میلی‌ثانیه */
     private fun tcpPing(host: String, port: Int): Int = try {
