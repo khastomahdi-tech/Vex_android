@@ -189,7 +189,7 @@ class QrScanActivity : ComponentActivity() {
         textSize = 14f
         typeface = Typeface.DEFAULT_BOLD
         setTextColor(Color.WHITE)
-        isAllCaps = false
+        setAllCaps(false)
         setPadding(dp(20), dp(8), dp(20), dp(8))
         background = GradientDrawable().apply {
             cornerRadius = dp(20).toFloat()
