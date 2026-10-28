@@ -11,12 +11,16 @@ android {
         applicationId = "com.vex.client"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.6.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildTypes {
         release { isMinifyEnabled = false }
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = true }
     }
 
     compileOptions {
@@ -27,6 +31,7 @@ android {
 }
 
 dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.0")
 }

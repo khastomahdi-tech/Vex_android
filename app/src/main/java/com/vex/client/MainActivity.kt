@@ -86,6 +86,13 @@ class MainActivity : ComponentActivity() {
         web.evaluateJavascript("window.vexOnStats && window.vexOnStats($dn,$up,$tdn,$tup)", null)
     }
 
+    /** نتیجه‌ی پینگ واقعی یک سرور */
+    fun pushPing(id: Int, ms: Int) {
+        runOnUiThread {
+            web.evaluateJavascript("window.vexOnPing && window.vexOnPing($id, $ms)", null)
+        }
+    }
+
     override fun onDestroy() {
         VexVpnService.stateListener = null
         VexVpnService.statsListener = null

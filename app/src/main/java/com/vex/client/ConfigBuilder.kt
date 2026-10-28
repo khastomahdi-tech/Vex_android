@@ -7,16 +7,57 @@ import java.net.URI
 import java.net.URLDecoder
 
 /**
- * ورودی: JSON {protocol, name, raw} که از صفحه‌ی وب می‌آید.
- * خروجی: کانفیگ outbound به فرمت sing-box.
+ * ورودی: JSON {protocol, name, raw, mtu, bypassLan, ipv6, dns} که از صفحه‌ی وب می‌آید.
+ * خروجی: کانفیگ کامل sing-box (tun inbound + DNS + قوانین مسیریابی + outbound).
  * پشتیبانی: vless، trojan، ss، vmess (لینک) و تنظیم دستی.
  */
 object ConfigBuilder {
 
     fun build(input: String): String {
-        val raw = JSONObject(input).optString("raw").trim()
+        val j = JSONObject(input)
+        val raw = j.optString("raw").trim()
         val outbound = if (raw.startsWith("{")) fromManual(JSONObject(raw)) else fromLink(raw)
-        return JSONObject().put("outbounds", JSONArray().put(outbound)).toString()
+        outbound.put("tag", "proxy")
+
+        val mtu = j.optInt("mtu", 1500).coerceIn(1280, 9000)
+        val bypassLan = j.optBoolean("bypassLan", true)
+        val ipv6 = j.optBoolean("ipv6", false)
+        val dnsUser = j.optString("dns", "1.1.1.1").trim().ifEmpty { "1.1.1.1" }
+        val dnsAddress = if (dnsUser.contains("://")) dnsUser else "tcp://$dnsUser"
+
+        val rules = JSONArray()
+        // همه‌ی درخواست‌های DNS داخل تونل به هسته برمی‌گردند (hijack)
+        rules.put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+        if (bypassLan) rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
+        if (!ipv6) rules.put(JSONObject().put("ip_version", 6).put("outbound", "block"))
+
+        val config = JSONObject()
+            .put("log", JSONObject().put("level", "warn").put("timestamp", true))
+            .put("dns", JSONObject()
+                .put("servers", JSONArray().put(JSONObject()
+                    .put("tag", "dns-remote")
+                    .put("address", dnsAddress)
+                    .put("detour", "proxy")))
+                .put("final", "dns-remote")
+                .put("strategy", if (ipv6) "prefer_ipv4" else "ipv4_only"))
+            .put("inbounds", JSONArray().put(JSONObject()
+                .put("type", "tun")
+                .put("tag", "tun-in")
+                .put("address", JSONArray()
+                    .put("172.19.0.1/30")
+                    .put("fdfe:dcba:9876::1/126"))
+                .put("mtu", mtu)
+                .put("auto_route", true)
+                .put("stack", "mixed")))
+            .put("outbounds", JSONArray()
+                .put(outbound)
+                .put(JSONObject().put("type", "direct").put("tag", "direct"))
+                .put(JSONObject().put("type", "block").put("tag", "block")))
+            .put("route", JSONObject()
+                .put("rules", rules)
+                .put("final", "proxy")
+                .put("auto_detect_interface", true))
+        return config.toString()
     }
 
     private fun fromManual(c: JSONObject): JSONObject {

@@ -488,7 +488,7 @@ input.inp.num{width:90px}
 // ---- تنظیمات برنامه ----
 const CONFIG = {
   appName: "VEX CLIENT",
-  version: "0.6.0",
+  version: "1.1.0",
   support: [
     { title: "کانال تلگرام VEX", value: "@vex_vpnfree", url: "https://t.me/vex_vpnfree", icon: "telegram" },
     { title: "کانال اطلاع‌رسانی", value: "به‌زودی", url: "", icon: "info" },
@@ -595,7 +595,7 @@ function fmtTime(s){
 function protoClass(p){ return ({vless:"vless",trojan:"trojan",ss:"ss",shadowsocks:"ss",vmess:"vmess"})[(p||"").toLowerCase()] || "other"; }
 function protoLabel(p){ p = (p||"").toLowerCase(); if (p === "shadowsocks") return "SS"; return p ? p.toUpperCase() : "?"; }
 function pingClass(ms){ return ms == null || ms < 0 ? "" : ms < 150 ? "good" : ms < 300 ? "mid" : "slow"; }
-function pingText(ms){ if (ms === -1) return "..."; return ms == null ? "—" : ms + " ms"; }
+function pingText(ms){ if (ms === -1) return "..."; if (ms === -2) return "×"; return ms == null ? "—" : ms + " ms"; }
 
 // ---- پارس ----
 function parseLine(line){
@@ -747,8 +747,7 @@ async function shareServer(s){
   catch(e){ toast("کپی انجام نشد"); }
 }
 
-// ---- پینگ (شبیه‌سازی) ----
-function fakePing(){ return Math.round(40 + Math.random() * 140); }
+// ---- پینگ ----
 function pingAll(){
   if (!servers.length){ toast("سروری نیست"); return; }
   pingServers(servers.map(s => s.id));
@@ -786,12 +785,71 @@ function pingServers(ids){
   const set = new Set(ids);
   servers.forEach(s => { if (set.has(s.id)) s.ping = -1; });
   renderAll();
-  setTimeout(() => {
-    servers.forEach(s => { if (set.has(s.id)) s.ping = fakePing() + (Math.random() < .2 ? 120 : 0); });
+  if (window.VexNative && window.VexNative.ping){
+    // پینگ واقعی: TCP handshake توسط هسته‌ی برنامه اندازه‌گیری می‌شود
+    const payload = [];
+    servers.forEach(s => {
+      if (!set.has(s.id)) return;
+      const hp = serverHostPort(s);
+      if (hp) payload.push({ id: s.id, host: hp.host, port: hp.port });
+      else setTimeout(() => window.vexOnPing && window.vexOnPing(s.id, -1), 50);
+    });
+    if (payload.length) VexNative.ping(JSON.stringify(payload));
+  } else {
+    // حالت پیش‌نمایش مرورگر (بدون هسته)
+    setTimeout(() => {
+      servers.forEach(s => { if (set.has(s.id)) s.ping = Math.round(40 + Math.random() * 140); });
+      selMode = false; picked = new Set();
+      renderAll();
+      toast(`پینگ ${ids.length} سرور به‌روز شد`);
+    }, 900);
+  }
+}
+
+// نتیجه‌ی پینگ واقعی از اندروید
+window.vexOnPing = function(id, ms){
+  const s = servers.find(x => x.id === id);
+  if (!s) return;
+  s.ping = (ms === -1 || ms == null) ? -2 : ms; // -2 = ناموفق
+  if (id === selectedId) renderTraffic();
+  if (!servers.some(x => x.ping === -1)){
     selMode = false; picked = new Set();
     renderAll();
-    toast(`پینگ ${ids.length} سرور به‌روز شد`);
-  }, 900);
+    toast("پینگ سرورها به‌روز شد");
+  }
+};
+
+// استخراج host:port واقعی سرور از raw برای پینگ
+function serverHostPort(s){
+  try {
+    const raw = (s.raw || "").trim();
+    if (raw.startsWith("{")){
+      const c = JSON.parse(raw);
+      const addr = String(c.address || "");
+      const m = addr.match(/^\[(.+)\]:(\d+)$/) || addr.match(/^(.+):(\d+)$/);
+      if (m) return { host: m[1], port: +m[2] };
+      const p = parseInt(c.port, 10);
+      return addr ? { host: addr, port: p || 443 } : null;
+    }
+    if (/^vmess:\/\//i.test(raw)){
+      const b = raw.slice(8).replace(/-/g, "+").replace(/_/g, "/");
+      const j = JSON.parse(atob(b + "=".repeat((4 - b.length % 4) % 4)));
+      if (!j.add) return null;
+      return { host: j.add, port: parseInt(j.port, 10) || 443 };
+    }
+    const scheme = raw.match(/^(vless|trojan|ss):\/\//i);
+    if (!scheme) return null;
+    let body = raw.slice(scheme[0].length).split("#")[0].split("?")[0];
+    if (scheme[1].toLowerCase() === "ss" && body.indexOf("@") === -1){
+      const b = body.replace(/-/g, "+").replace(/_/g, "/");
+      body = atob(b + "=".repeat((4 - b.length % 4) % 4));
+    }
+    const hostPart = body.includes("@") ? body.slice(body.lastIndexOf("@") + 1) : body;
+    const m6 = hostPart.match(/^\[(.+)\]:(\d+)$/);
+    const m = m6 || hostPart.match(/^(.+):(\d+)$/);
+    if (!m) return null;
+    return { host: m[1], port: +m[2] || 443 };
+  } catch(e){ return null; }
 }
 function renderList(){
   const box = $("list");
@@ -936,7 +994,7 @@ function runStage(i){
 }
 function finishConnect(){
   const sel = servers.find(s => s.id === selectedId);
-  if (sel) sel.ping = fakePing();
+  if (sel) sel.ping = Math.round(40 + Math.random() * 140); // حالت پیش‌نمایش مرورگر
   state = "on"; startedAt = Date.now(); sDown = 0; sUp = 0;
   timerH = setInterval(() => { $("timer").textContent = fmtTime(Math.floor((Date.now() - startedAt) / 1000)); }, 1000);
   trafficH = setInterval(() => {
@@ -1078,7 +1136,9 @@ function togglePowerNative(){
   if (!selectedId){ toast("اول یک سرور اضافه و انتخاب کن"); return; }
   const sel = servers.find(s => s.id === selectedId);
   state = "busy"; renderHome();
-  VexNative.start(JSON.stringify({ protocol: sel.protocol, name: sel.name, raw: sel.raw }));
+  VexNative.start(JSON.stringify({ protocol: sel.protocol, name: sel.name, raw: sel.raw,
+    mtu: settings.mtu || 1500, bypassLan: settings.bypassLan !== false,
+    ipv6: !!settings.ipv6, dns: settings.dns || "1.1.1.1" }));
   runStage(0);
 }
 window.vexOnState = function(st, msg){
