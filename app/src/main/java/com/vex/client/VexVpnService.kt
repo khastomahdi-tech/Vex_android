@@ -47,6 +47,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
         @Volatile var stateListener: ((String, String) -> Unit)? = null
         @Volatile var statsListener: ((Long, Long, Long, Long) -> Unit)? = null
+        @Volatile var netListener: ((Boolean, Int, String) -> Unit)? = null // ok, ms, پیام
 
         // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
         private val logBuf = ArrayDeque<String>(400)
@@ -63,6 +64,17 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             logBuf.joinToString("\n")
         }
         fun clearCoreLogs() = synchronized(logBuf) { logBuf.clear() }
+
+        /** آخرین خطای ثبت‌شده‌ی هسته برای نمایش به کاربر */
+        fun lastCoreError(): String? = synchronized(logBuf) {
+            logBuf.lastOrNull { it.contains("ERROR", true) || it.contains("error", true) }?.let {
+                it.substringAfter("ERROR ").ifEmpty { it }.take(220)
+            }
+        }
+
+        /** درخواست تست فوری اینترنت (دکمه‌ی «تست اینترنت» در UI) */
+        @Volatile var testNow = false
+        fun requestNetTest() { testNow = true }
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -72,6 +84,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
     private val stateLock = Any()
     private var generation = 0
+
+    // ---- آزمون اینترنت پس‌زمینه (مانند v2rayNG: اتصال را قطع نمی‌کنیم) ----
+    private var testThread: Thread? = null
 
     // ---- آمار واقعی از شمارنده‌ی اینترفیس tun ----
     @Volatile private var tunIfaceName: String? = null
@@ -127,26 +142,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 verified = false
                 startStatsTimer()
 
-                // ---- تست واقعی اینترنت از مسیر سرور ----
-                // هسته فقط وقتی start() را تمام می‌کند که تونل ساخته شود؛ اما این به معنی
-                // عبور واقعی ترافیک از سرور نیست. پس یک درخواست HTTP واقعی از مسیرِ
-                // inbound محلی (127.0.0.1) به بیرون می‌فرستیم؛ اگر رد نشد، اتصال را قطع
-                // می‌کنیم تا «متصلِ فیک» به کاربر نمایش داده نشود.
+                // ---- اتصال اعلام می‌شود (مانند v2rayNG)؛ تست اینترنت در پس‌زمینه ----
                 synchronized(stateLock) { if (gen != generation) return@thread }
-                stateListener?.invoke("verifying", "")
-                startForeground(NOTIF_ID, notif("در حال تست اینترنت...", "بررسی عبور ترافیک از سرور"))
-                val testError = testRealInternet(gen)
-
-                synchronized(stateLock) {
-                    if (gen != generation) return@thread // کاربر وسط تست قطع کرده
-                    if (testError != null) {
-                        stopVpn(error = testError, includeLogs = true)
-                        return@thread
-                    }
-                    verified = true
-                    startForeground(NOTIF_ID, notif("متصل است", "تست اینترنت: سالم"))
-                    stateListener?.invoke("connected", "")
-                }
+                verified = false
+                startForeground(NOTIF_ID, notif("متصل است", "در حال تست اینترنت..."))
+                stateListener?.invoke("connected", "")
+                startNetTestLoop(gen)
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 if (gen == generation) stopVpn(error = e.message ?: "خطا در اتصال به هسته", includeLogs = true)
@@ -155,49 +156,85 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     /**
-     * تست واقعی end-to-end: درخواست HTTP از مسیر inbound محلی → هسته → سرور → اینترنت.
+     * حلقه‌ی تست اینترنت پس‌زمینه: هر ۱۵ ثانیه (یا فوری با requestNetTest) یک درخواست
+     * واقعی HTTP از مسیر سرور می‌فرستد. اتصال هیچ‌وقت به‌خاطر شکست تست قطع نمی‌شود؛
+     * فقط وضعیت «اینترنت تأیید شد / بدون اینترنت» به UI و نوتیفیکیشن داده می‌شود.
+     */
+    private fun startNetTestLoop(gen: Int) {
+        testThread?.interrupt()
+        val th = thread(name = "vex-nettest") {
+            while (true) {
+                synchronized(stateLock) { if (gen != generation) return@thread }
+                val t0 = System.nanoTime()
+                val err = testRealInternet(gen)
+                val ms = ((System.nanoTime() - t0) / 1_000_000L).toInt()
+                synchronized(stateLock) {
+                    if (gen != generation) return@thread
+                    if (err == null) {
+                        verified = true
+                        netListener?.invoke(true, ms, "")
+                        startForeground(NOTIF_ID, notif("متصل است", "اینترنت از مسیر سرور تأیید شد · ${ms}ms"))
+                    } else {
+                        verified = false
+                        netListener?.invoke(false, -1, err)
+                        startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", err))
+                    }
+                }
+                // منتظر تایمر بعدی یا درخواست تست فوری
+                var waited = 0
+                while (waited < 15_000) {
+                    synchronized(stateLock) { if (gen != generation) return@thread }
+                    if (testNow) { testNow = false; break }
+                    try { Thread.sleep(250) } catch (_: InterruptedException) { return@thread }
+                    waited += 250
+                }
+            }
+        }
+        testThread = th
+    }
+
+    /**
+     * یک دور تست واقعی end-to-end: درخواست HTTP از مسیر inbound محلی → هسته → سرور → اینترنت.
      * خروجی null = موفق؛ رشته = پیام خطای قابل نمایش به کاربر.
      */
     private fun testRealInternet(gen: Int): String? {
         val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", ConfigBuilder.LOCAL_TEST_PORT))
         val urls = arrayOf(
             "https://www.gstatic.com/generate_204",
-            "http://cp.cloudflare.com/generate_204"
+            "http://cp.cloudflare.com/generate_204",
+            "http://www.msftconnecttest.com/connecttest.txt"
         )
         var lastMsg = ""
-        repeat(2) { attempt ->
-            for (u in urls) {
-                synchronized(stateLock) { if (gen != generation) return null }
-                var conn: HttpURLConnection? = null
-                try {
-                    conn = (URL(u).openConnection(proxy) as HttpURLConnection).apply {
-                        connectTimeout = 8000
-                        readTimeout = 8000
-                        instanceFollowRedirects = false
-                        useCaches = false
-                        setRequestProperty("User-Agent", "VEX-Client/1.2 (connection-test)")
-                    }
-                    val code = conn.responseCode
-                    try { conn.inputStream?.close() } catch (_: Exception) {}
-                    try { conn.errorStream?.close() } catch (_: Exception) {}
-                    if (code in 200..399) return null // مسیر واقعاً کار می‌کند
-                    lastMsg = "کد پاسخ سرور: $code"
-                } catch (e: Exception) {
-                    lastMsg = e.message ?: e.javaClass.simpleName
-                } finally {
-                    try { conn?.disconnect() } catch (_: Exception) {}
+        for (u in urls) {
+            synchronized(stateLock) { if (gen != generation) return null }
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(u).openConnection(proxy) as HttpURLConnection).apply {
+                    connectTimeout = 6000
+                    readTimeout = 6000
+                    instanceFollowRedirects = false
+                    useCaches = false
+                    setRequestProperty("User-Agent", "VEX-Client/1.3 (connection-test)")
                 }
+                val code = conn.responseCode
+                try { conn.inputStream?.close() } catch (_: Exception) {}
+                try { conn.errorStream?.close() } catch (_: Exception) {}
+                if (code in 200..399) return null // مسیر واقعاً کار می‌کند
+                lastMsg = "کد پاسخ: $code"
+            } catch (e: Exception) {
+                lastMsg = e.message ?: e.javaClass.simpleName
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
             }
-            if (attempt == 0) try { Thread.sleep(1200) } catch (_: InterruptedException) {}
         }
         Log.e(TAG, "real internet test failed: $lastMsg")
-        return "هسته بالا آمد ولی ترافیک از سرور رد نشد ($lastMsg). " +
-            "کانفیگ یا سرور را بررسی کن — اتصال قطع شد."
+        return "ترافیک از سرور رد نشد ($lastMsg) — کانفیگ یا سرور را بررسی کن"
     }
 
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
         timer?.cancel(); timer = null
+        testThread?.interrupt(); testThread = null
         try { tun?.close() } catch (_: Exception) {}
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
@@ -207,7 +244,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         stopSelf()
         if (error != null) {
             // پیام خطا را کوتاه نگه می‌داریم؛ لاگ کامل از طریق VexNative.getLogs() در UI در دسترس است
-            val msg = if (includeLogs) "$error\n[برای مشاهده‌ی لاگ کامل، «جزئیات خطا» را باز کن]" else error
+            val coreErr = lastCoreError()
+            val full = if (coreErr != null && !error.contains(coreErr)) "$error\nهسته: $coreErr" else error
+            val msg = if (includeLogs) "$full\n[برای مشاهده‌ی لاگ کامل، «جزئیات خطا» را باز کن]" else full
             stateListener?.invoke("error", msg)
         }
         else stateListener?.invoke("stopped", "")

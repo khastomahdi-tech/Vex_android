@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
 
         VexVpnService.stateListener = { st, msg -> runOnUiThread { notifyState(st, msg) } }
         VexVpnService.statsListener = { dn, up, tdn, tup -> runOnUiThread { pushStats(dn, up, tdn, tup) } }
+        VexVpnService.netListener = { ok, ms, msg -> runOnUiThread { pushNet(ok, ms, msg) } }
     }
 
     /** وقتی کاربر دکمه‌ی پاور را می‌زند */
@@ -187,6 +188,25 @@ class MainActivity : ComponentActivity() {
         web.evaluateJavascript("window.vexOnStats && window.vexOnStats($dn,$up,$tdn,$tup)", null)
     }
 
+    /** نتیجه‌ی تست اینترنت پس‌زمینه: ok=true → تأیید با تأخیر ms؛ false → پیام خطا */
+    fun pushNet(ok: Boolean, ms: Int, msg: String) {
+        web.evaluateJavascript("window.vexOnNet && window.vexOnNet($ok,$ms,${JSONObject.quote(msg)})", null)
+    }
+
+    /** نتیجه‌ی دریافت لینک اشتراک (متن کانفیگ‌ها) */
+    fun pushSubText(text: String) {
+        runOnUiThread {
+            web.evaluateJavascript("window.vexOnSub && window.vexOnSub(${JSONObject.quote(text)})", null)
+        }
+    }
+
+    /** پیام کوتاه از سمت نیتیو */
+    fun pushToast(msg: String) {
+        runOnUiThread {
+            web.evaluateJavascript("window.vexOnToast && window.vexOnToast(${JSONObject.quote(msg)})", null)
+        }
+    }
+
     /** نتیجه‌ی پینگ واقعی یک سرور */
     fun pushPing(id: Int, ms: Int) {
         runOnUiThread {
@@ -211,6 +231,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         VexVpnService.stateListener = null
         VexVpnService.statsListener = null
+        VexVpnService.netListener = null
         super.onDestroy()
     }
 }
