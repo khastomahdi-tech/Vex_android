@@ -26,7 +26,10 @@ data class VexSettings(
     var allowInsecure: Boolean = true,  // رد کردن تأیید گواهی TLS — پیش‌فرض روشن برای سرورهای CDN/self-signed
     var autoReconnect: Boolean = true,  // اتصال مجدد خودکار پس از کشته‌شدن سرویس
     var autoNetTest: Boolean = true,    // تست خودکار اینترنت پس از اتصال
-    var pingTimeout: Int = 4            // تایم‌اوت پینگ TCP (ثانیه: 2/4/8)
+    var pingTimeout: Int = 4,           // تایم‌اوت پینگ TCP (ثانیه: 2/4/8)
+    // حالت per-app مثل v2rayNG: 0 = همه‌ی برنامه‌ها، 1 = فقط برنامه‌های انتخابی، 2 = همه به‌جز انتخابی‌ها
+    var perAppMode: Int = 0,
+    var perAppPackages: MutableSet<String> = mutableSetOf() // پکیج‌های انتخاب‌شده
 )
 
 /**
@@ -80,7 +83,14 @@ class ServersStore(context: Context) {
                 allowInsecure = o.optBoolean("allowInsecure", true),
                 autoReconnect = o.optBoolean("autoReconnect", true),
                 autoNetTest = o.optBoolean("autoNetTest", true),
-                pingTimeout = o.optInt("pingTimeout", 4).coerceIn(2, 8)
+                pingTimeout = o.optInt("pingTimeout", 4).coerceIn(2, 8),
+                perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
+                perAppPackages = try {
+                    val arr = o.optJSONArray("perAppPackages")
+                    val set = mutableSetOf<String>()
+                    if (arr != null) for (i in 0 until arr.length()) set.add(arr.optString(i))
+                    set
+                } catch (_: Throwable) { mutableSetOf() }
             )
         } catch (_: Throwable) { settings = VexSettings() }
     }
@@ -112,6 +122,8 @@ class ServersStore(context: Context) {
             .put("autoReconnect", settings.autoReconnect)
             .put("autoNetTest", settings.autoNetTest)
             .put("pingTimeout", settings.pingTimeout)
+            .put("perAppMode", settings.perAppMode)
+            .put("perAppPackages", JSONArray(settings.perAppPackages))
             .toString()).apply()
     }
 

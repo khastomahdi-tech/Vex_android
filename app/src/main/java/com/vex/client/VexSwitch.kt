@@ -32,6 +32,13 @@ class VexSwitch(context: Context) : View(context) {
 
     var onCheckedChange: ((Boolean) -> Unit)? = null
 
+    init {
+        // ⚠️ بدون این، View کلیک‌پذیر نیست و لمس‌ها نادیده گرفته می‌شوند
+        // (علت واقعی «کار نکردن دکمه‌های تنظیمات» همین بود)
+        isClickable = true
+        isFocusable = true
+    }
+
     private val track = Paint(Paint.ANTI_ALIAS_FLAG)
     private val trackStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val knobP = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -69,8 +76,9 @@ class VexSwitch(context: Context) : View(context) {
         val p = palette
         val strokeW = UI.dp(context, 1.4f).toFloat()
 
-        // ---------- ریل ----------
-        val offTrack = 0xFF2A2418.toInt()
+        // ---------- ریل (تم‌پذیر — در تم روشن هم خوانا) ----------
+        val light = Themes.isLightBg(p)
+        val offTrack = if (light) 0xFFE3E8F2.toInt() else 0xFF2A2418.toInt()
         val onTrack = p.accent
         val c = lerpColor(offTrack, onTrack, prog)
         track.shader = LinearGradient(
@@ -80,7 +88,8 @@ class VexSwitch(context: Context) : View(context) {
         )
         canvas.drawRoundRect(RectF(0f, 0f, w, h), r, r, track)
         track.shader = null
-        trackStroke.color = UI.alpha(if (prog > 0.5f) 0xFFF7DE8A.toInt() else p.line, 0.55f + 0.45f * prog)
+        val ringOn = if (light) p.accent else 0xFFF7DE8A.toInt()
+        trackStroke.color = UI.alpha(if (prog > 0.5f) ringOn else p.line, 0.55f + 0.45f * prog)
         trackStroke.strokeWidth = strokeW
         canvas.drawRoundRect(RectF(strokeW / 2f, strokeW / 2f, w - strokeW / 2f, h - strokeW / 2f), r - strokeW / 2f, r - strokeW / 2f, trackStroke)
 
@@ -97,22 +106,24 @@ class VexSwitch(context: Context) : View(context) {
             glowP.shader = null
         }
 
-        // ---------- دسته ----------
-        val knobCol = lerpColor(0xFF8D8672.toInt(), 0xFFFFF3CE.toInt(), prog)
+        // ---------- دسته (تم‌پذیر) ----------
+        val knobOff = if (light) 0xFFF7F8FB.toInt() else 0xFF8D8672.toInt()
+        val knobOn = if (light) 0xFFFFFFFF.toInt() else 0xFFFFF3CE.toInt()
+        val knobCol = lerpColor(knobOff, knobOn, prog)
         knobP.shader = RadialGradient(
             kx - knobR * 0.3f, r - knobR * 0.35f, knobR * 1.7f,
             lerpColor(knobCol, 0xFFFFFFFF.toInt(), 0.35f), knobCol, Shader.TileMode.CLAMP
         )
         canvas.drawCircle(kx, r, knobR, knobP)
         knobP.shader = null
-        // حلقه‌ی طلایی دور دسته در حالت روشن
+        // حلقه‌ی روش دور دسته در حالت روشن
         if (prog > 0.03f) {
-            trackStroke.color = UI.alpha(0xFFF7DE8A.toInt(), 0.9f * prog)
+            trackStroke.color = UI.alpha(ringOn, 0.9f * prog)
             trackStroke.strokeWidth = UI.dp(context, 1.2f).toFloat()
             canvas.drawCircle(kx, r, knobR - trackStroke.strokeWidth / 2f, trackStroke)
         }
         // درخشش کوچک روی دسته
-        shineP.color = UI.alpha(0xFFFFFFFF.toInt(), 0.55f)
+        shineP.color = UI.alpha(0xFFFFFFFF.toInt(), if (light) 0.30f else 0.55f)
         canvas.drawCircle(kx - knobR * 0.34f, r - knobR * 0.38f, knobR * 0.20f, shineP)
     }
 

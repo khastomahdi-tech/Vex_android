@@ -71,9 +71,12 @@ class MainActivity : ComponentActivity() {
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
     private lateinit var tgIc: IconView
-    private lateinit var titleTv: TextView
-    private lateinit var crownIc: IconView
-    private lateinit var vBadge: ImageView
+    private lateinit var gearBtn: FrameLayout
+    private lateinit var gearIc: IconView
+    private lateinit var identIcon: ImageView
+    private lateinit var identIconBox: FrameLayout
+    private lateinit var vexTv: TextView
+    private lateinit var clientTv: TextView
 
     // ---- اجزای نوار پایین ----
     private class NavItem(val item: LinearLayout, val icon: IconView, val label: TextView)
@@ -216,32 +219,59 @@ class MainActivity : ComponentActivity() {
         header.addView(bgLion, FrameLayout.LayoutParams(
             UI.dp(ctx, 172), UI.dp(ctx, 96), Gravity.CENTER))
 
-        // عنوان مرکزی: تاج + VEX CLIENT
-        val titleCol = UI.col(ctx).apply { gravity = Gravity.CENTER }
-        crownIc = IconView(ctx, "crown").apply { bold = true }
-        titleTv = TextView(ctx).apply {
-            text = "VEX CLIENT"
-            textSize = 22.5f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            letterSpacing = 0.12f
+        // عنوان مرکزی: آیکون دایره‌ای برنامه + «Vex کلاینت»
+        val titleRow = UI.row(ctx).apply { gravity = Gravity.CENTER }
+        identIconBox = FrameLayout(ctx)
+        identIcon = ImageView(ctx).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
         }
-        titleCol.addView(crownIc, LinearLayout.LayoutParams(
-            UI.dp(ctx, 27), UI.dp(ctx, 21)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-        titleCol.addView(titleTv)
-        header.addView(titleCol, FrameLayout.LayoutParams(
+        identIconBox.addView(identIcon, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        titleRow.addView(identIconBox, LinearLayout.LayoutParams(
+            UI.dp(ctx, 44), UI.dp(ctx, 44)))
+
+        vexTv = TextView(ctx).apply {
+            text = "Vex"
+            textSize = 21f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            includeFontPadding = false
+            letterSpacing = 0.02f
+        }
+        clientTv = TextView(ctx).apply {
+            text = "کلاینت"
+            textSize = 16f
+            typeface = Fonts.bold(ctx)
+            includeFontPadding = false
+        }
+        titleRow.addView(vexTv, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 9)
+        })
+        titleRow.addView(clientTv, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 6)
+        })
+        header.addView(titleRow, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER))
 
-        // آیکون خود برنامه (لانچر) در سمت راست هدر
-        vBadge = ImageView(ctx).apply {
-            setImageResource(R.mipmap.ic_launcher)
-            scaleType = ImageView.ScaleType.FIT_CENTER
+        // دکمه‌ی گیر تنظیمات (سمت راست هدر) — تنظیمات از نوار پایین حذف شده است
+        gearBtn = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
         }
-        header.addView(vBadge, FrameLayout.LayoutParams(
-            UI.dp(ctx, 50), UI.dp(ctx, 50),
-            Gravity.RIGHT or Gravity.CENTER_VERTICAL))
+        gearIc = IconView(ctx, "gear").apply { bold = true }
+        gearBtn.addView(gearIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
+        gearBtn.setOnClickListener { gotoSettings() }
+        header.addView(gearBtn, FrameLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46), Gravity.RIGHT or Gravity.CENTER_VERTICAL))
 
         // دکمه‌ی تلگرام (سمت چپ) — رفتن به کانال تلگرام
         tgBtn = FrameLayout(ctx).apply {
@@ -269,12 +299,11 @@ class MainActivity : ComponentActivity() {
             setMargins(UI.dp(ctx, 12), UI.dp(ctx, 6), UI.dp(ctx, 12), UI.dp(ctx, 10))
         }
         navItems.clear()
-        // در RTL اولین فرزند سمت راست است — ترتیب مطابق طرح: خانه، کانفیگها، آمار، تنظیمات
+        // در RTL اولین فرزند سمت راست است — تنظیمات از دکمه‌ی گیر بالای صفحه باز می‌شود
         val defs = listOf(
             Triple("خانه", "home", 0),
             Triple("کانفیگها", "list", 1),
-            Triple("آمار", "chart", 2),
-            Triple("تنظیمات", "gear", 3)
+            Triple("آمار", "chart", 2)
         )
         for ((lbl, ic, idx) in defs) {
             val item = UI.col(ctx).apply {
@@ -323,6 +352,9 @@ class MainActivity : ComponentActivity() {
 
     fun gotoServers() = switchTab(1)
 
+    /** بازکردن تنظیمات از دکمه‌ی گیر بالای صفحه */
+    fun gotoSettings() = switchTab(3)
+
     /** بازکردن کانال تلگرام: اول اپ تلگرام (tg://) و اگر نبود مرورگر */
     private fun openTelegramChannel() {
         val url = TELEGRAM_CHANNEL_URL
@@ -346,17 +378,24 @@ class MainActivity : ComponentActivity() {
         // هدر سلطنتی — شفاف روی پس‌زمینه، عناصر طلایی
         val header = root.findViewWithTag<FrameLayout>("header")
         header?.let {
-            tgBtn.background = GradientDrawable().apply {
+            fun iconBtnBg(): GradientDrawable = GradientDrawable().apply {
                 cornerRadius = UI.dp(this@MainActivity, 15).toFloat()
                 setColor(p.card2)
                 setStroke(UI.dp(this@MainActivity, 2), p.line)
             }
-            // در تم روشن طلایی خالص کم‌رنگ دیده می‌شود → طلایی تیره‌تر
-            val titleGold = if (Themes.isLightBg(p)) 0xFFA87E0C.toInt() else p.accent
-            crownIc.iconColor = titleGold
-            titleTv.setTextColor(titleGold)
-            titleTv.setShadowLayer(UI.dp(this@MainActivity, 5).toFloat(), 0f, 0f,
-                UI.alpha(titleGold, 0.55f))
+            tgBtn.background = iconBtnBg()
+            gearBtn.background = iconBtnBg()
+            gearIc.iconColor = p.accent
+            // آیکون دایره‌ای با حلقه‌ی طلایی + متن Vex (تیره) و کلاینت (آبی)
+            identIconBox.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(if (Themes.isLightBg(p)) 0xFFFFFFFF.toInt() else p.card2)
+                setStroke(UI.dp(this@MainActivity, 2), p.accent)
+            }
+            identIcon.setPadding(UI.dp(this@MainActivity, 3), UI.dp(this@MainActivity, 3),
+                UI.dp(this@MainActivity, 3), UI.dp(this@MainActivity, 3))
+            vexTv.setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
+            clientTv.setTextColor(p.accent)
         }
         // نوار پایین طلایی
         val nav = root.findViewWithTag<LinearLayout>("nav")
@@ -421,10 +460,18 @@ class MainActivity : ComponentActivity() {
 
     fun requestStart(s: Server) {
         if (connectionState != "stopped") return
+        // حالت per-app: اگر «فقط برنامه‌های انتخابی» خالی باشد اجازه‌ی اتصال نده
+        if (store.settings.perAppMode == 1 && store.settings.perAppPackages.isEmpty()) {
+            UI.toast(this, "اول برنامه‌های موردنظر را در تنظیمات انتخاب کن")
+            gotoSettings()
+            return
+        }
         val payload = store.connectionPayload(s)
         // تنظیمات رفتاری سرویس (پیش از شروع)
         VexVpnService.autoReconnect = store.settings.autoReconnect
         VexVpnService.autoNetTest = store.settings.autoNetTest
+        VexVpnService.perAppMode = store.settings.perAppMode
+        VexVpnService.perAppPackages = store.settings.perAppPackages.toSet()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             pendingPayload = payload
@@ -448,6 +495,7 @@ class MainActivity : ComponentActivity() {
         connectionState = "connecting"
         lastError = ""
         netState = 0
+        statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
         renderAll()
         val i = Intent(this, VexVpnService::class.java)
             .setAction(VexVpnService.ACTION_START)

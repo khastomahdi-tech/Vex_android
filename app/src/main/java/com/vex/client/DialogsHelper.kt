@@ -87,6 +87,140 @@ class DialogsHelper(private val act: MainActivity) {
         return t
     }
 
+    // ------------------------------------------------------------ انتخاب برنامه‌ها (per-app)
+
+    /**
+     * دیالوگ انتخاب برنامه‌ها برای تونل (مثل v2rayNG):
+     * لیست برنامه‌های نصب‌شده با چک‌باکس + جستجو؛ انتخاب‌ها در تنظیمات ذخیره می‌شوند.
+     */
+    fun showPerAppPicker() {
+        val pm = act.packageManager
+        val launchIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        // جفت‌های (نام نمایشی، پکیج) از برنامه‌های نصب‌شده‌ی قابل اجرا
+        val apps: List<Pair<String, String>> = try {
+            pm.queryIntentActivities(launchIntent, 0)
+                .mapNotNull { ri ->
+                    val pkg = ri.activityInfo?.packageName ?: return@mapNotNull null
+                    if (pkg == act.packageName) return@mapNotNull null
+                    val label = try { ri.loadLabel(pm)?.toString() ?: pkg } catch (_: Throwable) { pkg }
+                    label to pkg
+                }
+                .distinctBy { it.second }
+                .sortedBy { it.first.lowercase() }
+        } catch (_: Throwable) { emptyList() }
+
+        if (apps.isEmpty()) {
+            UI.toast(act, "برنامه‌ای پیدا نشد")
+            return
+        }
+
+        val selected = act.store.settings.perAppPackages.toMutableSet()
+        val col = UI.col(ctx)
+        col.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 6), UI.dp(ctx, 16), UI.dp(ctx, 12))
+
+        // جستجو
+        val search = EditText(ctx).apply {
+            hint = "جستجوی نام برنامه…"
+            textSize = 14f
+            setSingleLine(true)
+            setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 10))
+            background = UI.card(ctx, p, 12, stroke = p.line, fillColor = p.card2)
+            setTextColor(p.text)
+            setHintTextColor(p.muted)
+        }
+        col.addView(search)
+
+        // ردیف شمارنده + انتخاب همه / هیچ
+        val countTv = UI.label(ctx, "", 12.5f, p.accent, bold = true)
+        fun updateCount() { countTv.text = "انتخاب‌شده: ${selected.size}" }
+        fun toggle(pkg: String, v: Boolean) {
+            if (v) selected.add(pkg) else selected.remove(pkg)
+            updateCount()
+        }
+
+        // لیست اسکرول‌شونده‌ی برنامه‌ها
+        val listHost = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(ctx).apply { overScrollMode = View.OVER_SCROLL_NEVER }
+        scroll.addView(listHost)
+        scroll.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, UI.dp(ctx, 300)).apply {
+            topMargin = UI.dp(ctx, 8)
+        }
+
+        fun rebuildList(filter: String) {
+            listHost.removeAllViews()
+            val f = filter.trim().lowercase()
+            val shown = apps.filter { f.isEmpty() || it.first.lowercase().contains(f) || it.second.lowercase().contains(f) }
+            if (shown.isEmpty()) {
+                val empty = UI.label(ctx, "چیزی پیدا نشد", 13f, p.muted)
+                empty.gravity = Gravity.CENTER
+                empty.setPadding(0, UI.dp(ctx, 20), 0, UI.dp(ctx, 20))
+                listHost.addView(empty)
+                return
+            }
+            for ((idx, app) in shown.withIndex()) {
+                val row = UI.row(ctx).apply {
+                    setPadding(UI.dp(ctx, 4), UI.dp(ctx, 9), UI.dp(ctx, 4), UI.dp(ctx, 9))
+                }
+                val cb = android.widget.CheckBox(ctx).apply {
+                    isChecked = selected.contains(app.second)
+                    setOnClickListener { toggle(app.second, isChecked) }
+                }
+                val textCol = UI.col(ctx)
+                textCol.addView(UI.label(ctx, app.first, 14f, p.text))
+                textCol.addView(UI.label(ctx, app.second, 10.5f, p.muted).apply {
+                    textDirection = View.TEXT_DIRECTION_LTR
+                    gravity = Gravity.RIGHT
+                    setPadding(0, UI.dp(ctx, 1), 0, 0)
+                })
+                textCol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                textCol.setOnClickListener { cb.isChecked = !cb.isChecked; toggle(app.second, cb.isChecked) }
+                row.addView(cb)
+                row.addView(textCol)
+                listHost.addView(row)
+                // جداکننده
+                if (idx < shown.size - 1) {
+                    val d = View(ctx)
+                    d.setBackgroundColor(UI.alpha(p.line, 0.5f))
+                    d.layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, UI.dp(ctx, 1))
+                    listHost.addView(d)
+                }
+            }
+            updateCount()
+        }
+
+        val actions = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 8), 0, 0) }
+        val selAll = UI.pill(ctx, "انتخاب همه", p.card2, p.accent)
+        selAll.setPadding(UI.dp(ctx, 12), UI.dp(ctx, 7), UI.dp(ctx, 12), UI.dp(ctx, 7))
+        selAll.setOnClickListener { apps.forEach { selected.add(it.second) }; rebuildList(search.text?.toString() ?: "") }
+        val selNone = UI.pill(ctx, "حذف همه", p.card2, p.muted)
+        selNone.setPadding(UI.dp(ctx, 12), UI.dp(ctx, 7), UI.dp(ctx, 12), UI.dp(ctx, 7))
+        selNone.setOnClickListener { selected.clear(); rebuildList(search.text?.toString() ?: "") }
+        actions.addView(countTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        actions.addView(selAll)
+        actions.addView(selNone, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 6)
+        })
+        col.addView(actions)
+        col.addView(scroll)
+
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { rebuildList(s?.toString() ?: "") }
+        })
+        rebuildList("")
+
+        dialog("انتخاب برنامه‌ها", wrapForm(col, scrollable = false), "ذخیره", {
+            act.store.settings.perAppPackages = selected
+            act.store.saveSettings()
+            UI.toast(act, "${selected.size} برنامه ذخیره شد")
+        })
+    }
+
     // ------------------------------------------------------------ منوی افزودن
 
     fun showAddMenu() {

@@ -2,10 +2,12 @@ package com.vex.client
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -13,12 +15,13 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * صفحه‌ی اصلی VEX — دقیقاً مطابق طرح مرجع:
- *  نوار نشان سلطنتی (دکمه‌ی کره‌ی زمین + نقش شیر و خورشید) — بدون متن وضعیت؛
- *  وضعیت اتصال فقط با سبز شدن حلقه‌ی دکمه‌ی پاور نشان داده می‌شود،
- *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی تاج‌دار،
- *  دو کارت آمار (دانلود / آپلود) با قاب دوبل طلایی،
+ * صفحه‌ی اصلی VEX — چیدمان جدید:
+ *  ردیف هویت (آیکون دایره‌ای برنامه + «Vex کلاینت» + دکمه‌ی کره‌ی زمین برای انتخاب سرور)؛
+ *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی تاج‌دار؛
+ *  زیر پاور: متن وضعیت («اتصال با موفقیت انجام شد») + تایمر زنده‌ی مدت اتصال؛
+ *  دو کارت آمار (دانلود / آپلود) با قاب دوبل طلایی؛
  *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل با تاج + پینگ).
+ *  کارت قدیمی وضعیت بالای پاور حذف شد — وضعیت فقط با حلقه‌ی سبز پاور و متن زیر آن نشان داده می‌شود.
  */
 class HomeUi(private val act: MainActivity) {
 
@@ -26,12 +29,14 @@ class HomeUi(private val act: MainActivity) {
         private set
 
     private lateinit var power: PowerButtonView
-    private lateinit var statusCard: LinearLayout
-    private lateinit var statusWrap: LinearLayout
+    private lateinit var statusText: TextView
+    private lateinit var timerText: TextView
+    private lateinit var identIconBox: FrameLayout
+    private lateinit var identIcon: ImageView
+    private lateinit var vexTv: TextView
+    private lateinit var clientTv: TextView
     private lateinit var globeBtn: FrameLayout
     private lateinit var globeIc: IconView
-    private lateinit var lionSunIv: ImageView
-    private lateinit var lionPanel: FrameLayout
 
     private lateinit var dnSpeed: TextView
     private lateinit var upSpeed: TextView
@@ -61,6 +66,14 @@ class HomeUi(private val act: MainActivity) {
 
     private var p: Palette = Themes.royal()
 
+    /** تیک هر ثانیه برای به‌روزرسانی تایمر مدت اتصال */
+    private val ticker = object : Runnable {
+        override fun run() {
+            updateTimer()
+            root.postDelayed(this, 1000)
+        }
+    }
+
     fun build(): View {
         val ctx = act
         p = Themes.resolve(ctx, act.store.settings.theme)
@@ -72,10 +85,11 @@ class HomeUi(private val act: MainActivity) {
             overScrollMode = View.OVER_SCROLL_NEVER
         }
         val col = UI.col(ctx)
-        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 24))
+        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 6), UI.dp(ctx, 14), UI.dp(ctx, 24))
 
-        col.addView(buildStatusCard())
+        col.addView(buildIdentityRow())
         col.addView(buildPowerZone())
+        col.addView(buildConnectionStatus())
         col.addView(buildStatsRow())
         col.addView(buildServerCard())
 
@@ -84,53 +98,74 @@ class HomeUi(private val act: MainActivity) {
         root.addView(scroll, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
+        root.post(ticker)
+
         applyTheme(p)
         return root
     }
 
-    // ---------------------------------------------------------- نوار نشان سلطنتی
+    // ---------------------------------------------------------- ردیف هویت
 
-    /** نوار بالا: کره‌ی زمین (انتخاب سرور) + نقش شیر و خورشید — بدون متن وضعیت */
-    private fun buildStatusCard(): View {
+    /** ردیف بالا: آیکون دایره‌ای Vex + «Vex کلاینت» (Vex تیره، کلاینت آبی) + دکمه‌ی کره‌ی زمین */
+    private fun buildIdentityRow(): View {
         val ctx = act
-        statusCard = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(UI.dp(ctx, 10), UI.dp(ctx, 8), UI.dp(ctx, 10), UI.dp(ctx, 8))
-            minimumHeight = UI.dp(ctx, 78)
+        val row = UI.row(ctx).apply {
+            setPadding(UI.dp(ctx, 4), UI.dp(ctx, 6), UI.dp(ctx, 4), UI.dp(ctx, 4))
         }
 
-        // دکمه‌ی کره‌ی زمین (انتخاب سرور) — سمت راست
-        globeBtn = FrameLayout(ctx).apply {
-            setPadding(UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12))
+        // آیکون دایره‌ای برنامه (با حلقه‌ی طلایی) — سمت راست
+        identIconBox = FrameLayout(ctx)
+        identIcon = ImageView(ctx).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
         }
-        globeIc = IconView(ctx, "globe")
-        globeBtn.addView(globeIc, FrameLayout.LayoutParams(
-            UI.dp(ctx, 27), UI.dp(ctx, 27), Gravity.CENTER))
-        globeBtn.setOnClickListener { act.gotoServers() }
-        statusCard.addView(globeBtn, LinearLayout.LayoutParams(
-            UI.dp(ctx, 52), UI.dp(ctx, 52)))
-
-        // وسط خالی — نقش شیر و خورشید خودش جلب‌توجه می‌کند
-        val spacer = View(ctx)
-        spacer.layoutParams = LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        statusCard.addView(spacer)
-
-        // نقش برجسته‌ی شیر و خورشید داخل قاب حکاکی‌شده (مطابق طرح مرجع)
-        lionPanel = FrameLayout(ctx)
-        lionSunIv = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(UI.dp(ctx, 5), UI.dp(ctx, 4), UI.dp(ctx, 5), UI.dp(ctx, 4))
-        }
-        lionPanel.addView(lionSunIv, FrameLayout.LayoutParams(
+        identIconBox.addView(identIcon, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        statusCard.addView(lionPanel, LinearLayout.LayoutParams(
-            UI.dp(ctx, 112), UI.dp(ctx, 74)))
+        row.addView(identIconBox, LinearLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46)))
 
-        return wrapCard(statusCard, topMarginDp = 0, framed = true).also {
-            statusWrap = it as LinearLayout
+        // متن «Vex کلاینت» کنار آیکون
+        val nameRow = UI.row(ctx).apply { setPadding(UI.dp(ctx, 10), 0, 0, 0) }
+        vexTv = TextView(ctx).apply {
+            text = "Vex"
+            textSize = 20f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            includeFontPadding = false
+            letterSpacing = 0.02f
         }
+        clientTv = TextView(ctx).apply {
+            text = "کلاینت"
+            textSize = 16f
+            typeface = Fonts.bold(ctx)
+            includeFontPadding = false
+        }
+        nameRow.addView(vexTv)
+        nameRow.addView(clientTv, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 6)
+            gravity = Gravity.CENTER_VERTICAL
+        })
+        row.addView(nameRow, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        // دکمه‌ی کره‌ی زمین (انتخاب سرور) — سمت چپ
+        globeBtn = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
+        }
+        globeIc = IconView(ctx, "globe").apply { bold = true }
+        globeBtn.addView(globeIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
+        globeBtn.setOnClickListener { act.gotoServers() }
+        row.addView(globeBtn, LinearLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46)))
+
+        return row
     }
 
     // ---------------------------------------------------------- ناحیه‌ی پاور
@@ -158,8 +193,8 @@ class HomeUi(private val act: MainActivity) {
             UI.dp(ctx, 252), UI.dp(ctx, 252), Gravity.CENTER))
 
         zone.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 270)).apply {
-            setMargins(0, UI.dp(ctx, 4), 0, UI.dp(ctx, 6))
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 264)).apply {
+            setMargins(0, UI.dp(ctx, 2), 0, UI.dp(ctx, 0))
         }
         return zone
     }
@@ -195,6 +230,55 @@ class HomeUi(private val act: MainActivity) {
             topMargin = UI.dp(ctx, 1)
         })
         return box
+    }
+
+    // ---------------------------------------------------------- وضعیت اتصال + تایمر
+
+    /** زیر پاور: متن وضعیت اتصال («اتصال با موفقیت انجام شد») + تایمر زنده */
+    private fun buildConnectionStatus(): View {
+        val ctx = act
+        val col = UI.col(ctx).apply { gravity = Gravity.CENTER }
+
+        statusText = TextView(ctx).apply {
+            text = "اتصال قطع است"
+            textSize = 14.5f
+            typeface = Fonts.bold(ctx)
+            gravity = Gravity.CENTER
+        }
+
+        timerText = TextView(ctx).apply {
+            text = "—"
+            textSize = 22f
+            typeface = Fonts.bold(ctx)
+            gravity = Gravity.CENTER
+            textDirection = View.TEXT_DIRECTION_LTR
+            letterSpacing = 0.08f
+            setPadding(0, UI.dp(ctx, 4), 0, 0)
+        }
+
+        col.addView(statusText)
+        col.addView(timerText)
+
+        col.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 0), 0, UI.dp(ctx, 2))
+        }
+        return col
+    }
+
+    /** تایمر مدت اتصال — هر ثانیه به‌روز می‌شود */
+    private fun updateTimer() {
+        if (act.connectionState == "connected" && VexVpnService.connectedAtMs > 0) {
+            val sec = ((System.currentTimeMillis() - VexVpnService.connectedAtMs) / 1000L).coerceAtLeast(0)
+            val h = sec / 3600
+            val m = (sec % 3600) / 60
+            val s = sec % 60
+            timerText.text = String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s)
+            timerText.setTextColor(p.good)
+        } else {
+            timerText.text = "—"
+            timerText.setTextColor(p.muted)
+        }
     }
 
     // ---------------------------------------------------------- کارت‌های آمار
@@ -238,7 +322,6 @@ class HomeUi(private val act: MainActivity) {
             val total = TextView(ctx).apply {
                 textSize = 12f
                 typeface = Fonts.regular(ctx)
-                // RTL طبیعی مثل طرح مرجع (کل: 0 B) ولی چسبیده به لبه‌ی چپ کارت
                 textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL
                 gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
                 text = "کل: 0 B"
@@ -264,7 +347,7 @@ class HomeUi(private val act: MainActivity) {
         row.addView(up, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
             marginStart = UI.dp(ctx, 8)
         })
-        return wrapCard(row, topMarginDp = 2)
+        return wrapCard(row, topMarginDp = 6)
     }
 
     // ---------------------------------------------------------- کارت سرور
@@ -336,7 +419,7 @@ class HomeUi(private val act: MainActivity) {
 
     /**
      * قاب دوبل طلایی دور کارت‌ها (مطابق حکاکی طرح مرجع):
-     *  framed = true → یک قاب بیرونی با فاصله‌ی کم دور قاب داخلی (کارت وضعیت/سرور).
+     *  framed = true → یک قاب بیرونی با فاصله‌ی کم دور قاب داخلی (کارت سرور).
      *  ردیف آمار خودش دو قاب داخلی دارد → framed = false.
      */
     private fun wrapCard(inner: View, topMarginDp: Int, framed: Boolean = false): View {
@@ -361,20 +444,24 @@ class HomeUi(private val act: MainActivity) {
         p = np
         val ctx = act
 
-        // کارت وضعیت — قاب برجسته‌ی طلایی مثل طرح + قاب دوبل بیرونی
-        statusCard.background = UI.card(ctx, p, 22, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
-        // هنگام اتصال موفق، قاب نوار نشان هم سبز می‌شود — هماهنگ با حلقه‌ی پاور
-        statusWrap.background = UI.card(ctx, p, 28,
-            stroke = if (act.connectionState == "connected") UI.alpha(p.good, 0.8f) else UI.alpha(p.line, 0.7f),
-            fillColor = Color.TRANSPARENT)
+        // آیکون دایره‌ای + حلقه‌ی طلایی دورش
+        identIconBox.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (Themes.isLightBg(p)) 0xFFFFFFFF.toInt() else p.card2)
+            setStroke(UI.dp(ctx, 2), p.accent)
+        }
+        identIcon.setPadding(UI.dp(ctx, 3), UI.dp(ctx, 3), UI.dp(ctx, 3), UI.dp(ctx, 3))
+        // Vex تیره، کلاینت آبی (در تم تیره متن روشن برای خوانایی)
+        vexTv.setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
+        clientTv.setTextColor(p.accent)
         globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         globeIc.iconColor = p.accent
-        // نقش شیر و خورشید داخل قاب تیره‌ی حکاکی‌شده
-        lionPanel.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.75f), fillColor = 0xFF0C0903.toInt())
-        lionSunIv.setImageResource(R.drawable.art_lionsun)
 
         // دکمه پاور
         power.palette = p
+
+        // متن وضعیت زیر پاور
+        renderStatus()
 
         // کارت‌های آمار — قاب دوبل
         dnOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
@@ -394,7 +481,7 @@ class HomeUi(private val act: MainActivity) {
         dnSpeed.setTextColor(p.text); upSpeed.setTextColor(p.text)
         dnTotal.setTextColor(p.muted); upTotal.setTextColor(p.muted)
 
-        // کارت سرور — هاله‌ی شعاعی محو مثل نقشه‌ی جهان طرح مرجع + قاب دوبل بیرونی
+        // کارت سرور — هاله‌ی شعاعی محو + قاب دوبل بیرونی
         val serverGlow = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = UI.dp(ctx, 20).toFloat()
@@ -418,17 +505,31 @@ class HomeUi(private val act: MainActivity) {
         renderServerCard()
     }
 
-    /** وضعیت اتصال فقط روی خود دکمه‌ی پاور نشان داده می‌شود (حلقه‌ی سبز = متصل) */
+    /**
+     * وضعیت اتصال: حلقه‌ی سبز دکمه‌ی پاور (mode) + متن زیر پاور.
+     * متصل → «اتصال با موفقیت انجام شد» به رنگ سبز؛ در حال اتصال → نارنجی؛ قطع → خاکستری.
+     */
     private fun renderStatus() {
         power.mode = when (act.connectionState) {
             "connected" -> "on"
             "connecting" -> "busy"
             else -> "off"
         }
-        // حلقه‌ی دور نوار نشان هم سبز/خاکستری می‌شود
-        statusWrap.background = UI.card(act, p, 28,
-            stroke = if (act.connectionState == "connected") UI.alpha(p.good, 0.8f) else UI.alpha(p.line, 0.7f),
-            fillColor = Color.TRANSPARENT)
+        when (act.connectionState) {
+            "connected" -> {
+                statusText.text = "اتصال با موفقیت انجام شد"
+                statusText.setTextColor(p.good)
+            }
+            "connecting" -> {
+                statusText.text = "در حال اتصال…"
+                statusText.setTextColor(p.mid)
+            }
+            else -> {
+                statusText.text = "اتصال قطع است"
+                statusText.setTextColor(p.muted)
+            }
+        }
+        updateTimer()
     }
 
     fun renderServerCard() {

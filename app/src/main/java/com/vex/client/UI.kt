@@ -58,25 +58,25 @@ object Themes {
     fun light() = Palette(
         bg = 0xFFEEF2FA.toInt(), bg2 = 0xFFFFFFFF.toInt(),
         card = 0xFFFFFFFF.toInt(), card2 = 0xFFF2F5FC.toInt(),
-        line = 0xFFE0E6F2.toInt(), text = 0xFF152038.toInt(), muted = 0xFF6C7896.toInt(),
-        accent = 0xFF4F7CFF.toInt(), onAccent = 0xFFFFFFFF.toInt(),
-        good = 0xFF27B37B.toInt(), mid = 0xFFF0A01F.toInt(), slow = 0xFFE86F3F.toInt(),
-        bad = 0xFFE84A6F.toInt(), glow = 0x294F7CFF, isShir = false
+        line = 0xFFE0E6F2.toInt(), text = 0xFF152038.toInt(), muted = 0xFF525E7A.toInt(),
+        accent = 0xFF3F6EF0.toInt(), onAccent = 0xFFFFFFFF.toInt(),
+        good = 0xFF149A66.toInt(), mid = 0xFFC57F00.toInt(), slow = 0xFFD4531F.toInt(),
+        bad = 0xFFD62E56.toInt(), glow = 0x294F7CFF, isShir = false
     )
 
     fun dark() = Palette(
         bg = 0xFF060A14.toInt(), bg2 = 0xFF0C1426.toInt(),
         card = 0xFF111B31.toInt(), card2 = 0xFF17233F.toInt(),
-        line = 0xFF1F2D4D.toInt(), text = 0xFFEEF3FF.toInt(), muted = 0xFF8B97B5.toInt(),
-        accent = 0xFF4F7CFF.toInt(), onAccent = 0xFFFFFFFF.toInt(),
-        good = 0xFF34C77B.toInt(), mid = 0xFFF6A821.toInt(), slow = 0xFFFF7A59.toInt(),
+        line = 0xFF1F2D4D.toInt(), text = 0xFFEEF3FF.toInt(), muted = 0xFFA5B2D2.toInt(),
+        accent = 0xFF5F88FF.toInt(), onAccent = 0xFFFFFFFF.toInt(),
+        good = 0xFF3BD487.toInt(), mid = 0xFFF6A821.toInt(), slow = 0xFFFF7A59.toInt(),
         bad = 0xFFFF5470.toInt(), glow = 0x3D4F7CFF, isShir = false
     )
 
     fun shir() = Palette(
         bg = 0xFF100C05.toInt(), bg2 = 0xFF17120A.toInt(),
         card = 0xFF1C1509.toInt(), card2 = 0xFF261D0E.toInt(),
-        line = 0xFF3E3015.toInt(), text = 0xFFFFF3D6.toInt(), muted = 0xFFB3A179.toInt(),
+        line = 0xFF3E3015.toInt(), text = 0xFFFFF3D6.toInt(), muted = 0xFFCDBB8E.toInt(),
         accent = 0xFFE8B923.toInt(), onAccent = 0xFF221A05.toInt(),
         good = 0xFF9ACD64.toInt(), mid = 0xFFE8B923.toInt(), slow = 0xFFE88B3B.toInt(),
         bad = 0xFFE85D5D.toInt(), glow = 0x47E8B923, isShir = true
@@ -90,7 +90,7 @@ object Themes {
     fun royal() = Palette(
         bg = 0xFF000000.toInt(), bg2 = 0xFF080704.toInt(),
         card = 0xFF0B0906.toInt(), card2 = 0xFF171204.toInt(),
-        line = 0xFF856A22.toInt(), text = 0xFFF3E5C6.toInt(), muted = 0xFFA8905C.toInt(),
+        line = 0xFF856A22.toInt(), text = 0xFFF3E5C6.toInt(), muted = 0xFFC6A96A.toInt(),
         accent = 0xFFE8B923.toInt(), onAccent = 0xFF1A1304.toInt(),
         good = 0xFF6FCF5A.toInt(), mid = 0xFFE8B923.toInt(), slow = 0xFFE88B3B.toInt(),
         bad = 0xFFE85D5D.toInt(), glow = 0x59E8B923, isShir = false

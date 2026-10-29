@@ -14,8 +14,9 @@ import android.widget.TextView
 
 /**
  * صفحه‌ی تنظیمات VEX — ساختار دقیق و مرتب مثل V2RayNG:
- * هر بخش یک کارت با تیتر رنگی است و ردیف‌ها با خط جداکننده از هم جدا می‌شوند.
- * بخش‌ها: ظاهر / شبکه / امنیت / اتصال / هسته / ابزارها / درباره
+ * هر بخش یک کارت مستقل با تیتر رنگی و آیکون است و ردیف‌ها با خط جداکننده از هم جدا می‌شوند.
+ * بخش‌ها: اتصال / تونل / برنامه‌ها (per-app) / هسته / ظاهر / ابزارها / درباره
+ * همه‌ی ردیف‌ها کاملاً کلیک‌پذیرند (کل ردیف سوییچ را می‌زند).
  */
 class SettingsUi(private val act: MainActivity) {
 
@@ -25,9 +26,12 @@ class SettingsUi(private val act: MainActivity) {
     private lateinit var themeChips: LinearLayout
     private lateinit var mtuEdit: EditText
     private lateinit var dnsEdit: EditText
-    private val allSwitches = ArrayList<VexSwitch>(8)
+    private val allSwitches = ArrayList<VexSwitch>(10)
     private lateinit var logSpinner: Spinner
     private lateinit var pingSpinner: Spinner
+    private lateinit var perAppChips: LinearLayout
+    private lateinit var perAppPickBtn: TextView
+    private lateinit var perAppCount: TextView
     private val themedButtons = ArrayList<TextView>(4)
 
     private var p: Palette = Themes.dark()
@@ -42,23 +46,27 @@ class SettingsUi(private val act: MainActivity) {
         root.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 14))
         val scroll = ScrollView(ctx).apply { overScrollMode = View.OVER_SCROLL_NEVER }
 
-        // ================= ظاهر =================
-        val themeCard = sectionCard("ظاهر")
-        val themeDesc = subLabel("انتخاب رنگ و حالت نمایش برنامه")
-        themeCard.addView(themeDesc)
-        themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
-        themeChips.addView(themeChip("روشن", "light"))
-        themeChips.addView(themeChip("تیره", "dark"))
-        themeChips.addView(themeChip("سیستم", "system"))
-        themeChips.addView(themeChip("سلطنتی", "royal"))
-        themeChips.addView(themeChip("شیر و خورشید", "shir"))
-        themeCard.addView(themeChips)
-        addCard(themeCard)
+        // ================= اتصال =================
+        val connCard = sectionCard("اتصال", "signal")
+        connCard.addView(switchRow("اتصال خودکار هنگام باز شدن برنامه",
+            "وارد برنامه که شوی، خودکار به سرور انتخابی وصل می‌شود", act.store.settings.autoConnect) { v ->
+            act.store.settings.autoConnect = v; act.store.saveSettings()
+        })
+        connCard.addView(divider())
+        connCard.addView(switchRow("اتصال مجدد خودکار پس از قطعی",
+            "اگر سرویس در پس‌زمینه قطع شود دوباره وصل می‌شود", act.store.settings.autoReconnect) { v ->
+            act.store.settings.autoReconnect = v; act.store.saveSettings()
+        })
+        connCard.addView(divider())
+        connCard.addView(switchRow("تست خودکار اینترنت پس از اتصال",
+            "بعد از وصل شدن، واقعی بودن اینترنت بررسی می‌شود", act.store.settings.autoNetTest) { v ->
+            act.store.settings.autoNetTest = v; act.store.saveSettings()
+        })
+        addCard(connCard)
 
-        // ================= شبکه =================
-        val netCard = sectionCard("شبکه")
+        // ================= تونل =================
+        val netCard = sectionCard("تونل", "globe")
 
-        netCard.addView(divider())
         netCard.addView(fieldLabel(ctx, "MTU (۱۲۸۰ تا ۹۰۰۰)"))
         mtuEdit = EditText(ctx).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
@@ -101,29 +109,52 @@ class SettingsUi(private val act: MainActivity) {
         netCard.addView(dnsScroll)
 
         netCard.addView(divider())
-        netCard.addView(switchRow("پروتکل IPv6", "فعال‌سازی اینترنت IPv6 از طریق تونل", act.store.settings.ipv6) { v -> act.store.settings.ipv6 = v; act.store.saveSettings() })
+        netCard.addView(switchRow("پروتکل IPv6", "فعال‌سازی اینترنت IPv6 از طریق تونل", act.store.settings.ipv6) { v ->
+            act.store.settings.ipv6 = v; act.store.saveSettings()
+        })
         netCard.addView(divider())
-        netCard.addView(switchRow("دور زدن شبکه‌ی محلی", "سایت‌های داخلی و LAN بدون VPN باز می‌شوند", act.store.settings.bypassLan) { v -> act.store.settings.bypassLan = v; act.store.saveSettings() })
+        netCard.addView(switchRow("دور زدن شبکه‌ی محلی", "سایت‌های داخلی و LAN بدون VPN باز می‌شوند", act.store.settings.bypassLan) { v ->
+            act.store.settings.bypassLan = v; act.store.saveSettings()
+        })
         netCard.addView(divider())
-        netCard.addView(switchRow("Mux (چندگانه‌سازی)", "چند اتصال روی یک لینک — کاهش تأخیر", act.store.settings.mux) { v -> act.store.settings.mux = v; act.store.saveSettings() })
+        netCard.addView(switchRow("Mux (چندگانه‌سازی)", "چند اتصال روی یک لینک — کاهش تأخیر", act.store.settings.mux) { v ->
+            act.store.settings.mux = v; act.store.saveSettings()
+        })
+        netCard.addView(divider())
+        netCard.addView(switchRow("رد کردن تأیید گواهی TLS", "allowInsecure — برای سرورهای با گواهی خودامضا", act.store.settings.allowInsecure) { v ->
+            act.store.settings.allowInsecure = v; act.store.saveSettings()
+        })
         addCard(netCard)
 
-        // ================= امنیت =================
-        val secCard = sectionCard("امنیت")
-        secCard.addView(switchRow("رد کردن تأیید گواهی TLS", "allowInsecure — برای سرورهای با گواهی خودامضا", act.store.settings.allowInsecure) { v -> act.store.settings.allowInsecure = v; act.store.saveSettings() })
-        addCard(secCard)
+        // ================= برنامه‌ها (per-app) =================
+        val appCard = sectionCard("برنامه‌ها (Per-app)", "list")
+        appCard.addView(subLabel("مثل v2rayNG: تعیین کن تونل برای کدام برنامه‌ها فعال باشد"))
+        perAppChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
+        perAppChips.addView(perAppChip("همه", 0))
+        perAppChips.addView(perAppChip("فقط انتخابی‌ها", 1))
+        perAppChips.addView(perAppChip("همه به‌جز انتخابی‌ها", 2))
+        appCard.addView(perAppChips)
 
-        // ================= اتصال =================
-        val connCard = sectionCard("اتصال")
-        connCard.addView(switchRow("اتصال خودکار هنگام باز شدن برنامه", "اولین سرور انتخابی بلافاصله وصل می‌شود", act.store.settings.autoConnect) { v -> act.store.settings.autoConnect = v; act.store.saveSettings() })
-        connCard.addView(divider())
-        connCard.addView(switchRow("اتصال مجدد خودکار پس از قطعی", "اگر سرویس قطع شود دوباره وصل می‌شود", act.store.settings.autoReconnect) { v -> act.store.settings.autoReconnect = v; act.store.saveSettings() })
-        connCard.addView(divider())
-        connCard.addView(switchRow("تست خودکار اینترنت پس از اتصال", "پس از وصل شدن، اینترنت بررسی می‌شود", act.store.settings.autoNetTest) { v -> act.store.settings.autoNetTest = v; act.store.saveSettings() })
-        addCard(connCard)
+        perAppCount = UI.label(ctx, "", 12.5f, p.muted).apply {
+            tag = "sub"
+            setPadding(0, UI.dp(ctx, 8), 0, 0)
+        }
+        appCard.addView(perAppCount)
+
+        perAppPickBtn = softRowButton("انتخاب برنامه‌ها…")
+        perAppPickBtn.setOnClickListener {
+            if (act.store.settings.perAppMode == 0) {
+                act.store.settings.perAppMode = 2
+                act.store.saveSettings()
+                renderPerAppMode()
+            }
+            act.dialogs.showPerAppPicker()
+        }
+        appCard.addView(perAppPickBtn)
+        addCard(appCard)
 
         // ================= هسته =================
-        val coreCard = sectionCard("هسته")
+        val coreCard = sectionCard("هسته", "chart")
 
         coreCard.addView(fieldLabel(ctx, "سطح لاگ هسته (loglevel)"))
         logSpinner = Spinner(ctx).apply {
@@ -165,8 +196,20 @@ class SettingsUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
         addCard(coreCard)
 
+        // ================= ظاهر =================
+        val themeCard = sectionCard("ظاهر", "home")
+        themeCard.addView(subLabel("انتخاب رنگ و حالت نمایش برنامه"))
+        themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
+        themeChips.addView(themeChip("روشن", "light"))
+        themeChips.addView(themeChip("تیره", "dark"))
+        themeChips.addView(themeChip("سیستم", "system"))
+        themeChips.addView(themeChip("سلطنتی", "royal"))
+        themeChips.addView(themeChip("شیر و خورشید", "shir"))
+        themeCard.addView(themeChips)
+        addCard(themeCard)
+
         // ================= ابزارها =================
-        val toolsCard = sectionCard("ابزارها")
+        val toolsCard = sectionCard("ابزارها", "gear")
         val logBtn = softRowButton("مشاهده‌ی لاگ هسته (sing-box)")
         logBtn.setOnClickListener { act.showCoreLog() }
         toolsCard.addView(logBtn)
@@ -177,8 +220,8 @@ class SettingsUi(private val act: MainActivity) {
         addCard(toolsCard)
 
         // ================= درباره =================
-        val aboutCard = sectionCard("درباره")
-        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.6.0 (14)"))
+        val aboutCard = sectionCard("درباره", "crown")
+        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.7.0 (15)"))
         aboutCard.addView(divider())
         aboutCard.addView(infoRow("هسته‌ی پراکسی", "sing-box v1.11.15"))
         aboutCard.addView(divider())
@@ -189,7 +232,7 @@ class SettingsUi(private val act: MainActivity) {
         aboutCard.addView(tgRow)
         addCard(aboutCard)
 
-        val note = subLabel("تغییرات برای اتصال بعدی اعمال می‌شود.")
+        val note = subLabel("تغییرات تونل برای اتصال بعدی اعمال می‌شود.")
         note.gravity = Gravity.CENTER
         note.setPadding(0, UI.dp(ctx, 12), 0, UI.dp(ctx, 4))
         root.addView(note)
@@ -199,18 +242,68 @@ class SettingsUi(private val act: MainActivity) {
         scroll.isFillViewport = true
 
         building = false
+        renderPerAppMode()
         applyTheme(p)
         return scroll
     }
 
+    // ---------------------------------------------------------- per-app
+
+    /** چیدمان چیپ‌های حالت per-app + متن تعداد انتخاب‌شده‌ها */
+    private fun renderPerAppMode() {
+        val mode = act.store.settings.perAppMode
+        for (i in 0 until perAppChips.childCount) {
+            val chip = perAppChips.getChildAt(i) as TextView
+            val active = chip.tag == "mode$mode"
+            chip.background = UI.card(act, p, 20,
+                fillColor = if (active) UI.alpha(p.accent, 0.2f) else p.card2,
+                stroke = if (active) p.accent else p.line)
+            chip.setTextColor(if (active) p.accent else p.text)
+        }
+        perAppCount.text = when {
+            mode == 0 -> "تونل برای همه‌ی برنامه‌ها فعال است."
+            act.store.settings.perAppPackages.isEmpty() ->
+                if (mode == 1) "هیچ برنامه‌ای انتخاب نشده — برای اتصال اول انتخاب کن!"
+                else "هنوز برنامه‌ای برای استثنا انتخاب نشده."
+            else -> "تعداد ${act.store.settings.perAppPackages.size} برنامه انتخاب شده است."
+        }
+    }
+
+    private fun perAppChip(text: String, mode: Int): View {
+        val ctx = act
+        val chip = UI.pill(ctx, text, p.card2, p.text)
+        chip.setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))
+        chip.textSize = 12f
+        chip.typeface = Fonts.bold(ctx)
+        chip.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = UI.dp(ctx, 7)
+        }
+        chip.setOnClickListener {
+            act.store.settings.perAppMode = mode
+            act.store.saveSettings()
+            renderPerAppMode()
+        }
+        chip.tag = "mode$mode"
+        return chip
+    }
+
     // ---------------------------------------------------------- سازنده‌ها
 
-    /** کارت بخش: تیتر رنگی + خط جداکننده زیر تیتر */
-    private fun sectionCard(title: String): LinearLayout {
+    /** کارت بخش: آیکون + تیتر رنگی + خط جداکننده زیر تیتر */
+    private fun sectionCard(title: String, icon: String): LinearLayout {
         val ctx = act
         val card = UI.col(ctx)
         card.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 12), UI.dp(ctx, 16), UI.dp(ctx, 14))
-        card.addView(sectionLabel(ctx, title))
+        val head = UI.row(ctx)
+        val ic = IconView(ctx, icon).apply { iconColor = p.accent; bold = true }
+        head.addView(ic, LinearLayout.LayoutParams(UI.dp(ctx, 19), UI.dp(ctx, 19)))
+        val t = UI.label(ctx, title, 15.5f, p.accent, bold = true).apply { tag = "accent" }
+        t.setPadding(UI.dp(ctx, 8), 0, 0, 0)
+        head.addView(t)
+        head.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        card.addView(head)
         card.addView(divider(10))
         return card
     }
@@ -235,9 +328,6 @@ class SettingsUi(private val act: MainActivity) {
         return d
     }
 
-    private fun sectionLabel(ctx: Context, text: String): TextView =
-        UI.label(ctx, text, 15.5f, p.accent, bold = true).apply { tag = "accent" }
-
     private fun fieldLabel(ctx: Context, text: String): TextView =
         UI.label(ctx, text, 12.5f, p.muted).apply {
             tag = "sub"
@@ -245,9 +335,12 @@ class SettingsUi(private val act: MainActivity) {
         }
 
     private fun subLabel(text: String): TextView =
-        UI.label(act, text, 11.5f, p.muted).apply { tag = "sub"; setPadding(0, UI.dp(act, 2), 0, 0) }
+        UI.label(act, text, 12f, p.muted).apply { tag = "sub"; setPadding(0, UI.dp(act, 2), 0, 0) }
 
-    /** ردیف تنظیم: عنوان + توضیح + کنترل (سوییچ/…) در انتهای ردیف */
+    /**
+     * ردیف تنظیم: عنوان + توضیح + سوییچ در انتهای ردیف.
+     * کل ردیف کلیک‌پذیر است (لمس هر جای ردیف = زدن سوییچ).
+     */
     private fun switchRow(title: String, subtitle: String, value: Boolean, onChange: (Boolean) -> Unit): View {
         val ctx = act
         val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
@@ -257,12 +350,13 @@ class SettingsUi(private val act: MainActivity) {
         textCol.addView(tv)
         textCol.addView(stv)
         textCol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        textCol.setOnClickListener { (row.tag as? VexSwitch)?.performClick() }
         val sw = VexSwitch(ctx).apply {
             isChecked = value
             onCheckedChange = { now -> onChange(now) }
         }
-        row.tag = sw
+        // کل ردیف = دکمه (رفع مشکل کلیک نشدن)
+        row.isClickable = true
+        row.setOnClickListener { sw.performClick() }
         allSwitches.add(sw)
         row.addView(textCol)
         row.addView(sw, LinearLayout.LayoutParams(
@@ -270,7 +364,7 @@ class SettingsUi(private val act: MainActivity) {
         return row
     }
 
-    /** ردیف دکمه‌ای داخل بخش ابزارها */
+    /** ردیف دکمه‌ای داخل بخش‌ها */
     private fun softRowButton(text: String, tag: String = ""): TextView {
         val ctx = act
         val t = TextView(ctx).apply {
@@ -349,6 +443,8 @@ class SettingsUi(private val act: MainActivity) {
         recolor(root, p)
         // خطوط جداکننده
         recolorDividers(root, p)
+        // آیکون‌های تیتر بخش‌ها
+        recolorSectionIcons(root, p)
         // چیپ‌های تم
         for (i in 0 until themeChips.childCount) {
             val chip = themeChips.getChildAt(i) as TextView
@@ -358,6 +454,7 @@ class SettingsUi(private val act: MainActivity) {
                 stroke = if (active) p.accent else p.line)
             chip.setTextColor(if (active) p.accent else p.text)
         }
+        renderPerAppMode()
         for (b in themedButtons) {
             b.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
             b.setTextColor(if (b.tag == "bad") p.bad else p.text)
@@ -381,6 +478,13 @@ class SettingsUi(private val act: MainActivity) {
         }
     }
 
+    private fun recolorSectionIcons(v: View, p: Palette) {
+        if (v is IconView) v.iconColor = p.accent
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) recolorSectionIcons(v.getChildAt(i), p)
+        }
+    }
+
     private fun recolorDividers(v: View, p: Palette) {
         if (v is View && v.layoutParams is LinearLayout.LayoutParams &&
             v.layoutParams.height == UI.dp(act, 1) && v !is TextView) {
@@ -393,6 +497,7 @@ class SettingsUi(private val act: MainActivity) {
 
     fun refresh() {
         applyTheme(Themes.resolve(act, act.store.settings.theme))
+        renderPerAppMode()
     }
 
     private fun commitMtu() {

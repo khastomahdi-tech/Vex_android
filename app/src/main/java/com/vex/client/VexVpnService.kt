@@ -65,6 +65,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         @Volatile var autoReconnect: Boolean = true
         @Volatile var autoNetTest: Boolean = true
 
+        // ---- per-app مثل v2rayNG: 0 = همه، 1 = فقط انتخاب‌شده‌ها، 2 = همه به‌جز انتخاب‌شده‌ها ----
+        @Volatile var perAppMode: Int = 0
+        @Volatile var perAppPackages: Set<String> = emptySet()
+
         // ---- آخرین بار اتصال (برای اتصال مجدد خودکار پس از کشته‌شدن سرویس) ----
         @Volatile var lastPayload: String? = null
 
@@ -457,6 +461,27 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
 
         try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
+
+        // ---- per-app proxy (مثل v2rayNG) ----
+        // حالت 1 = تونل فقط برای برنامه‌های انتخابی (addAllowedApplication)
+        // حالت 2 = تونل برای همه به‌جز برنامه‌های انتخابی (addDisallowedApplication)
+        if (perAppMode == 1 || perAppMode == 2) {
+            var ok = 0
+            for (pkg in perAppPackages) {
+                try {
+                    if (pkg.isBlank() || pkg == packageName) continue
+                    if (perAppMode == 1) builder.addAllowedApplication(pkg)
+                    else builder.addDisallowedApplication(pkg)
+                    ok++
+                } catch (_: Throwable) {
+                    // برنامه نصب نیست یا پکیج نامعتبر است — نادیده گرفته می‌شود
+                }
+            }
+            if (ok == 0 && perAppMode == 1) {
+                // اگر هیچ برنامه‌ای قابل افزودن نبود، تونل بی‌فایده است — خطا بده تا کاربر بداند
+                error("هیچ‌کدام از برنامه‌های انتخابی برای تونل قابل اعمال نبودند")
+            }
+        }
 
         val pfd = builder.establish() ?: error("ساخت تونل VPN ناموفق بود (دسترسی رد شد)")
         tun = pfd

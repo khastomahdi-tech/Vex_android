@@ -137,26 +137,30 @@ class IconView(context: Context, val icon: String) : View(context) {
                 canvas.drawLine(cx - r, cy, cx + r, cy, stroke)
             }
             "gear" -> {
-                val r = 7.6f * u
+                val r = 7.4f * u
                 val tp = Paint(stroke)
-                tp.strokeWidth = sw * 2f
+                tp.strokeWidth = sw * 1.9f
+                // دندانه‌ها: ۸ جهت با فاصله‌ی یکنواخت از بدنه تا لبه
                 for (i in 0 until 8) {
                     val a = i * (Math.PI / 4.0)
-                    val x1 = cx + (r * 0.66 * cos(a)).toFloat()
-                    val y1 = cy + (r * 0.66 * sin(a)).toFloat()
-                    val x2 = cx + (r * 1.06 * cos(a)).toFloat()
-                    val y2 = cy + (r * 1.06 * sin(a)).toFloat()
+                    val x1 = cx + (r * 0.72 * cos(a)).toFloat()
+                    val y1 = cy + (r * 0.72 * sin(a)).toFloat()
+                    val x2 = cx + (r * 1.10 * cos(a)).toFloat()
+                    val y2 = cy + (r * 1.10 * sin(a)).toFloat()
                     canvas.drawLine(x1, y1, x2, y2, tp)
                 }
-                canvas.drawCircle(cx, cy, r, stroke)
-                canvas.drawCircle(cx, cy, r * 0.4f, stroke)
+                // بدنه + سوراخ مرکز — قرینه و وسط‌چین
+                canvas.drawCircle(cx, cy, r * 0.94f, stroke)
+                canvas.drawCircle(cx, cy, r * 0.40f, stroke)
             }
             "chart" -> {
+                // سه میله‌ی هم‌فاصله و وسط‌چین روی خط پایه‌ی مشترک
                 val bp = Paint(stroke)
-                bp.strokeWidth = sw * 1.7f
-                canvas.drawLine(6f * u, 19f * u, 6f * u, 11.5f * u, bp)
-                canvas.drawLine(12f * u, 19f * u, 12f * u, 5.5f * u, bp)
-                canvas.drawLine(18f * u, 19f * u, 18f * u, 14f * u, bp)
+                bp.strokeWidth = sw * 1.8f
+                val base = 19f * u
+                canvas.drawLine(5f * u, base, 5f * u, base - 7.5f * u, bp)
+                canvas.drawLine(12f * u, base, 12f * u, base - 13.5f * u, bp)
+                canvas.drawLine(19f * u, base, 19f * u, base - 5.5f * u, bp)
             }
             "list" -> {
                 val y1 = 6.2f * u
@@ -200,10 +204,11 @@ class IconView(context: Context, val icon: String) : View(context) {
                 canvas.drawPath(ch, stroke)
             }
             "signal" -> {
+                // آنتن چهارمیله‌ای — قرینه حول مرکز (عرض کل: 2.8 تا 21.2)
                 val base = 19.5f * u
                 val bw = 2.8f * u
                 val hs = floatArrayOf(5.5f, 9.5f, 13.5f, 17f)
-                val xs = floatArrayOf(3.6f, 8.8f, 14f, 19.2f)
+                val xs = floatArrayOf(2.8f, 8.0f, 13.2f, 18.4f)
                 for (i in hs.indices) {
                     val x = xs[i] * u
                     canvas.drawRoundRect(
