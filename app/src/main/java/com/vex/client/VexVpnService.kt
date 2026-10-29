@@ -61,6 +61,13 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         /** زمان اتصال موفق برای محاسبه‌ی مدت جلسه در صفحه‌ی آمار */
         @Volatile var connectedAtMs: Long = 0
 
+        // ---- تنظیمات رفتاری که MainActivity قبل از شروع سرویس ست می‌کند ----
+        @Volatile var autoReconnect: Boolean = true
+        @Volatile var autoNetTest: Boolean = true
+
+        // ---- آخرین بار اتصال (برای اتصال مجدد خودکار پس از کشته‌شدن سرویس) ----
+        @Volatile var lastPayload: String? = null
+
         // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
         private val logBuf = ArrayDeque<String>(400)
         fun pushCoreLog(line: String) {
@@ -119,11 +126,16 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> startVpn(intent?.getStringExtra(EXTRA_CONFIG).orEmpty())
-            ACTION_STOP -> stopVpn()
+        when {
+            intent?.action == ACTION_START -> startVpn(intent?.getStringExtra(EXTRA_CONFIG).orEmpty())
+            intent?.action == ACTION_STOP -> stopVpn()
+            // بازراه‌اندازی خودکار توسط سیستم (START_STICKY): دوباره به همان سرور وصل شو
+            intent == null && autoReconnect && !lastPayload.isNullOrEmpty() && uiState == "stopped" -> {
+                Log.i(TAG, "service restarted by system — auto reconnect")
+                startVpn(lastPayload!!)
+            }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun startVpn(config: String) {
@@ -131,6 +143,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         startForeground(NOTIF_ID, notif("در حال اتصال...", "راه‌اندازی هسته..."))
         uiState = "connecting"
         netState = 0; netMsg = ""; netMs = -1
+        lastPayload = config
         clearCoreLogs()
         val gen: Int
         synchronized(stateLock) { gen = ++generation }
@@ -157,6 +170,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 lastRx = -1L; lastTx = -1L; totalRx = 0; totalTx = 0; statSource = 0
                 verified = false
                 startStatsTimer()
+                startTrafficApi(gen) // آمار واقعی از Clash API هسته (مانند v2rayNG)
 
                 // ---- اتصال اعلام می‌شود (مانند v2rayNG)؛ تست اینترنت در پس‌زمینه ----
                 synchronized(stateLock) { if (gen != generation) return@thread }
@@ -165,7 +179,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 connectedAtMs = System.currentTimeMillis()
                 startForeground(NOTIF_ID, notif("متصل است", "در حال تست اینترنت..."))
                 stateListener?.invoke("connected", "")
-                startNetTestLoop(gen)
+                if (autoNetTest) startNetTestLoop(gen)
+                else startForeground(NOTIF_ID, notif("متصل است", "تست خودکار اینترنت خاموش است"))
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 if (gen == generation) stopVpn(error = e.message ?: "خطا در اتصال به هسته", includeLogs = true)
@@ -289,6 +304,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         connectedAtMs = 0
         timer?.cancel(); timer = null
         testThread?.interrupt(); testThread = null
+        trafficThread?.interrupt(); trafficThread = null
         try { tun?.close() } catch (_: Exception) {}
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
@@ -308,10 +324,64 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
     // ------------------------------------------------------------------ آمار
 
+    private var trafficThread: Thread? = null
+
+    /**
+     * آمار واقعی ترافیک پروکسی از Clash API هسته (127.0.0.1:19090/traffic) —
+     * همان روش v2rayNG: هر خط JSON یک ثانیه سرعت است {up,down}. این منبع، ترافیک واقعی
+     * عبوری از هسته را نشان می‌دهد حتی وقتی شمارنده‌های tun صفر باشند (مثل ترافیک تست).
+     * اگر Clash API در دسترس نباشد، شمارنده‌های tun/TrafficStats به‌عنوان جایگزین کار می‌کنند.
+     */
+    private fun startTrafficApi(gen: Int) {
+        trafficThread?.interrupt()
+        val th = thread(name = "vex-traffic") {
+            while (true) {
+                synchronized(stateLock) { if (gen != generation) return@thread }
+                var conn: HttpURLConnection? = null
+                try {
+                    conn = (URL("http://127.0.0.1:${ConfigBuilder.CLASH_API_PORT}/traffic").openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 3000
+                        readTimeout = 0 // استریم بی‌پایان؛ هر ثانیه یک خط
+                        useCaches = false
+                    }
+                    val code = conn.responseCode
+                    if (code != 200) throw Exception("clash api: $code")
+                    conn.inputStream.bufferedReader().useLines { lines ->
+                        for (line in lines) {
+                            synchronized(stateLock) { if (gen != generation) return@thread }
+                            val j = org.json.JSONObject(line)
+                            val up = j.optLong("up", 0)
+                            val down = j.optLong("down", 0)
+                            statSource = 3
+                            totalRx += down
+                            totalTx += up
+                            snapDn = down; snapUp = up
+                            snapTDn = totalRx; snapTUp = totalTx
+                            statsListener?.invoke(down, up, totalRx, totalTx)
+                            if (verified) {
+                                val body = "↓ ${fmt(down)}/s    ↑ ${fmt(up)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
+                                try { nm.notify(NOTIF_ID, notif("متصل است", body)) } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // Clash API نیست یا استریم قطع شد — بعد از یک ثانیه دوباره تلاش کن
+                    try { Thread.sleep(1000) } catch (_: InterruptedException) { return@thread }
+                } finally {
+                    try { conn?.disconnect() } catch (_: Throwable) {}
+                }
+                synchronized(stateLock) { if (gen != generation) return@thread }
+            }
+        }
+        trafficThread = th
+    }
+
     private fun startStatsTimer() {
         timer = Timer().also { t ->
             t.scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
+                    // اگر آمار از Clash API می‌آید، این تایمر نقشی ندارد
+                    if (statSource == 3) return
                     val (dn, up) = readCounters() ?: return
                     if (lastRx < 0) { lastRx = dn; lastTx = up; return }
                     val dRx = (dn - lastRx).coerceAtLeast(0)

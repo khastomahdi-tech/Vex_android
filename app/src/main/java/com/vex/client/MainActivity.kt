@@ -405,6 +405,9 @@ class MainActivity : ComponentActivity() {
     fun requestStart(s: Server) {
         if (connectionState != "stopped") return
         val payload = store.connectionPayload(s)
+        // تنظیمات رفتاری سرویس (پیش از شروع)
+        VexVpnService.autoReconnect = store.settings.autoReconnect
+        VexVpnService.autoNetTest = store.settings.autoNetTest
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             pendingPayload = payload
@@ -598,11 +601,12 @@ class MainActivity : ComponentActivity() {
         if (ids.isEmpty()) { if (!silent) UI.toast(this, "سروری برای پینگ نیست"); return }
         pingRunning = true
         if (!silent) UI.toast(this, "پینگ ${ids.size} سرور…")
+        val pingTimeout = store.settings.pingTimeout
         Thread {
             for (id in ids) {
                 val s = store.servers.firstOrNull { it.id == id } ?: continue
                 val inf = try { LinkParser.info(s.raw) } catch (_: Throwable) { null }
-                val ms = if (inf?.host.isNullOrBlank()) -2 else NetUtil.tcpPing(inf!!.host!!, inf.port ?: 443)
+                val ms = if (inf?.host.isNullOrBlank()) -2 else NetUtil.tcpPing(inf!!.host!!, inf.port ?: 443, pingTimeout)
                 store.setPing(id, ms)
                 main.post { serversUi.render(); homeUi.renderServerCard() }
             }

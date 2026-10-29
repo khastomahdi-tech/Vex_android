@@ -26,6 +26,9 @@ object ConfigBuilder {
     /** پورت inbound محلی برای تست واقعی اتصال (فقط روی لوکال‌هاست گوش می‌دهد) */
     const val LOCAL_TEST_PORT = 19085
 
+    /** پورت Clash API هسته برای آمار واقعی ترافیک (فقط روی لوکال‌هاست) */
+    const val CLASH_API_PORT = 19090
+
     /**
      * تنظیم کاربر «رد کردن تأیید گواهی TLS» (allowInsecure).
      * در build() از JSON ورودی خوانده می‌شود و در tls() اعمال.
@@ -114,6 +117,10 @@ object ConfigBuilder {
                 .put("rules", rules)
                 .put("final", "proxy")
                 .put("auto_detect_interface", true))
+            .put("experimental", JSONObject()
+                .put("clash_api", JSONObject()
+                    .put("external_controller", "127.0.0.1:$CLASH_API_PORT")
+                    .put("default_mode", "Rule")))
         return config.toString()
     }
 

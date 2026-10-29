@@ -23,7 +23,10 @@ data class VexSettings(
     var mux: Boolean = false,
     var logLevel: String = "info",  // info | warning | debug
     var autoConnect: Boolean = false,
-    var allowInsecure: Boolean = true  // رد کردن تأیید گواهی TLS — پیش‌فرض روشن برای سرورهای CDN/self-signed
+    var allowInsecure: Boolean = true,  // رد کردن تأیید گواهی TLS — پیش‌فرض روشن برای سرورهای CDN/self-signed
+    var autoReconnect: Boolean = true,  // اتصال مجدد خودکار پس از کشته‌شدن سرویس
+    var autoNetTest: Boolean = true,    // تست خودکار اینترنت پس از اتصال
+    var pingTimeout: Int = 4            // تایم‌اوت پینگ TCP (ثانیه: 2/4/8)
 )
 
 /**
@@ -74,7 +77,10 @@ class ServersStore(context: Context) {
                 mux = o.optBoolean("mux", false),
                 logLevel = o.optString("logLevel", "info"),
                 autoConnect = o.optBoolean("autoConnect", false),
-                allowInsecure = o.optBoolean("allowInsecure", true)
+                allowInsecure = o.optBoolean("allowInsecure", true),
+                autoReconnect = o.optBoolean("autoReconnect", true),
+                autoNetTest = o.optBoolean("autoNetTest", true),
+                pingTimeout = o.optInt("pingTimeout", 4).coerceIn(2, 8)
             )
         } catch (_: Throwable) { settings = VexSettings() }
     }
@@ -103,6 +109,9 @@ class ServersStore(context: Context) {
             .put("logLevel", settings.logLevel)
             .put("autoConnect", settings.autoConnect)
             .put("allowInsecure", settings.allowInsecure)
+            .put("autoReconnect", settings.autoReconnect)
+            .put("autoNetTest", settings.autoNetTest)
+            .put("pingTimeout", settings.pingTimeout)
             .toString()).apply()
     }
 

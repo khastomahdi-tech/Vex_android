@@ -13,14 +13,14 @@ object NetUtil {
      * پینگ واقعی TCP (مانند v2rayNG): زمان کامل handshake به میلی‌ثانیه.
      * خروجی: -1 = ناموفق
      */
-    fun tcpPing(host: String, port: Int): Int {
+    fun tcpPing(host: String, port: Int, timeoutSec: Int = 4): Int {
         val h = host.trim().removeSurrounding("[", "]")
         if (h.isEmpty()) return -1
         val p = if (port in 1..65535) port else 443
         return try {
             val t0 = System.nanoTime()
             Socket().use { s ->
-                s.connect(InetSocketAddress(h, p), 4000)
+                s.connect(InetSocketAddress(h, p), timeoutSec.coerceIn(2, 8) * 1000)
             }
             ((System.nanoTime() - t0) / 1_000_000L).toInt()
         } catch (_: Throwable) {
