@@ -427,6 +427,6 @@ class SpeedGraphView(context: Context) : View(context) {
         // نقطه‌ی فعلی دانلود
         val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = p.accent }
         val yNow = chartH - (dnData[lastIdx] / maxVal).coerceIn(0f, 1f) * chartH
-        canvas.drawCircle(endX - UI.dp(context, 2), yNow, UI.dp(context, 3.2f), dotPaint)
+        canvas.drawCircle(endX - UI.dp(context, 2), yNow, UI.dp(context, 3.2f).toFloat(), dotPaint)
     }
 }
