@@ -8,8 +8,8 @@ import org.json.JSONObject
 data class Server(
     val id: Int,
     var name: String,
-    val protocol: String,
-    val raw: String,
+    var protocol: String,
+    var raw: String,
     var ping: Int = -1 // -1 = تست نشده، -2 = ناموفق
 )
 
