@@ -213,14 +213,14 @@ class MainActivity : ComponentActivity() {
         crownIc = IconView(ctx, "crown").apply { bold = true }
         titleTv = TextView(ctx).apply {
             text = "VEX CLIENT"
-            textSize = 21f
+            textSize = 22.5f
             typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
             gravity = Gravity.CENTER
             includeFontPadding = false
             letterSpacing = 0.12f
         }
         titleCol.addView(crownIc, LinearLayout.LayoutParams(
-            UI.dp(ctx, 22), UI.dp(ctx, 18)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+            UI.dp(ctx, 27), UI.dp(ctx, 21)).apply { gravity = Gravity.CENTER_HORIZONTAL })
         titleCol.addView(titleTv)
         header.addView(titleCol, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,

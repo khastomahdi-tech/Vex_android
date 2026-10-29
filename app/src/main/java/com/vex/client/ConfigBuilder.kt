@@ -450,9 +450,15 @@ object ConfigBuilder {
             }
             else -> throw IllegalArgumentException("پروتکل پشتیبانی‌نشده: $proto")
         }
-        // hysteria2 ذاتاً TLS دارد؛ trojan هم پیش‌فرض TLS (مانند v2rayNG)
-        tls(p, host, always = proto == "hysteria2", proto = proto)?.let { o.put("tls", it) }
-        transport(p)?.let { o.put("transport", it) }
+        // hysteria2 ذاتاً TLS دارد؛ trojan ذاتاً TLS دارد و باید «همیشه» فعال بماند
+        // (حتی اگر لینک خراب security=none آورده باشد — وگرنه دقیقاً همان باگ
+        //  «وصل می‌شود ولی هیچ داده‌ای رد و بدل نمی‌شود» رخ می‌دهد)
+        val alwaysTls = proto == "hysteria2" || proto == "trojan"
+        tls(p, host, always = alwaysTls, proto = proto)?.let { o.put("tls", it) }
+        // برای WS پشت CDN (Cloudflare)، اگر پارامتر host در لینک نباشد، هدر Host
+        // باید با SNI یکی باشد؛ وگرنه CDN درخواست را به سرور واقعی مسیر نمی‌دهد
+        // و اتصال «برقرار» به نظر می‌رسد ولی هیچ داده‌ای رد و بدل نمی‌شود.
+        transport(p, wsHostFallback = effectiveSni(p, host))?.let { o.put("transport", it) }
         return o
     }
 
@@ -471,25 +477,52 @@ object ConfigBuilder {
      *  ۲) uTLS پیش‌فرض chrome برای پروتکل‌های TCP-TLS: ClientHello پیش‌فرض Go امضای
      *     شناخته‌شده‌ی DPI است و وسط handshake ریست می‌شود — با uTLS مثل v2rayNG/Hidden حیلت می‌شود.
      */
+    /** SNI مؤثر: sni لینک ← host لینک (وقتی سرور IP است؛ CDN) ← خود آدرس سرور */
+    private fun effectiveSni(p: Map<String, String>, host: String): String {
+        val hostParam = p["host"]?.split(",")?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
+        return p["sni"]?.takeIf { it.isNotEmpty() }
+            ?: (if (isIpAddress(host)) hostParam else null)
+            ?: host
+    }
+
     private fun tls(p: Map<String, String>, host: String, always: Boolean = false, proto: String = ""): JSONObject? {
         val explicit = p["security"]?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
-        val sec = explicit ?: if (always || proto == "trojan") "tls" else "none"
+        // trojan ذاتاً TLS دارد؛ حتی اگر لینک security=none آورده باشد TLS برقرار می‌ماند
+        val sec = when {
+            proto == "trojan" -> if (explicit == "reality") "reality" else "tls"
+            else -> explicit ?: if (always) "tls" else "none"
+        }
         if (sec == "none" && !always) return null
         val linkInsecure = listOf("allowInsecure", "insecure", "skipCertVerify", "skip_cert_insecure", "skipCert-verify").any { k ->
             val v = p[k]
             v?.equals("1", true) == true || v?.equals("true", true) == true
         }
         // server_name: sni ← پارامتر host (وقتی سرور IP است؛ سناریوی CDN) ← خود آدرس سرور
-        val hostParam = p["host"]?.split(",")?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
-        val sniRaw = p["sni"]?.takeIf { it.isNotEmpty() }
-            ?: (if (isIpAddress(host)) hostParam else null)
-            ?: host
+        val sniRaw = effectiveSni(p, host)
         val t = JSONObject()
             .put("enabled", true)
             .put("server_name", sniRaw)
         if (linkInsecure || globalAllowInsecure || isIpAddress(sniRaw)) t.put("insecure", true)
         p["alpn"]?.takeIf { it.isNotEmpty() }?.let { raw ->
-            t.put("alpn", JSONArray().apply { raw.split(",").forEach { a -> put(a.trim()) } })
+            val list = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            // ⚠️ ضد «وصل می‌شود ولی داده رد و بدل نمی‌شود»:
+            // خیلی از لینک‌های CDN (Cloudflare) با alpn=h2,http/1.1 منتشر می‌شوند.
+            // برای ترنسپورت‌های HTTP/1.1 (ws/httpupgrade/http) اگر h2 مذاکره شود،
+            // WebSocket کلاینت روی h2 سوار نمی‌شود و اتصال بی‌داده می‌ماند؛
+            // برعکس برای grpc فقط h2 معتبر است. مثل v2rayNG اکنون alpn را با ترنسپورت هماهنگ می‌کنیم.
+            val net = (p["type"] ?: "tcp").lowercase()
+            val wanted = when {
+                net == "grpc" -> "h2"
+                net in setOf("ws", "httpupgrade", "http", "h2", "h2c") ||
+                        (net == "tcp" && p["headerType"] == "http") -> "http/1.1"
+                else -> null
+            }
+            if (wanted != null) {
+                val filtered = list.filter { it.equals(wanted, true) }
+                if (filtered.isNotEmpty()) t.put("alpn", JSONArray().apply { filtered.forEach { put(it) } })
+            } else if (list.isNotEmpty()) {
+                t.put("alpn", JSONArray().apply { list.forEach { put(it) } })
+            }
         }
         // اثر انگشت uTLS: اول fp لینک؛ اگر نبود chrome برای پروتکل‌های TCP-TLS (ضد DPI)
         val fpParam = p["fp"]?.trim()?.takeIf { it.isNotEmpty() }
@@ -510,7 +543,7 @@ object ConfigBuilder {
         return t
     }
 
-    private fun transport(p: Map<String, String>): JSONObject? {
+    private fun transport(p: Map<String, String>, wsHostFallback: String? = null): JSONObject? {
         val net = (p["type"] ?: "tcp").lowercase()
         // tcp با هدر HTTP = ترنسپورت http در sing-box
         if (net == "tcp" && p["headerType"] == "http") {
@@ -523,7 +556,11 @@ object ConfigBuilder {
         }
         return when (net) {
             "ws" -> JSONObject().put("type", "ws").put("path", p["path"]?.takeIf { it.isNotEmpty() } ?: "/").also { t ->
-                p["host"]?.takeIf { it.isNotEmpty() }?.let { t.put("headers", JSONObject().put("Host", it)) }
+                // هدر Host: پارامتر host لینک ← SNI مؤثر (سناریوی CDN بدون host) — بدون Host درست،
+                // CDN اتصال را تحویل بک‌اند نمی‌دهد و «هیچ داده‌ای رد و بدل نمی‌شود»
+                val hostHdr = p["host"]?.takeIf { it.isNotEmpty() }
+                    ?: wsHostFallback?.takeIf { it.isNotEmpty() && !isIpAddress(it) }
+                hostHdr?.let { t.put("headers", JSONObject().put("Host", it)) }
                 // پشتیبانی WebSocket Early Data (پارامتر ed در لینک)
                 val ed = p["ed"]?.toIntOrNull()
                 if (ed != null && ed > 0) {

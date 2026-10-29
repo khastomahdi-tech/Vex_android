@@ -111,6 +111,21 @@ class PowerButtonView(context: Context) : View(context) {
         stroke.color = UI.alpha(p.accent, 0.85f)
         stroke.strokeWidth = dp(1.4f)
         canvas.drawCircle(cx, cy, rMain + dp(19f), stroke)
+        // تیک‌های حکاکی بین دو حلقه (نقش فلز کنده‌کاری‌شده‌ی طرح مرجع)
+        stroke.color = UI.alpha(p.accent, 0.34f)
+        stroke.strokeWidth = dp(1.1f)
+        stroke.pathEffect = null
+        val rTickIn = rMain + dp(20.4f)
+        val rTickOut = rTickIn + dp(3.4f)
+        for (i in 0 until 72) {
+            val ang = Math.PI * 2.0 * i / 72.0
+            val cosA = Math.cos(ang).toFloat(); val sinA = sin(ang).toFloat()
+            val long = i % 6 == 0
+            val ro = if (long) rTickOut + dp(1.6f) else rTickOut
+            canvas.drawLine(cx + cosA * rTickIn, cy + sinA * rTickIn,
+                            cx + cosA * ro, cy + sinA * ro, stroke)
+        }
+        stroke.pathEffect = null
 
         // ---------- ۳) حلقه‌ی اصلی گرادیانی طلایی ----------
         val golds = intArrayOf(

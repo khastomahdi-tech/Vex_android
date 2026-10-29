@@ -28,6 +28,7 @@ class HomeUi(private val act: MainActivity) {
 
     private lateinit var power: PowerButtonView
     private lateinit var statusCard: LinearLayout
+    private lateinit var statusWrap: LinearLayout
     private lateinit var stateText: TextView
     private lateinit var netText: TextView
     private lateinit var globeBtn: FrameLayout
@@ -51,6 +52,7 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var upInner: LinearLayout
 
     private lateinit var serverCard: LinearLayout
+    private lateinit var serverWrap: LinearLayout
     private lateinit var serverLabel: TextView
     private lateinit var serverName: TextView
     private lateinit var serverIp: TextView
@@ -159,7 +161,9 @@ class HomeUi(private val act: MainActivity) {
         statusCard.addView(lionPanel, LinearLayout.LayoutParams(
             UI.dp(ctx, 124), LinearLayout.LayoutParams.MATCH_PARENT))
 
-        return wrapCard(statusCard, topMarginDp = 0)
+        return wrapCard(statusCard, topMarginDp = 0, framed = true).also {
+            statusWrap = it as LinearLayout
+        }
     }
 
     // ---------------------------------------------------------- ناحیه‌ی پاور
@@ -337,15 +341,22 @@ class HomeUi(private val act: MainActivity) {
 
         serverCard.addView(serverLabel)
         serverCard.addView(row)
-        return wrapCard(serverCard, topMarginDp = 10)
+        return wrapCard(serverCard, topMarginDp = 10, framed = true).also {
+            serverWrap = it as LinearLayout
+        }
     }
 
-    /** قاب دوبل طلایی دور کارت‌ها (مطابق حکاکی طرح مرجع) */
-    private fun wrapCard(inner: View, topMarginDp: Int): View {
+    /**
+     * قاب دوبل طلایی دور کارت‌ها (مطابق حکاکی طرح مرجع):
+     *  framed = true → یک قاب بیرونی با فاصله‌ی کم دور قاب داخلی (کارت وضعیت/سرور).
+     *  ردیف آمار خودش دو قاب داخلی دارد → framed = false.
+     */
+    private fun wrapCard(inner: View, topMarginDp: Int, framed: Boolean = false): View {
         val ctx = act
+        val pad = if (framed) 6 else 8
         val wrap = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
+            setPadding(UI.dp(ctx, pad), UI.dp(ctx, pad), UI.dp(ctx, pad), UI.dp(ctx, pad))
         }
         wrap.addView(inner, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -362,8 +373,9 @@ class HomeUi(private val act: MainActivity) {
         p = np
         val ctx = act
 
-        // کارت وضعیت — قاب برجسته‌ی طلایی مثل طرح
+        // کارت وضعیت — قاب برجسته‌ی طلایی مثل طرح + قاب دوبل بیرونی
         statusCard.background = UI.card(ctx, p, 22, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
+        statusWrap.background = UI.card(ctx, p, 28, stroke = UI.alpha(p.line, 0.7f), fillColor = Color.TRANSPARENT)
         globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         globeIc.iconColor = p.accent
         stateText.setTextColor(stateColor())
@@ -393,8 +405,18 @@ class HomeUi(private val act: MainActivity) {
         dnSpeed.setTextColor(p.text); upSpeed.setTextColor(p.text)
         dnTotal.setTextColor(p.muted); upTotal.setTextColor(p.muted)
 
-        // کارت سرور
-        serverCard.background = UI.card(ctx, p, 20, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
+        // کارت سرور — هاله‌ی شعاعی محو مثل نقشه‌ی جهان طرح مرجع + قاب دوبل بیرونی
+        val serverGlow = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = UI.dp(ctx, 20).toFloat()
+            colors = intArrayOf(p.card2, p.card)
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            setGradientCenter(0.5f, 0.42f)
+            gradientRadius = UI.dp(ctx, 240).toFloat()
+            setStroke(UI.dp(ctx, 1), p.line)
+        }
+        serverCard.background = serverGlow
+        serverWrap.background = UI.card(ctx, p, 26, stroke = UI.alpha(p.line, 0.7f), fillColor = Color.TRANSPARENT)
         serverLabel.setTextColor(p.muted)
         serverIp.setTextColor(p.muted)
         renderServerCard()
