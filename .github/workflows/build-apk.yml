@@ -37,6 +37,7 @@ jobs:
         with:
           path: app/libs/libbox.aar
           key: libbox-v1.11.15-aar2
+          save-always: true
 
       - name: Build sing-box core (libbox AAR)
         if: steps.aar.outputs.cache-hit != 'true'

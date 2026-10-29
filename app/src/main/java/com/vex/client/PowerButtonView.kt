@@ -131,10 +131,10 @@ class PowerButtonView(context: Context) : View(context) {
     }
 
     private fun drawSun(canvas: Canvas, cx: Float, cy: Float, r: Float, p: Palette) {
-        val color = if (mode == "on") p.onAccent else p.accent
-        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = color }
+        val sunColor = if (mode == "on") p.onAccent else p.accent
+        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = sunColor }
         val rays = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = color
+            color = sunColor
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeWidth = dp(3f)
