@@ -5,7 +5,6 @@ import android.animation.AnimatorSet
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.graphics.Color
-import android.graphics.LightingColorFilter
 import android.view.Gravity
 import android.view.View
 import android.view.animation.AccelerateInterpolator
@@ -163,10 +162,20 @@ object IntroSplash {
         overlay.animate().alpha(1f).setDuration(180).start()
     }
 
-    /** جعبه‌ی شیر + تاج بالای سرش */
+    /** جعبه‌ی شیر طبیعی طلایی + هاله‌ی نور پشتش + تاج بالای سرش */
     private fun lionBox(ctx: Activity, mirrored: Boolean): FrameLayout {
         val box = FrameLayout(ctx)
-        val bronze = LightingColorFilter(0xFFFFD980.toInt(), 0xFF1A1002.toInt())
+        // هاله‌ی طلایی محو پشت شیر — جلوه‌ی سلطنتی روی زمینه‌ی سیاه
+        val glow = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            gradientType = android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT
+            colors = intArrayOf(
+                UI.alpha(0xFFE8B923.toInt(), 0.34f),
+                UI.alpha(0xFFE8B923.toInt(), 0.06f),
+                android.graphics.Color.TRANSPARENT)
+        }
+        box.background = glow
+        box.setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
         val lion = ImageView(ctx).apply {
             setImageResource(R.drawable.art_lion)
             scaleType = ImageView.ScaleType.FIT_CENTER

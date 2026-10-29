@@ -1,5 +1,6 @@
 package com.vex.client
 
+import android.animation.ObjectAnimator
 import android.content.Context
 import android.graphics.Typeface
 import android.view.Gravity
@@ -9,21 +10,23 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.view.animation.OvershootInterpolator
 
 /**
  * صفحه‌ی سرورها (نیتیو):
- *  - نوار بالا: عنوان + دکمه‌ی زمان‌سنج (پینگ همه) + «+ افزودن»
+ *  - نوار بالا: عنوان + دکمه‌ی زمان‌سنج (پینگ همه) — دکمه‌ی «افزودن» حذف شد
+ *  - دکمه‌ی شناور «+» پایین سمت راست: منوی روش‌های واردکردن کانفیگ را باز می‌کند
  *  - کارت هر سرور: چک‌باکس، نام، آدرس، نشان پروتکل، پینگ +
  *    سه دکمه‌ی گرد: پینگ (زمان‌سنج)، ویرایش (مداد)، حذف (سطل آشغال)
  *  - لمس کارت = فعال‌سازی سرور، نگه‌داشتن = منوی کامل سرور
  */
 class ServersUi(private val act: MainActivity) {
 
-    lateinit var root: LinearLayout
+    lateinit var root: FrameLayout
         private set
 
+    private lateinit var content: LinearLayout
     private lateinit var title: TextView
-    private lateinit var addBtn: TextView
     private lateinit var timerBtn: FrameLayout
     private lateinit var timerIc: IconView
     private lateinit var listContainer: LinearLayout
@@ -31,6 +34,7 @@ class ServersUi(private val act: MainActivity) {
     private lateinit var deleteBtn: TextView
     private lateinit var emptyHint: TextView
     private lateinit var bottomBar: LinearLayout
+    private lateinit var fab: FrameLayout
 
     private val checked = mutableSetOf<Int>()
     private var p: Palette = Themes.dark()
@@ -39,16 +43,19 @@ class ServersUi(private val act: MainActivity) {
         val ctx = act
         p = Themes.resolve(ctx, act.store.settings.theme)
 
-        root = UI.col(ctx)
-        root.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 10))
+        root = FrameLayout(ctx)
 
-        // ---- نوار بالا
+        // ---- ستون اصلی
+        content = UI.col(ctx)
+        content.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 10))
+
+        // ---- نوار بالا (فقط عنوان + پینگ همه)
         val top = UI.row(ctx)
         title = UI.label(ctx, "کانفیگها", 19f, p.text, bold = true)
         title.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         top.addView(title)
 
-        // دکمه‌ی زمان‌سنج — مثل دکمه‌ی گرد بالای صفحه‌ی خانه؛ پینگ همه‌ی سرورها
+        // دکمه‌ی زمان‌سنج — پینگ همه‌ی سرورها
         timerBtn = FrameLayout(ctx).apply {
             setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
             setOnClickListener { act.pingAll() }
@@ -58,15 +65,11 @@ class ServersUi(private val act: MainActivity) {
             UI.dp(ctx, 22), UI.dp(ctx, 22), Gravity.CENTER))
         top.addView(timerBtn, LinearLayout.LayoutParams(
             UI.dp(ctx, 46), UI.dp(ctx, 46)).apply { marginStart = UI.dp(ctx, 8) })
-
-        addBtn = UI.primaryButton(ctx, "+ افزودن", p)
-        addBtn.setOnClickListener { act.showAddMenu() }
-        top.addView(addBtn)
-        root.addView(top)
+        content.addView(top)
 
         val hint = UI.label(ctx, "برای فعال‌سازی روی سرور ضربه بزنید · نگه‌داشتن = منوی سرور", 11.5f, p.muted)
         hint.setPadding(0, UI.dp(ctx, 4), 0, UI.dp(ctx, 8))
-        root.addView(hint)
+        content.addView(hint)
 
         // ---- لیست
         listContainer = UI.col(ctx)
@@ -77,35 +80,83 @@ class ServersUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         listScroll.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        root.addView(listScroll)
+        content.addView(listScroll)
 
-        emptyHint = UI.label(ctx, "هنوز سروری اضافه نشده.\nاز دکمه‌ی «+ افزودن» شروع کن: پیست، QR، فایل، دستی یا اشتراک.", 14f, p.muted)
+        emptyHint = UI.label(ctx, "هنوز سروری اضافه نشده.\nاز دکمه‌ی «+» پایین صفحه شروع کن:\nپیست، QR، فایل، دستی یا اشتراک.", 14f, p.muted)
         emptyHint.gravity = Gravity.CENTER
         emptyHint.setPadding(UI.dp(ctx, 20), UI.dp(ctx, 60), UI.dp(ctx, 20), 0)
 
-        // ---- نوار پایین (فقط حذف انتخاب‌شده‌ها)
-        bottomBar = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, 0) }
-        deleteBtn = UI.softButton(ctx, "حذف انتخاب‌شده", p)
+        // ---- نوار پایین (فقط وقتی چک‌باکسی انتخاب شده باشد ظاهر می‌شود)
+        bottomBar = UI.row(ctx).apply {
+            setPadding(0, UI.dp(ctx, 10), 0, 0)
+            visibility = View.GONE
+        }
+        deleteBtn = UI.softButton(ctx, "حذف انتخاب‌شده‌ها", p)
         deleteBtn.setTextColor(p.bad)
         deleteBtn.setOnClickListener {
             if (checked.isEmpty()) UI.toast(ctx, "چیزی برای حذف انتخاب نشده")
-            else act.confirmDelete(checked.toSet()) { checked.clear(); render() }
+            else act.confirmDelete(checked.toSet()) { checked.clear(); syncSelectionMode(); render() }
         }
         deleteBtn.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         bottomBar.addView(deleteBtn)
-        root.addView(bottomBar)
+        content.addView(bottomBar)
+
+        root.addView(content, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // ---- دکمه‌ی شناور «+» — پایین سمت راست (منوی روش‌های وارد کردن)
+        fab = buildFab()
+        root.addView(fab, FrameLayout.LayoutParams(
+            UI.dp(ctx, 58), UI.dp(ctx, 58),
+            Gravity.BOTTOM or Gravity.RIGHT).apply {
+            rightMargin = UI.dp(ctx, 18)
+            bottomMargin = UI.dp(ctx, 18)
+        })
 
         applyTheme(p)
         return root
+    }
+
+    /** دکمه‌ی شناور گرد طلایی با «+» — با جهش نرم هنگام لمس */
+    private fun buildFab(): FrameLayout {
+        val ctx = act
+        val f = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 15), UI.dp(ctx, 15), UI.dp(ctx, 15), UI.dp(ctx, 15))
+            elevation = UI.dp(ctx, 8).toFloat()
+            contentDescription = "افزودن کانفیگ"
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
+                orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
+                setStroke(UI.dp(ctx, 1), UI.alpha(0xFFF7DE8A.toInt(), 0.7f))
+            }
+            setOnClickListener {
+                // جهش کوچک بازخورد لمسی
+                ObjectAnimator.ofFloat(it, "scaleX", 1f, 0.9f, 1f).setDuration(180).start()
+                ObjectAnimator.ofFloat(it, "scaleY", 1f, 0.9f, 1f).setDuration(180).start()
+                act.showAddMenu()
+            }
+        }
+        val ic = IconView(ctx, "plus").apply {
+            iconColor = 0xFF1A1304.toInt(); bold = true
+        }
+        f.addView(ic, FrameLayout.LayoutParams(
+            UI.dp(ctx, 28), UI.dp(ctx, 28), Gravity.CENTER))
+        return f
+    }
+
+    /** وقتی سروری انتخاب (چک) شد: نوار حذف می‌آید و دکمه‌ی + پنهان می‌شود */
+    private fun syncSelectionMode() {
+        val selecting = checked.isNotEmpty()
+        bottomBar.visibility = if (selecting) View.VISIBLE else View.GONE
+        fab.visibility = if (selecting) View.GONE else View.VISIBLE
     }
 
     fun applyTheme(np: Palette) {
         p = np
         val ctx = act
         title.setTextColor(p.text)
-        addBtn.background = UI.primaryBg(ctx, p)
-        addBtn.setTextColor(p.onAccent)
         // دکمه‌ی زمان‌سنج گرد طلایی — هم‌سبک دکمه‌ی کره‌ی زمین صفحه‌ی خانه
         timerBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         timerIc.iconColor = p.accent
@@ -124,11 +175,11 @@ class ServersUi(private val act: MainActivity) {
         if (servers.isEmpty()) {
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
-            return
         } else {
             emptyHint.visibility = View.GONE
+            for (s in servers) listContainer.addView(serverRow(s))
         }
-        for (s in servers) listContainer.addView(serverRow(s))
+        syncSelectionMode()
     }
 
     /** دکمه‌ی گرد کوچک با آیکون، برای ردیف عملیات هر سرور */
@@ -160,6 +211,7 @@ class ServersUi(private val act: MainActivity) {
         cb.isChecked = s.id in checked
         cb.setOnCheckedChangeListener { _, now ->
             if (now) checked.add(s.id) else checked.remove(s.id)
+            syncSelectionMode()
         }
         top.addView(cb, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginEnd = UI.dp(ctx, 4)

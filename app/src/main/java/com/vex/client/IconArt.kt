@@ -2,9 +2,11 @@ package com.vex.client
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.view.View
 import kotlin.math.cos
 import kotlin.math.sin
@@ -40,25 +42,37 @@ class IconView(context: Context, val icon: String) : View(context) {
         fill.color = iconColor
         when (icon) {
             "tg" -> {
-                // هواپیمای کاغذی تلگرام — طرح خوش‌نسبت با بال تاخورده‌ی دو رنگ
+                // آیکون رسمی تلگرام: دایره‌ی آبی گرادیانی + هواپیمای کاغذی سفید
+                val r = 10.9f * u
+                fill.shader = LinearGradient(
+                    0f, cy - r, 0f, cy + r,
+                    0xFF37AEE2.toInt(), 0xFF1C96C8.toInt(), Shader.TileMode.CLAMP
+                )
+                canvas.drawCircle(cx, cy, r, fill)
+                fill.shader = null
+                // بدنه‌ی اصلی هواپیما (سفید — مطابق لوگوی رسمی)
                 val body = Path()
-                body.moveTo(2.3f * u, 11.5f * u)   // دنباله
-                body.lineTo(21.7f * u, 3.0f * u)   // نوک بالا
-                body.lineTo(14.3f * u, 21.2f * u)  // پایین
-                body.lineTo(10.8f * u, 14.4f * u)  // فرورفتگی بال
+                body.moveTo(3.6f * u, 11.0f * u)    // دنباله (چپ)
+                body.lineTo(19.2f * u, 4.9f * u)    // نوک (بالا-راست)
+                body.lineTo(10.9f * u, 19.3f * u)   // زیر
+                body.lineTo(10.0f * u, 13.7f * u)   // فرورفتگی بال
                 body.close()
-                canvas.drawPath(body, fill)
-                // بال تاخورده (روشن‌تر = طلایی کم‌رنگ)
+                val white = Paint(fill).apply { color = 0xFFFFFFFF.toInt() }
+                canvas.drawPath(body, white)
+                // بال تاخورده — سفید متمایل به آبی (نیمه‌ی زیرین لوگوی رسمی)
                 val flap = Path()
-                flap.moveTo(10.8f * u, 14.4f * u)
-                flap.lineTo(21.7f * u, 3.0f * u)
-                flap.lineTo(8.4f * u, 10.4f * u)
+                flap.moveTo(10.0f * u, 13.7f * u)
+                flap.lineTo(19.2f * u, 4.9f * u)
+                flap.lineTo(8.5f * u, 10.2f * u)
                 flap.close()
-                val fp = Paint(fill).apply { alpha = 150 }
-                canvas.drawPath(flap, fp)
-                // خط لبه‌ی پرواز برای برجستگی
-                val edge = Paint(stroke).apply { strokeWidth = 1.2f * u }
-                canvas.drawLine(2.3f * u, 11.5f * u, 21.7f * u, 3.0f * u, edge)
+                canvas.drawPath(flap, Paint(white).apply { color = 0xFFD6E9F5.toInt() })
+                // لبه‌ی روشن زیر نوک برای برجستگی
+                val tail = Path()
+                tail.moveTo(10.0f * u, 13.7f * u)
+                tail.lineTo(10.9f * u, 19.3f * u)
+                tail.lineTo(8.9f * u, 16.6f * u)
+                tail.close()
+                canvas.drawPath(tail, Paint(white).apply { color = 0xFFBFD9EA.toInt() })
             }
             "timer" -> {
                 // زمان‌سنج (کرنومتر): بدنه + دکمه‌ی بالا + عقربه

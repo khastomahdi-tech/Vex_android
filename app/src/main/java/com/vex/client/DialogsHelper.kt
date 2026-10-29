@@ -300,8 +300,127 @@ class DialogsHelper(private val act: MainActivity) {
 
     // ------------------------------------------------------------ ویرایش سرور
 
-    /** ویرایش اطلاعات سرور: نام نمایشی + متن کانفیگ (لینک) */
+    /**
+     * ویرایش کامل کانفیگ: نام + همه‌ی جزئیات (آدرس، پورت، رمز، TLS، SNI،
+     * Host، Path، fingerprint، Reality و…) با دکمه‌ی ذخیره.
+     * کانفیگ پس از ویرایش دوباره ساخته و ذخیره می‌شود؛ پینگ هم بلافاصله گرفته می‌شود.
+     * وایرگارد / JSON ناشناخته → حالت متن کامل.
+     */
     fun showEditServer(s: Server) {
+        val fields = ConfigEditor.parse(s.raw)
+        if (fields == null) { showEditServerRaw(s); return }
+
+        val col = UI.col(ctx)
+
+        // ردیف اطلاعات: نشان پروتکل + آدرس فعلی
+        val infoRow = UI.row(ctx)
+        val badge = UI.pill(ctx, UI.protoLabel(fields.proto), UI.alpha(p.accent, 0.18f), p.accent)
+        infoRow.addView(badge)
+        val addrInfo = UI.label(ctx, s.raw.substringBefore("#").take(60), 11f, p.muted)
+        addrInfo.textDirection = View.TEXT_DIRECTION_LTR
+        addrInfo.setPadding(UI.dp(ctx, 10), 0, 0, 0)
+        infoRow.addView(addrInfo, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        col.addView(infoRow)
+
+        val name = field("نام نمایشی", "نام نمایشی", ltr = false)
+        val addr = field("آدرس سرور", "مثلاً example.com یا 1.2.3.4")
+        val port = field("پورت", "443", number = true)
+        val secret = field("UUID / رمز", "uuid برای vless/vmess، رمز برای بقیه")
+        val method = field("روش رمزنگاری", "مثل aes-256-gcm")
+        val network = field("شبکه (transport)", "tcp / ws / grpc / httpupgrade")
+        val security = field("امنیت", "none / tls / reality")
+        val sni = field("SNI", "دامنه‌ی SNI")
+        val host = field("Host", "هدر Host برای ws/http")
+        val path = field("Path", "برای ws/http مثل /path")
+        val svc = field("serviceName", "نام سرویس gRPC")
+        val fp = field("fingerprint", "chrome / firefox / ...")
+        val pbk = field("Reality publicKey", "کلید عمومی Reality")
+        val sid = field("Reality shortId", "شناسه‌ی کوتاه Reality")
+        val alpn = field("alpn", "مثل h2,http/1.1")
+
+        // پیش‌پر کردن از مقادیر فعلی کانفیگ
+        name.setText(fields.name.ifEmpty { s.name })
+        addr.setText(fields.address)
+        port.setText(fields.port)
+        secret.setText(fields.secret)
+        method.setText(fields.method)
+        network.setText(fields.network)
+        security.setText(fields.security)
+        sni.setText(fields.sni)
+        host.setText(fields.host)
+        path.setText(fields.path)
+        svc.setText(fields.serviceName)
+        fp.setText(fields.fp)
+        pbk.setText(fields.pbk)
+        sid.setText(fields.sid)
+        alpn.setText(fields.alpn)
+
+        fun addLabeled(label: String, e: EditText) {
+            col.addView(formLabel(label)); col.addView(e)
+        }
+
+        addLabeled("نام نمایشی", name)
+        addLabeled("آدرس سرور *", addr)
+        addLabeled("پورت *", port)
+        addLabeled("UUID / رمز *", secret)
+        if (fields.showMethod) addLabeled("روش رمزنگاری (SS)", method)
+        if (fields.showTlsFields) {
+            addLabeled("شبکه (tcp / ws / grpc / httpupgrade)", network)
+            addLabeled("امنیت (none / tls / reality)", security)
+            addLabeled("SNI", sni)
+            addLabeled("Host", host)
+            addLabeled("Path", path)
+            addLabeled("serviceName (gRPC)", svc)
+            addLabeled("fingerprint", fp)
+            addLabeled("Reality publicKey (pbk)", pbk)
+            addLabeled("Reality shortId (sid)", sid)
+            addLabeled("alpn", alpn)
+        } else if (fields.proto == "tuic" || fields.proto == "hysteria2") {
+            addLabeled("SNI", sni)
+            if (fields.proto == "tuic") addLabeled("alpn", alpn)
+        }
+
+        dialog("ویرایش کانفیگ", wrapForm(col), "ذخیره", {
+            try {
+                // مقادیر ویرایش‌شده را روی فیلدها بنشین و کانفیگ را دوباره بساز
+                fields.name = name.text.toString().trim()
+                fields.address = addr.text.toString().trim()
+                fields.port = port.text.toString().trim()
+                fields.secret = secret.text.toString().trim()
+                if (fields.showMethod) fields.method = method.text.toString().trim()
+                if (fields.showTlsFields) {
+                    fields.network = network.text.toString().trim()
+                    fields.security = security.text.toString().trim()
+                    fields.sni = sni.text.toString().trim()
+                    fields.host = host.text.toString().trim()
+                    fields.path = path.text.toString().trim()
+                    fields.serviceName = svc.text.toString().trim()
+                    fields.fp = fp.text.toString().trim()
+                    fields.pbk = pbk.text.toString().trim()
+                    fields.sid = sid.text.toString().trim()
+                    fields.alpn = alpn.text.toString().trim()
+                } else if (fields.proto == "tuic" || fields.proto == "hysteria2") {
+                    fields.sni = sni.text.toString().trim()
+                    if (fields.proto == "tuic") fields.alpn = alpn.text.toString().trim()
+                }
+                val newRaw = ConfigEditor.rebuild(fields)
+                    ?: throw IllegalArgumentException("بازسازی کانفیگ ناموفق بود")
+                val ok = act.store.update(s.id, fields.name, newRaw)
+                if (ok) {
+                    act.renderAll()
+                    act.toast("کانفیگ ذخیره شد")
+                    act.pingServers(listOf(s.id), silent = true)
+                } else {
+                    act.toast("ذخیره ناموفق بود (کانفیگ نامعتبر یا تکراری)")
+                }
+            } catch (e: Throwable) {
+                act.toast("خطا: ${e.message ?: "ورودی نامعتبر"}")
+            }
+        })
+    }
+
+    /** حالت متن کامل — برای وایرگارد و JSONهای پیچیده */
+    private fun showEditServerRaw(s: Server) {
         val col = UI.col(ctx)
         val name = EditText(ctx).apply {
             setText(s.name)
@@ -326,7 +445,7 @@ class DialogsHelper(private val act: MainActivity) {
             setHintTextColor(p.muted)
         }
         col.addView(formLabel("نام نمایشی")); col.addView(name)
-        col.addView(formLabel("متن کانفیگ (لینک سرور)")); col.addView(raw)
+        col.addView(formLabel("متن کامل کانفیگ")); col.addView(raw)
         dialog("ویرایش سرور", wrapForm(col), "ذخیره", {
             val n = name.text.toString().trim()
             val r = raw.text.toString().trim()

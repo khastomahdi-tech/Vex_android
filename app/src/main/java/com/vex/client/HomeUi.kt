@@ -2,7 +2,6 @@ package com.vex.client
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.LightingColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -15,11 +14,11 @@ import android.widget.TextView
 
 /**
  * صفحه‌ی اصلی VEX — دقیقاً مطابق طرح مرجع:
- *  کارت وضعیت (دکمه‌ی کره‌ی زمین + «قطع است» + نقش شیر و خورشید)،
+ *  نوار نشان سلطنتی (دکمه‌ی کره‌ی زمین + نقش شیر و خورشید) — بدون متن وضعیت؛
+ *  وضعیت اتصال فقط با سبز شدن حلقه‌ی دکمه‌ی پاور نشان داده می‌شود،
  *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی تاج‌دار،
  *  دو کارت آمار (دانلود / آپلود) با قاب دوبل طلایی،
- *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل با تاج + پینگ)،
- *  دکمه‌ی شناور «+».
+ *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل با تاج + پینگ).
  */
 class HomeUi(private val act: MainActivity) {
 
@@ -29,8 +28,6 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var power: PowerButtonView
     private lateinit var statusCard: LinearLayout
     private lateinit var statusWrap: LinearLayout
-    private lateinit var stateText: TextView
-    private lateinit var netText: TextView
     private lateinit var globeBtn: FrameLayout
     private lateinit var globeIc: IconView
     private lateinit var lionSunIv: ImageView
@@ -91,18 +88,19 @@ class HomeUi(private val act: MainActivity) {
         return root
     }
 
-    // ---------------------------------------------------------- کارت وضعیت
+    // ---------------------------------------------------------- نوار نشان سلطنتی
 
+    /** نوار بالا: کره‌ی زمین (انتخاب سرور) + نقش شیر و خورشید — بدون متن وضعیت */
     private fun buildStatusCard(): View {
         val ctx = act
         statusCard = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(UI.dp(ctx, 10), UI.dp(ctx, 10), UI.dp(ctx, 10), UI.dp(ctx, 10))
-            minimumHeight = UI.dp(ctx, 92)
+            setPadding(UI.dp(ctx, 10), UI.dp(ctx, 8), UI.dp(ctx, 10), UI.dp(ctx, 8))
+            minimumHeight = UI.dp(ctx, 78)
         }
 
-        // دکمه‌ی کره‌ی زمین (انتخاب سرور)
+        // دکمه‌ی کره‌ی زمین (انتخاب سرور) — سمت راست
         globeBtn = FrameLayout(ctx).apply {
             setPadding(UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12))
         }
@@ -113,27 +111,11 @@ class HomeUi(private val act: MainActivity) {
         statusCard.addView(globeBtn, LinearLayout.LayoutParams(
             UI.dp(ctx, 52), UI.dp(ctx, 52)))
 
-        // متن وضعیت
-        val textCol = UI.col(ctx).apply { gravity = Gravity.CENTER }
-        stateText = TextView(ctx).apply {
-            textSize = 19f
-            typeface = Fonts.bold(ctx)
-            gravity = Gravity.CENTER
-        }
-        netText = TextView(ctx).apply {
-            textSize = 12f
-            typeface = Fonts.regular(ctx)
-            gravity = Gravity.CENTER
-            maxLines = 2
-            setPadding(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0)
-        }
-        textCol.addView(stateText)
-        textCol.addView(netText)
-        textCol.layoutParams = LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0)
-        }
-        statusCard.addView(textCol)
+        // وسط خالی — نقش شیر و خورشید خودش جلب‌توجه می‌کند
+        val spacer = View(ctx)
+        spacer.layoutParams = LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        statusCard.addView(spacer)
 
         // نقش برجسته‌ی شیر و خورشید داخل قاب حکاکی‌شده (مطابق طرح مرجع)
         lionPanel = FrameLayout(ctx)
@@ -144,7 +126,7 @@ class HomeUi(private val act: MainActivity) {
         lionPanel.addView(lionSunIv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         statusCard.addView(lionPanel, LinearLayout.LayoutParams(
-            UI.dp(ctx, 124), LinearLayout.LayoutParams.MATCH_PARENT))
+            UI.dp(ctx, 112), UI.dp(ctx, 74)))
 
         return wrapCard(statusCard, topMarginDp = 0, framed = true).also {
             statusWrap = it as LinearLayout
@@ -182,14 +164,20 @@ class HomeUi(private val act: MainActivity) {
         return zone
     }
 
-    /** شیر بالدار برنزی + تاج طلایی نشسته بر سرش */
+    /** شیر بالدار طبیعی طلایی + هاله‌ی نور پشتش + تاج طلایی نشسته بر سرش */
     private fun lionWithCrown(ctx: android.content.Context, mirrored: Boolean): FrameLayout {
         val box = FrameLayout(ctx)
-        val bronze = LightingColorFilter(0xFFC7A75E.toInt(), 0xFF140C02.toInt())
+        // هاله‌ی طلایی محو پشت شیر — عمق و جلوه‌ی سلطنتی
+        val glow = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            gradientType = android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT
+            colors = intArrayOf(UI.alpha(0xFFE8B923.toInt(), 0.30f), UI.alpha(0xFFE8B923.toInt(), 0.05f), android.graphics.Color.TRANSPARENT)
+        }
+        box.background = glow
+        box.setPadding(UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6))
         val lion = ImageView(ctx).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            colorFilter = bronze
-            alpha = 0.9f
+            alpha = 1f
             if (mirrored) scaleX = -1f
         }
         lion.setImageResource(R.drawable.art_lion)
@@ -375,11 +363,12 @@ class HomeUi(private val act: MainActivity) {
 
         // کارت وضعیت — قاب برجسته‌ی طلایی مثل طرح + قاب دوبل بیرونی
         statusCard.background = UI.card(ctx, p, 22, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
-        statusWrap.background = UI.card(ctx, p, 28, stroke = UI.alpha(p.line, 0.7f), fillColor = Color.TRANSPARENT)
+        // هنگام اتصال موفق، قاب نوار نشان هم سبز می‌شود — هماهنگ با حلقه‌ی پاور
+        statusWrap.background = UI.card(ctx, p, 28,
+            stroke = if (act.connectionState == "connected") UI.alpha(p.good, 0.8f) else UI.alpha(p.line, 0.7f),
+            fillColor = Color.TRANSPARENT)
         globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         globeIc.iconColor = p.accent
-        stateText.setTextColor(stateColor())
-        netText.setTextColor(if (act.connectionState == "connected" && act.netState == 2) p.mid else p.muted)
         // نقش شیر و خورشید داخل قاب تیره‌ی حکاکی‌شده
         lionPanel.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.75f), fillColor = 0xFF0C0903.toInt())
         lionSunIv.setImageResource(R.drawable.art_lionsun)
@@ -422,12 +411,6 @@ class HomeUi(private val act: MainActivity) {
         renderServerCard()
     }
 
-    private fun stateColor(): Int = when (act.connectionState) {
-        "connected" -> p.good
-        "connecting" -> p.mid
-        else -> 0xFFE9C464.toInt() // طلایی گرم «قطع است» مطابق طرح مرجع
-    }
-
     // ---------------------------------------------------------- رندر
 
     fun render() {
@@ -435,31 +418,17 @@ class HomeUi(private val act: MainActivity) {
         renderServerCard()
     }
 
+    /** وضعیت اتصال فقط روی خود دکمه‌ی پاور نشان داده می‌شود (حلقه‌ی سبز = متصل) */
     private fun renderStatus() {
-        val st = act.connectionState
-        power.mode = when (st) {
+        power.mode = when (act.connectionState) {
             "connected" -> "on"
             "connecting" -> "busy"
             else -> "off"
         }
-        stateText.text = when (st) {
-            "connected" -> "متصل است"
-            "connecting" -> "در حال اتصال…"
-            else -> "قطع است"
-        }
-        stateText.setTextColor(stateColor())
-        netText.text = when (st) {
-            "connected" -> when (act.netState) {
-                1 -> if (act.netMs >= 0) "اینترنت تأیید شد · ${act.netMs}ms" else "اینترنت تأیید شد"
-                2 -> (act.netMsg.ifEmpty { "تونل فعال است ولی اینترنت رد نشد" })
-                else -> "در حال تست اینترنت…"
-            }
-            "connecting" -> "در حال اتصال به سرور…"
-            else -> act.lastError.takeIf { it.isNotEmpty() }?.lineSequence()?.firstOrNull()
-                    ?: "برای اتصال دکمهی پاور را بزن"
-        }
-        netText.maxLines = if (st == "connected" && act.netState == 2) 3 else 2
-        netText.setTextColor(if (st == "connected" && act.netState == 2) p.mid else p.muted)
+        // حلقه‌ی دور نوار نشان هم سبز/خاکستری می‌شود
+        statusWrap.background = UI.card(act, p, 28,
+            stroke = if (act.connectionState == "connected") UI.alpha(p.good, 0.8f) else UI.alpha(p.line, 0.7f),
+            fillColor = Color.TRANSPARENT)
     }
 
     fun renderServerCard() {

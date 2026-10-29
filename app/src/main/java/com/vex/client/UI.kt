@@ -99,14 +99,28 @@ object Themes {
     /** رنگ طلاییِ کم‌رنگ برای آیکون‌های غیرفعال نوار پایین */
     val goldMuted: Int = 0xFFC9A94E.toInt()
 
+    /** آیا پس‌زمینه‌ی این تم روشن است؟ (برای تنظیم خودکار رنگ عنوان‌ها) */
+    fun isLightBg(p: Palette): Boolean {
+        val r = (p.bg shr 16) and 0xFF
+        val g = (p.bg shr 8) and 0xFF
+        val b = p.bg and 0xFF
+        return (0.299 * r + 0.587 * g + 0.114 * b) > 140.0
+    }
+
     /** انتخاب پالت بر اساس تنظیمات و وضعیت تیره/روشن سیستم */
     fun resolve(context: Context, setting: String): Palette = when (setting) {
         "light" -> light()
         "dark" -> dark()
         "shir" -> shir()
         "royal" -> royal()
-        // پیش‌فرض برنامه (system) همان تم سلطنتی است — ظاهر مرجع VEX
-        else -> royal()
+        // تم «سیستم» واقعاً از تیره/روشن اندروید پیروی می‌کند
+        "system" -> {
+            val mode = context.resources.configuration.uiMode and
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            if (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES) dark() else light()
+        }
+        // تم پیش‌فرض برنامه = روشن
+        else -> light()
     }
 }
 

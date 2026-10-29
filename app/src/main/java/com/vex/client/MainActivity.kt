@@ -37,6 +37,11 @@ import androidx.exifinterface.media.ExifInterface
  */
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        /** لینک کانال تلگرام — دکمه‌ی تلگرام بالای صفحه به همین کانال می‌رود */
+        const val TELEGRAM_CHANNEL_URL = "https://t.me/vexclient"
+    }
+
     lateinit var store: ServersStore
         private set
     lateinit var homeUi: HomeUi
@@ -229,31 +234,24 @@ class MainActivity : ComponentActivity() {
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER))
 
-        // نشان V با غار (سمت راست)
+        // آیکون خود برنامه (لانچر) در سمت راست هدر
         vBadge = ImageView(ctx).apply {
-            setImageResource(R.drawable.art_vex_logo)
+            setImageResource(R.mipmap.ic_launcher)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         header.addView(vBadge, FrameLayout.LayoutParams(
-            UI.dp(ctx, 48), UI.dp(ctx, 48),
+            UI.dp(ctx, 50), UI.dp(ctx, 50),
             Gravity.RIGHT or Gravity.CENTER_VERTICAL))
 
-        // دکمه‌ی تلگرام (سمت چپ) — اشتراک‌گذاری برنامه
+        // دکمه‌ی تلگرام (سمت چپ) — رفتن به کانال تلگرام
         tgBtn = FrameLayout(ctx).apply {
             setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
         }
         tgIc = IconView(ctx, "tg").apply { bold = true }
         tgBtn.addView(tgIc, FrameLayout.LayoutParams(
-            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
-        tgBtn.setOnClickListener {
-            try {
-                val i = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "VEX CLIENT — https://github.com/khastomahdi-tech/Vex_android")
-                }
-                startActivity(Intent.createChooser(i, "اشتراک‌گذاری VEX CLIENT"))
-            } catch (_: Throwable) {}
-        }
+            UI.dp(ctx, 25), UI.dp(ctx, 25), Gravity.CENTER))
+        // لمس = بازکردن کانال تلگرام (اول اپلیکیشن تلگرام، بعد مرورگر)
+        tgBtn.setOnClickListener { openTelegramChannel() }
         header.addView(tgBtn, FrameLayout.LayoutParams(
             UI.dp(ctx, 46), UI.dp(ctx, 46), Gravity.LEFT or Gravity.CENTER_VERTICAL))
 
@@ -306,7 +304,6 @@ class MainActivity : ComponentActivity() {
         screenServers.visibility = if (idx == 1) View.VISIBLE else View.GONE
         screenStats.visibility = if (idx == 2) View.VISIBLE else View.GONE
         screenSettings.visibility = if (idx == 3) View.VISIBLE else View.GONE
-        val p = Themes.resolve(this, store.settings.theme)
         for ((i, n) in navItems.withIndex()) {
             val active = i == idx
             // قرص طلایی گرادیانی برای آیتم فعال (مطابق طرح مرجع)
@@ -315,8 +312,9 @@ class MainActivity : ComponentActivity() {
                 colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
                 orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
             } else null
-            n.icon.iconColor = if (active) p.onAccent else Themes.goldMuted
-            n.label.setTextColor(if (active) p.onAccent else Themes.goldMuted)
+            // روی قرص طلایی همیشه متن تیره — در هر تمی خوانا می‌ماند
+            n.icon.iconColor = if (active) 0xFF1A1304.toInt() else Themes.goldMuted
+            n.label.setTextColor(if (active) 0xFF1A1304.toInt() else Themes.goldMuted)
         }
         if (idx == 1) serversUi.render()
         if (idx == 2) statsUi.render()
@@ -324,6 +322,21 @@ class MainActivity : ComponentActivity() {
     }
 
     fun gotoServers() = switchTab(1)
+
+    /** بازکردن کانال تلگرام: اول اپ تلگرام (tg://) و اگر نبود مرورگر */
+    private fun openTelegramChannel() {
+        val url = TELEGRAM_CHANNEL_URL
+        val domain = url.substringAfter("t.me/").trimStart('/').substringBefore('?').substringBefore('/')
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tg://resolve?domain=$domain")))
+            return
+        } catch (_: Throwable) {}
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Throwable) {
+            UI.toast(this, "تلگرام در دسترس نیست")
+        }
+    }
 
     // ---------------- تم / رندر ----------------
 
@@ -338,11 +351,12 @@ class MainActivity : ComponentActivity() {
                 setColor(p.card2)
                 setStroke(UI.dp(this@MainActivity, 2), p.line)
             }
-            tgIc.iconColor = p.accent
-            crownIc.iconColor = p.accent
-            titleTv.setTextColor(p.accent)
+            // در تم روشن طلایی خالص کم‌رنگ دیده می‌شود → طلایی تیره‌تر
+            val titleGold = if (Themes.isLightBg(p)) 0xFFA87E0C.toInt() else p.accent
+            crownIc.iconColor = titleGold
+            titleTv.setTextColor(titleGold)
             titleTv.setShadowLayer(UI.dp(this@MainActivity, 5).toFloat(), 0f, 0f,
-                UI.alpha(p.accent, 0.55f))
+                UI.alpha(titleGold, 0.55f))
         }
         // نوار پایین طلایی
         val nav = root.findViewWithTag<LinearLayout>("nav")

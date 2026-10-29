@@ -11,11 +11,11 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.ArrayAdapter
 import android.widget.TextView
-import android.widget.Switch
 
 /**
- * صفحه‌ی تنظیمات (نیتیو): تم، MTU، DNS، IPv6، دور زدن LAN، Mux،
- * اتصال خودکار، سطح لاگ، مشاهده‌ی لاگ هسته، بازنشانی.
+ * صفحه‌ی تنظیمات VEX — ساختار دقیق و مرتب مثل V2RayNG:
+ * هر بخش یک کارت با تیتر رنگی است و ردیف‌ها با خط جداکننده از هم جدا می‌شوند.
+ * بخش‌ها: ظاهر / شبکه / امنیت / اتصال / هسته / ابزارها / درباره
  */
 class SettingsUi(private val act: MainActivity) {
 
@@ -25,15 +25,10 @@ class SettingsUi(private val act: MainActivity) {
     private lateinit var themeChips: LinearLayout
     private lateinit var mtuEdit: EditText
     private lateinit var dnsEdit: EditText
-    private lateinit var swIpv6: VexSwitch
-    private lateinit var swLan: VexSwitch
-    private lateinit var swMux: VexSwitch
-    private lateinit var swAuto: VexSwitch
     private val allSwitches = ArrayList<VexSwitch>(8)
     private lateinit var logSpinner: Spinner
     private lateinit var pingSpinner: Spinner
-    private lateinit var logBtn: TextView
-    private lateinit var resetBtn: TextView
+    private val themedButtons = ArrayList<TextView>(4)
 
     private var p: Palette = Themes.dark()
     private var building = false
@@ -47,76 +42,90 @@ class SettingsUi(private val act: MainActivity) {
         root.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 14))
         val scroll = ScrollView(ctx).apply { overScrollMode = View.OVER_SCROLL_NEVER }
 
-        // ================= تم =================
-        val themeCard = UI.col(ctx)
-        themeCard.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 14))
-        themeCard.addView(sectionLabel(ctx, "تم"))
-        themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 8), 0, 0) }
-        themeChips.addView(themeChip("سلطنتی VEX", "royal"))
-        themeChips.addView(themeChip("سیستم", "system"))
-        themeChips.addView(themeChip("تیره", "dark"))
+        // ================= ظاهر =================
+        val themeCard = sectionCard("ظاهر")
+        val themeDesc = subLabel("انتخاب رنگ و حالت نمایش برنامه")
+        themeCard.addView(themeDesc)
+        themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
         themeChips.addView(themeChip("روشن", "light"))
+        themeChips.addView(themeChip("تیره", "dark"))
+        themeChips.addView(themeChip("سیستم", "system"))
+        themeChips.addView(themeChip("سلطنتی", "royal"))
         themeChips.addView(themeChip("شیر و خورشید", "shir"))
         themeCard.addView(themeChips)
         addCard(themeCard)
 
-        // ================= اتصال =================
-        val connCard = UI.col(ctx)
-        connCard.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 14))
-        connCard.addView(sectionLabel(ctx, "اتصال"))
+        // ================= شبکه =================
+        val netCard = sectionCard("شبکه")
 
-        connCard.addView(fieldLabel(ctx, "MTU (۱۲۸۰ تا ۹۰۰۰)"))
+        netCard.addView(divider())
+        netCard.addView(fieldLabel(ctx, "MTU (۱۲۸۰ تا ۹۰۰۰)"))
         mtuEdit = EditText(ctx).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText(act.store.settings.mtu.toString())
             textSize = 14f
             setSingleLine(true)
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))
         }
         mtuEdit.setOnFocusChangeListener { _, has -> if (!has) commitMtu() }
-        connCard.addView(mtuEdit, LinearLayout.LayoutParams(
+        netCard.addView(mtuEdit, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = UI.dp(ctx, 4)
+            topMargin = UI.dp(ctx, 5)
         })
 
-        connCard.addView(fieldLabel(ctx, "DNS (مثل 1.1.1.1)"))
+        netCard.addView(divider())
+        netCard.addView(fieldLabel(ctx, "DNS (مثل 1.1.1.1)"))
         dnsEdit = EditText(ctx).apply {
             inputType = InputType.TYPE_CLASS_TEXT
             setText(act.store.settings.dns)
             textSize = 14f
             setSingleLine(true)
             textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))
         }
         dnsEdit.setOnFocusChangeListener { _, has -> if (!has) commitDns() }
-        connCard.addView(dnsEdit, LinearLayout.LayoutParams(
+        netCard.addView(dnsEdit, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = UI.dp(ctx, 4)
+            topMargin = UI.dp(ctx, 5)
         })
 
-        connCard.addView(switchRow("پروتکل IPv6", act.store.settings.ipv6) { v -> act.store.settings.ipv6 = v; act.store.saveSettings() })
-        connCard.addView(switchRow("دور زدن شبکه‌ی محلی (LAN)", act.store.settings.bypassLan) { v -> act.store.settings.bypassLan = v; act.store.saveSettings() })
-        connCard.addView(switchRow("Mux (چندگانه‌سازی)", act.store.settings.mux) { v -> act.store.settings.mux = v; act.store.saveSettings() })
-        connCard.addView(switchRow("رد کردن تأیید گواهی TLS (allowInsecure)", act.store.settings.allowInsecure) { v -> act.store.settings.allowInsecure = v; act.store.saveSettings() })
-        connCard.addView(switchRow("اتصال خودکار هنگام باز شدن برنامه", act.store.settings.autoConnect) { v -> act.store.settings.autoConnect = v; act.store.saveSettings() })
-        connCard.addView(switchRow("اتصال مجدد خودکار پس از قطعی", act.store.settings.autoReconnect) { v -> act.store.settings.autoReconnect = v; act.store.saveSettings() })
-        connCard.addView(switchRow("تست خودکار اینترنت پس از اتصال", act.store.settings.autoNetTest) { v -> act.store.settings.autoNetTest = v; act.store.saveSettings() })
-
-        // DNSهای آماده (کلادفلر/گوگل/کوآد۹/شکن/رادار)
-        connCard.addView(fieldLabel(ctx, "DNSهای آماده"))
+        netCard.addView(divider())
+        netCard.addView(fieldLabel(ctx, "DNSهای آماده"))
         val dnsScroll = android.widget.HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
         val dnsChipsRow = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 6), 0, 0) }
         for (d in arrayOf("1.1.1.1", "8.8.8.8", "9.9.9.9", "178.22.122.100", "10.202.10.10")) {
             dnsChipsRow.addView(dnsChip(d))
         }
         dnsScroll.addView(dnsChipsRow)
-        connCard.addView(dnsScroll)
+        netCard.addView(dnsScroll)
+
+        netCard.addView(divider())
+        netCard.addView(switchRow("پروتکل IPv6", "فعال‌سازی اینترنت IPv6 از طریق تونل", act.store.settings.ipv6) { v -> act.store.settings.ipv6 = v; act.store.saveSettings() })
+        netCard.addView(divider())
+        netCard.addView(switchRow("دور زدن شبکه‌ی محلی", "سایت‌های داخلی و LAN بدون VPN باز می‌شوند", act.store.settings.bypassLan) { v -> act.store.settings.bypassLan = v; act.store.saveSettings() })
+        netCard.addView(divider())
+        netCard.addView(switchRow("Mux (چندگانه‌سازی)", "چند اتصال روی یک لینک — کاهش تأخیر", act.store.settings.mux) { v -> act.store.settings.mux = v; act.store.saveSettings() })
+        addCard(netCard)
+
+        // ================= امنیت =================
+        val secCard = sectionCard("امنیت")
+        secCard.addView(switchRow("رد کردن تأیید گواهی TLS", "allowInsecure — برای سرورهای با گواهی خودامضا", act.store.settings.allowInsecure) { v -> act.store.settings.allowInsecure = v; act.store.saveSettings() })
+        addCard(secCard)
+
+        // ================= اتصال =================
+        val connCard = sectionCard("اتصال")
+        connCard.addView(switchRow("اتصال خودکار هنگام باز شدن برنامه", "اولین سرور انتخابی بلافاصله وصل می‌شود", act.store.settings.autoConnect) { v -> act.store.settings.autoConnect = v; act.store.saveSettings() })
+        connCard.addView(divider())
+        connCard.addView(switchRow("اتصال مجدد خودکار پس از قطعی", "اگر سرویس قطع شود دوباره وصل می‌شود", act.store.settings.autoReconnect) { v -> act.store.settings.autoReconnect = v; act.store.saveSettings() })
+        connCard.addView(divider())
+        connCard.addView(switchRow("تست خودکار اینترنت پس از اتصال", "پس از وصل شدن، اینترنت بررسی می‌شود", act.store.settings.autoNetTest) { v -> act.store.settings.autoNetTest = v; act.store.saveSettings() })
         addCard(connCard)
 
-        // ================= پیشرفته =================
-        val advCard = UI.col(ctx)
-        advCard.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 14))
-        advCard.addView(sectionLabel(ctx, "پیشرفته"))
+        // ================= هسته =================
+        val coreCard = sectionCard("هسته")
 
-        advCard.addView(fieldLabel(ctx, "سطح لاگ هسته"))
+        coreCard.addView(fieldLabel(ctx, "سطح لاگ هسته (loglevel)"))
         logSpinner = Spinner(ctx).apply {
             adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
                 arrayOf("info", "warning", "debug"))
@@ -134,10 +143,11 @@ class SettingsUi(private val act: MainActivity) {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
             }
         }
-        advCard.addView(logSpinner, LinearLayout.LayoutParams(
+        coreCard.addView(logSpinner, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
 
-        advCard.addView(fieldLabel(ctx, "تایم‌اوت پینگ TCP"))
+        coreCard.addView(divider())
+        coreCard.addView(fieldLabel(ctx, "تایم‌اوت پینگ TCP"))
         pingSpinner = Spinner(ctx).apply {
             adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
                 arrayOf("۲ ثانیه", "۴ ثانیه", "۸ ثانیه"))
@@ -151,34 +161,38 @@ class SettingsUi(private val act: MainActivity) {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
             }
         }
-        advCard.addView(pingSpinner, LinearLayout.LayoutParams(
+        coreCard.addView(pingSpinner, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
+        addCard(coreCard)
 
-        logBtn = UI.softButton(ctx, "مشاهده‌ی لاگ هسته", p)
+        // ================= ابزارها =================
+        val toolsCard = sectionCard("ابزارها")
+        val logBtn = softRowButton("مشاهده‌ی لاگ هسته (sing-box)")
         logBtn.setOnClickListener { act.showCoreLog() }
-        advCard.addView(logBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = UI.dp(ctx, 12)
-        })
-
-        resetBtn = UI.softButton(ctx, "بازنشانی تنظیمات", p)
-        resetBtn.setTextColor(p.bad)
+        toolsCard.addView(logBtn)
+        toolsCard.addView(divider())
+        val resetBtn = softRowButton("بازنشانی همه‌ی تنظیمات", tag = "bad")
         resetBtn.setOnClickListener { act.resetSettings() }
-        advCard.addView(resetBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = UI.dp(ctx, 8)
-        })
+        toolsCard.addView(resetBtn)
+        addCard(toolsCard)
 
-        val note = UI.label(ctx, "تغییرات برای اتصال بعدی اعمال می‌شود.", 11.5f, p.muted)
-        note.setPadding(0, UI.dp(ctx, 10), 0, 0)
-        advCard.addView(note)
-        addCard(advCard)
+        // ================= درباره =================
+        val aboutCard = sectionCard("درباره")
+        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.6.0 (14)"))
+        aboutCard.addView(divider())
+        aboutCard.addView(infoRow("هسته‌ی پراکسی", "sing-box v1.11.15"))
+        aboutCard.addView(divider())
+        aboutCard.addView(infoRow("آمار ترافیک", "Clash API"))
+        aboutCard.addView(divider())
+        val tgRow = infoRow("کانال تلگرام VEX", "@vexclient")
+        tgRow.setOnClickListener { act.toast("از دکمه‌ی تلگرام بالای صفحه استفاده کن") }
+        aboutCard.addView(tgRow)
+        addCard(aboutCard)
 
-        // نسخه‌ی برنامه
-        val ver = UI.label(ctx, "VEX CLIENT v3.5.0 · هسته sing-box v1.11.15 · آمار از Clash API", 11f, p.muted)
-        ver.gravity = Gravity.CENTER
-        ver.setPadding(0, UI.dp(ctx, 16), 0, UI.dp(ctx, 4))
-        root.addView(ver)
+        val note = subLabel("تغییرات برای اتصال بعدی اعمال می‌شود.")
+        note.gravity = Gravity.CENTER
+        note.setPadding(0, UI.dp(ctx, 12), 0, UI.dp(ctx, 4))
+        root.addView(note)
 
         scroll.addView(root, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -191,6 +205,16 @@ class SettingsUi(private val act: MainActivity) {
 
     // ---------------------------------------------------------- سازنده‌ها
 
+    /** کارت بخش: تیتر رنگی + خط جداکننده زیر تیتر */
+    private fun sectionCard(title: String): LinearLayout {
+        val ctx = act
+        val card = UI.col(ctx)
+        card.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 12), UI.dp(ctx, 16), UI.dp(ctx, 14))
+        card.addView(sectionLabel(ctx, title))
+        card.addView(divider(10))
+        return card
+    }
+
     private fun addCard(view: View) {
         val ctx = act
         val wrap = LinearLayout(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, 0) }
@@ -200,27 +224,77 @@ class SettingsUi(private val act: MainActivity) {
         root.addView(wrap)
     }
 
+    private fun divider(topPad: Int = 0): View {
+        val ctx = act
+        val d = View(ctx)
+        d.setBackgroundColor(UI.alpha(p.line, 0.65f))
+        d.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 1)).apply {
+            setMargins(0, UI.dp(ctx, topPad), 0, 0)
+        }
+        return d
+    }
+
     private fun sectionLabel(ctx: Context, text: String): TextView =
-        UI.label(ctx, text, 16f, p.accent, bold = true)
+        UI.label(ctx, text, 15.5f, p.accent, bold = true).apply { tag = "accent" }
 
     private fun fieldLabel(ctx: Context, text: String): TextView =
-        UI.label(ctx, text, 12.5f, p.muted).apply { setPadding(0, UI.dp(ctx, 10), 0, 0) }
+        UI.label(ctx, text, 12.5f, p.muted).apply {
+            tag = "sub"
+            setPadding(0, UI.dp(ctx, 8), 0, 0)
+        }
 
-    private fun switchRow(text: String, value: Boolean, onChange: (Boolean) -> Unit): View {
+    private fun subLabel(text: String): TextView =
+        UI.label(act, text, 11.5f, p.muted).apply { tag = "sub"; setPadding(0, UI.dp(act, 2), 0, 0) }
+
+    /** ردیف تنظیم: عنوان + توضیح + کنترل (سوییچ/…) در انتهای ردیف */
+    private fun switchRow(title: String, subtitle: String, value: Boolean, onChange: (Boolean) -> Unit): View {
         val ctx = act
-        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 12), 0, 0) }
-        val tv = UI.label(ctx, text, 14.5f, p.text)
-        tv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        tv.setOnClickListener { (row.tag as? VexSwitch)?.performClick() }
+        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
+        val textCol = UI.col(ctx)
+        val tv = UI.label(ctx, title, 14.5f, p.text)
+        val stv = subLabel(subtitle)
+        textCol.addView(tv)
+        textCol.addView(stv)
+        textCol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        textCol.setOnClickListener { (row.tag as? VexSwitch)?.performClick() }
         val sw = VexSwitch(ctx).apply {
             isChecked = value
             onCheckedChange = { now -> onChange(now) }
         }
         row.tag = sw
         allSwitches.add(sw)
-        row.addView(tv)
+        row.addView(textCol)
         row.addView(sw, LinearLayout.LayoutParams(
             UI.dp(ctx, 52), UI.dp(ctx, 29)).apply { marginStart = UI.dp(ctx, 10) })
+        return row
+    }
+
+    /** ردیف دکمه‌ای داخل بخش ابزارها */
+    private fun softRowButton(text: String, tag: String = ""): TextView {
+        val ctx = act
+        val t = TextView(ctx).apply {
+            this.text = text
+            textSize = 14f
+            typeface = Fonts.bold(ctx)
+            gravity = Gravity.CENTER
+            setPadding(0, UI.dp(ctx, 12), 0, UI.dp(ctx, 12))
+            this.tag = tag
+        }
+        themedButtons.add(t)
+        return t
+    }
+
+    /** ردیف اطلاعاتی «درباره»: عنوان + مقدار */
+    private fun infoRow(title: String, value: String): View {
+        val ctx = act
+        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
+        val tv = UI.label(ctx, title, 14f, p.text)
+        tv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val vv = UI.label(ctx, value, 13f, p.muted)
+        vv.tag = "sub"
+        row.addView(tv)
+        row.addView(vv)
         return row
     }
 
@@ -273,6 +347,8 @@ class SettingsUi(private val act: MainActivity) {
         }
         // رنگ لیبل‌ها
         recolor(root, p)
+        // خطوط جداکننده
+        recolorDividers(root, p)
         // چیپ‌های تم
         for (i in 0 until themeChips.childCount) {
             val chip = themeChips.getChildAt(i) as TextView
@@ -282,21 +358,36 @@ class SettingsUi(private val act: MainActivity) {
                 stroke = if (active) p.accent else p.line)
             chip.setTextColor(if (active) p.accent else p.text)
         }
-        logBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
-        logBtn.setTextColor(p.text)
-        resetBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
-        resetBtn.setTextColor(p.bad)
+        for (b in themedButtons) {
+            b.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
+            b.setTextColor(if (b.tag == "bad") p.bad else p.text)
+        }
         // سوییچ‌های لوکس — هم‌رنگ تم فعلی
         for (sw in allSwitches) sw.palette = p
     }
 
     private fun recolor(v: View, p: Palette) {
         if (v is TextView) {
-            // فقط لیبل‌های متنی ساده رنگ بگیرند؛ دکمه‌ها بعداً ست می‌شوند
-            if (v.background !is android.graphics.drawable.GradientDrawable) v.setTextColor(p.text)
+            if (v.background !is android.graphics.drawable.GradientDrawable)
+                v.setTextColor(when (v.tag) {
+                    "sub" -> p.muted
+                    "accent" -> p.accent
+                    "bad" -> p.bad
+                    else -> p.text
+                })
         }
         if (v is android.view.ViewGroup) {
             for (i in 0 until v.childCount) recolor(v.getChildAt(i), p)
+        }
+    }
+
+    private fun recolorDividers(v: View, p: Palette) {
+        if (v is View && v.layoutParams is LinearLayout.LayoutParams &&
+            v.layoutParams.height == UI.dp(act, 1) && v !is TextView) {
+            v.setBackgroundColor(UI.alpha(p.line, 0.65f))
+        }
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) recolorDividers(v.getChildAt(i), p)
         }
     }
 
