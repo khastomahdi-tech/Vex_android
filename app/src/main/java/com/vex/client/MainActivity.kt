@@ -18,6 +18,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -44,6 +45,8 @@ class MainActivity : ComponentActivity() {
         private set
     lateinit var settingsUi: SettingsUi
         private set
+    lateinit var statsUi: StatsUi
+        private set
     lateinit var dialogs: DialogsHelper
         private set
 
@@ -58,9 +61,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var screenHome: View
     private lateinit var screenServers: View
     private lateinit var screenSettings: View
-    private lateinit var navHome: TextView
-    private lateinit var navServers: TextView
-    private lateinit var navSettings: TextView
+    private lateinit var screenStats: View
+
+    // ---- اجزای هدر ----
+    private lateinit var tgBtn: FrameLayout
+    private lateinit var tgIc: IconView
+    private lateinit var titleTv: TextView
+    private lateinit var crownIc: IconView
+    private lateinit var vBadge: ImageView
+
+    // ---- اجزای نوار پایین ----
+    private class NavItem(val item: LinearLayout, val icon: IconView, val label: TextView)
+    private val navItems = ArrayList<NavItem>(4)
     private var currentTab = 0
 
     private val main = Handler(Looper.getMainLooper())
@@ -126,12 +138,16 @@ class MainActivity : ComponentActivity() {
         homeUi = HomeUi(this)
         serversUi = ServersUi(this)
         settingsUi = SettingsUi(this)
+        statsUi = StatsUi(this)
         screenHome = homeUi.build()
         screenServers = serversUi.build()
         screenSettings = settingsUi.build()
+        screenStats = statsUi.build()
         body.addView(screenHome, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         body.addView(screenServers, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        body.addView(screenStats, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         body.addView(screenSettings, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -149,7 +165,10 @@ class MainActivity : ComponentActivity() {
         netMs = VexVpnService.netMs
 
         VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
-        VexVpnService.statsListener = { dn, up, tdn, tup -> main.post { homeUi.onStats(dn, up, tdn, tup) } }
+        VexVpnService.statsListener = { dn, up, tdn, tup -> main.post {
+            homeUi.onStats(dn, up, tdn, tup)
+            statsUi.onStats(dn, up, tdn, tup)
+        } }
         VexVpnService.netListener = { ok, ms, msg -> main.post { onNetResult(ok, ms, msg) } }
 
         applyThemeAll()
@@ -173,81 +192,128 @@ class MainActivity : ComponentActivity() {
 
     // ---------------- هدر / ناوبری ----------------
 
+    /** هدر سلطنتی: دکمه‌ی تلگرام + تاج و VEX CLIENT طلایی + نشان V با غار */
     private fun buildHeader(): View {
         val ctx = this
-        val header = UI.row(ctx)
-        header.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 14), UI.dp(ctx, 18), UI.dp(ctx, 10))
+        val header = FrameLayout(ctx)
         header.tag = "header"
+        header.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 6))
 
-        val logo = TextView(ctx).apply {
-            text = "V"
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
+        // شیر محو پشت عنوان
+        val bgLion = ImageView(ctx).apply {
+            setImageResource(R.drawable.art_lion)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            alpha = 0.10f
+        }
+        header.addView(bgLion, FrameLayout.LayoutParams(
+            UI.dp(ctx, 118), UI.dp(ctx, 118), Gravity.CENTER))
+
+        // عنوان مرکزی: تاج + VEX CLIENT
+        val titleCol = UI.col(ctx).apply { gravity = Gravity.CENTER }
+        crownIc = IconView(ctx, "crown").apply { bold = true }
+        titleTv = TextView(ctx).apply {
+            text = "VEX CLIENT"
+            textSize = 21f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
             gravity = Gravity.CENTER
+            includeFontPadding = false
+            letterSpacing = 0.12f
         }
-        val lp = LinearLayout.LayoutParams(UI.dp(ctx, 44), UI.dp(ctx, 44))
-        header.addView(logo, lp)
+        titleCol.addView(crownIc, LinearLayout.LayoutParams(
+            UI.dp(ctx, 22), UI.dp(ctx, 18)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        titleCol.addView(titleTv)
+        header.addView(titleCol, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER))
 
-        val col = UI.col(ctx)
-        val t1 = UI.label(ctx, "VEX CLIENT", 16f, Color.WHITE, bold = true)
-        val t2 = UI.label(ctx, "کلاینت VPN با هسته‌ی sing-box", 10.5f, Color.WHITE)
-        t2.alpha = 0.75f
-        col.addView(t1)
-        col.addView(t2)
-        col.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = UI.dp(ctx, 12)
+        // نشان V با غار (سمت راست)
+        vBadge = ImageView(ctx).apply {
+            setImageResource(R.drawable.art_vex_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        header.addView(col)
+        header.addView(vBadge, FrameLayout.LayoutParams(
+            UI.dp(ctx, 48), UI.dp(ctx, 48),
+            Gravity.RIGHT or Gravity.CENTER_VERTICAL))
 
-        val stateChip = TextView(ctx).apply {
-            id = View.generateViewId()
-            text = "—"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setPadding(UI.dp(ctx, 12), UI.dp(ctx, 5), UI.dp(ctx, 12), UI.dp(ctx, 5))
-            tag = "stateChip"
+        // دکمه‌ی تلگرام (سمت چپ) — اشتراک‌گذاری برنامه
+        tgBtn = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
         }
-        header.addView(stateChip)
+        tgIc = IconView(ctx, "tg").apply { bold = true }
+        tgBtn.addView(tgIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
+        tgBtn.setOnClickListener {
+            try {
+                val i = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, "VEX CLIENT — https://github.com/khastomahdi-tech/Vex_android")
+                }
+                startActivity(Intent.createChooser(i, "اشتراک‌گذاری VEX CLIENT"))
+            } catch (_: Throwable) {}
+        }
+        header.addView(tgBtn, FrameLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46), Gravity.LEFT or Gravity.CENTER_VERTICAL))
+
         return header
     }
 
+    /** نوار پایین چهارتیکه با آیکون: خانه / کانفیگها / آمار / تنظیمات */
     private fun buildBottomNav(): View {
         val ctx = this
         val bar = UI.row(ctx)
-        bar.setPadding(UI.dp(ctx, 10), UI.dp(ctx, 6), UI.dp(ctx, 10), UI.dp(ctx, 6))
-
-        navHome = navItem("خانه")
-        navServers = navItem("سرورها")
-        navSettings = navItem("تنظیمات")
-        for ((v, idx) in listOf(navHome to 0, navServers to 1, navSettings to 2)) {
-            v.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            v.setOnClickListener { switchTab(idx) }
-            bar.addView(v)
-        }
         bar.tag = "nav"
+        bar.setPadding(UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6))
+        bar.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(UI.dp(ctx, 12), UI.dp(ctx, 6), UI.dp(ctx, 12), UI.dp(ctx, 10))
+        }
+        navItems.clear()
+        // در RTL اولین فرزند سمت راست است — ترتیب مطابق طرح: خانه، کانفیگها، آمار، تنظیمات
+        val defs = listOf(
+            Triple("خانه", "home", 0),
+            Triple("کانفیگها", "list", 1),
+            Triple("آمار", "chart", 2),
+            Triple("تنظیمات", "gear", 3)
+        )
+        for ((lbl, ic, idx) in defs) {
+            val item = UI.col(ctx).apply {
+                gravity = Gravity.CENTER
+                setPadding(UI.dp(ctx, 10), UI.dp(ctx, 7), UI.dp(ctx, 10), UI.dp(ctx, 7))
+            }
+            val iv = IconView(ctx, ic)
+            val tv = UI.label(ctx, lbl, 11f, Themes.goldMuted, bold = true).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, UI.dp(ctx, 3), 0, 0)
+            }
+            item.addView(iv, LinearLayout.LayoutParams(UI.dp(ctx, 22), UI.dp(ctx, 22)))
+            item.addView(tv)
+            item.setOnClickListener { switchTab(idx) }
+            item.layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(UI.dp(ctx, 2), 0, UI.dp(ctx, 2), 0)
+            }
+            bar.addView(item)
+            navItems.add(NavItem(item, iv, tv))
+        }
         return bar
-    }
-
-    private fun navItem(label: String): TextView = TextView(this).apply {
-        text = label
-        textSize = 13f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.CENTER
-        setPadding(0, UI.dp(this@MainActivity, 8), 0, UI.dp(this@MainActivity, 8))
     }
 
     fun switchTab(idx: Int) {
         currentTab = idx
         screenHome.visibility = if (idx == 0) View.VISIBLE else View.GONE
         screenServers.visibility = if (idx == 1) View.VISIBLE else View.GONE
-        screenSettings.visibility = if (idx == 2) View.VISIBLE else View.GONE
+        screenStats.visibility = if (idx == 2) View.VISIBLE else View.GONE
+        screenSettings.visibility = if (idx == 3) View.VISIBLE else View.GONE
         val p = Themes.resolve(this, store.settings.theme)
-        navHome.setTextColor(if (idx == 0) p.accent else p.muted)
-        navServers.setTextColor(if (idx == 1) p.accent else p.muted)
-        navSettings.setTextColor(if (idx == 2) p.accent else p.muted)
+        for ((i, n) in navItems.withIndex()) {
+            val active = i == idx
+            n.item.background = if (active) UI.card(this, p, 16, fillColor = p.accent) else null
+            n.icon.iconColor = if (active) p.onAccent else Themes.goldMuted
+            n.label.setTextColor(if (active) p.onAccent else Themes.goldMuted)
+        }
         if (idx == 1) serversUi.render()
-        if (idx == 2) settingsUi.refresh()
+        if (idx == 2) statsUi.render()
+        if (idx == 3) settingsUi.refresh()
     }
 
     fun gotoServers() = switchTab(1)
@@ -257,50 +323,28 @@ class MainActivity : ComponentActivity() {
     fun applyThemeAll() {
         val p = Themes.resolve(this, store.settings.theme)
         root.setBackgroundColor(p.bg)
-        // هدر
-        val header = root.findViewWithTag<LinearLayout>("header")
-        header?.setBackgroundColor(p.bg2)
-        header?.findViewWithTag<TextView>("stateChip")?.let { chip ->
-            chip.background = GradientDrawable().apply {
-                cornerRadius = UI.dp(this@MainActivity, 20).toFloat()
-                setColor(when (connectionState) {
-                    "connected" -> UI.alpha(p.good, 0.16f)
-                    "connecting" -> UI.alpha(p.mid, 0.16f)
-                    else -> p.card
-                })
+        // هدر سلطنتی — شفاف روی پس‌زمینه، عناصر طلایی
+        val header = root.findViewWithTag<FrameLayout>("header")
+        header?.let {
+            tgBtn.background = GradientDrawable().apply {
+                cornerRadius = UI.dp(this@MainActivity, 15).toFloat()
+                setColor(p.card2)
+                setStroke(UI.dp(this@MainActivity, 2), p.line)
             }
-            chip.setTextColor(when (connectionState) {
-                "connected" -> p.good
-                "connecting" -> p.mid
-                else -> p.muted
-            })
-            chip.text = when (connectionState) {
-                "connected" -> "متصل"
-                "connecting" -> "در حال اتصال"
-                else -> "قطع"
-            }
+            tgIc.iconColor = p.accent
+            crownIc.iconColor = p.accent
+            titleTv.setTextColor(p.accent)
+            titleTv.setShadowLayer(UI.dp(this@MainActivity, 5).toFloat(), 0f, 0f,
+                UI.alpha(p.accent, 0.55f))
         }
-        // لوگو و متن هدر
-        if (header != null && header.childCount > 0) {
-            val logo = header.getChildAt(0) as? TextView
-            logo?.background = GradientDrawable().apply {
-                cornerRadius = UI.dp(this@MainActivity, 12).toFloat()
-                setColor(p.accent)
-            }
-            logo?.setTextColor(p.onAccent)
-            val col = header?.getChildAt(1) as? LinearLayout
-            if (col != null && col.childCount >= 2) {
-                (col.getChildAt(0) as? TextView)?.setTextColor(p.text)
-                (col.getChildAt(1) as? TextView)?.setTextColor(p.muted)
-            }
-        }
-        // نوار پایین
+        // نوار پایین طلایی
         val nav = root.findViewWithTag<LinearLayout>("nav")
-        nav?.setBackgroundColor(p.bg2)
+        nav?.background = UI.card(this, p, 24, stroke = p.line, fillColor = p.bg2)
         switchTab(currentTab)
         homeUi.applyTheme(p)
         serversUi.applyTheme(p)
         settingsUi.applyTheme(p)
+        statsUi.applyTheme(p)
     }
 
     fun renderAll() {

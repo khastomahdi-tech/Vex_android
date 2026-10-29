@@ -38,7 +38,7 @@ class ServersUi(private val act: MainActivity) {
 
         // ---- نوار بالا
         val top = UI.row(ctx)
-        title = UI.label(ctx, "سرورها", 19f, p.text, bold = true)
+        title = UI.label(ctx, "کانفیگها", 19f, p.text, bold = true)
         title.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         addBtn = UI.primaryButton(ctx, "+ افزودن", p)
         addBtn.setOnClickListener { act.showAddMenu() }
@@ -104,7 +104,7 @@ class ServersUi(private val act: MainActivity) {
         listContainer.removeAllViews()
         val ctx = act
         val servers = act.store.servers
-        title.text = "سرورها (${servers.size})"
+        title.text = "کانفیگها (${servers.size})"
         if (servers.isEmpty()) {
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE

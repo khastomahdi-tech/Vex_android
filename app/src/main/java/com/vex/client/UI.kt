@@ -59,16 +59,31 @@ object Themes {
         bad = 0xFFE85D5D.toInt(), glow = 0x47E8B923, isShir = true
     )
 
+    /**
+     * تم سلطنتی VEX — مشکی خالص با طلایی حروف‌نگاری‌شده (شیر بالدار و تاج).
+     * دقیقاً مطابق طرح مرجع: پس‌زمینه مشکی، کارت‌های مشکی با حاشیه‌ی طلایی،
+     * اکسنت طلایی E8B923 و متن‌های کرم‌رنگ گرم.
+     */
+    fun royal() = Palette(
+        bg = 0xFF000000.toInt(), bg2 = 0xFF080704.toInt(),
+        card = 0xFF0B0906.toInt(), card2 = 0xFF171204.toInt(),
+        line = 0xFF856A22.toInt(), text = 0xFFF3E5C6.toInt(), muted = 0xFFA8905C.toInt(),
+        accent = 0xFFE8B923.toInt(), onAccent = 0xFF1A1304.toInt(),
+        good = 0xFF6FCF5A.toInt(), mid = 0xFFE8B923.toInt(), slow = 0xFFE88B3B.toInt(),
+        bad = 0xFFE85D5D.toInt(), glow = 0x59E8B923, isShir = false
+    )
+
+    /** رنگ طلاییِ کم‌رنگ برای آیکون‌های غیرفعال نوار پایین */
+    val goldMuted: Int = 0xFFC9A94E.toInt()
+
     /** انتخاب پالت بر اساس تنظیمات و وضعیت تیره/روشن سیستم */
     fun resolve(context: Context, setting: String): Palette = when (setting) {
         "light" -> light()
         "dark" -> dark()
         "shir" -> shir()
-        else -> {
-            val night = (context.resources.configuration.uiMode and
-                    Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            if (night) dark() else light()
-        }
+        "royal" -> royal()
+        // پیش‌فرض برنامه (system) همان تم سلطنتی است — ظاهر مرجع VEX
+        else -> royal()
     }
 }
 
@@ -142,6 +157,14 @@ object UI {
                 setColor(p.card2)
                 setStroke(dp(context, 1), p.line)
             }
+        }
+
+    /** پس‌زمینه‌ی دکمه‌ی شناور «+» — دایره‌ی تیره با حلقه‌ی طلایی */
+    fun fabBg(context: Context, p: Palette): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(p.card2)
+            setStroke(dp(context, 2), p.accent)
         }
 
     fun row(context: Context): LinearLayout = LinearLayout(context).apply {

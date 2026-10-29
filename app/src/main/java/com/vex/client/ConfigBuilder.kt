@@ -441,26 +441,37 @@ object ConfigBuilder {
             }
             else -> throw IllegalArgumentException("پروتکل پشتیبانی‌نشده: $proto")
         }
-        if (proto != "hysteria2") {
-            tls(p, host)?.let { o.put("tls", it) }
-        } else {
-            // hysteria2 همیشه TLS (QUIC) دارد
-            tls(p, host, always = true)?.let { o.put("tls", it) }
-        }
+        // hysteria2 ذاتاً TLS دارد؛ trojan هم پیش‌فرض TLS (مانند v2rayNG)
+        tls(p, host, always = proto == "hysteria2", proto = proto)?.let { o.put("tls", it) }
         transport(p)?.let { o.put("transport", it) }
         return o
     }
 
-    private fun tls(p: Map<String, String>, host: String, always: Boolean = false): JSONObject? {
-        var sec = p["security"] ?: "none"
-        if (sec.isEmpty()) sec = if (always) "tls" else "none"
+    /**
+     * ساخت بلوک TLS:
+     *  - always = پروتکل‌هایی که ذاتاً TLS دارند (hysteria2)
+     *  - proto == trojan هم ذاتاً TLS دارد (مانند v2rayNG)؛ خیلی از لینک‌های trojan
+     *    پارامتر security را نمی‌آورند و اگر TLS نگذاریم «اتصال می‌شود ولی هیچ داده‌ای
+     *    رد و بدل نمی‌شود» — دقیقاً همان باگ معروف.
+     *  - اگر آدرس سرور IP باشد و پارامتر host/sni داده شده باشد، از آن به‌عنوان server_name
+     *    استفاده می‌کنیم (کانفیگ‌های CDN مثل Cloudflare با SNI=IP اصلاً handshake نمی‌شوند).
+     */
+    private fun tls(p: Map<String, String>, host: String, always: Boolean = false, proto: String = ""): JSONObject? {
+        val explicit = p["security"]?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
+        val sec = explicit ?: if (always || proto == "trojan") "tls" else "none"
         if (sec == "none" && !always) return null
-        val insecure = p["allowInsecure"] == "1" || p["insecure"] == "1"
-                || p["allowInsecure"]?.equals("true", true) == true
-                || p["insecure"]?.equals("true", true) == true
+        val insecure = listOf("allowInsecure", "insecure", "skipCertVerify", "skip_cert_insecure", "skipCert-verify").any { k ->
+            val v = p[k]
+            v?.equals("1", true) == true || v?.equals("true", true) == true
+        }
+        // server_name: sni ← پارامتر host (وقتی سرور IP است؛ سناریوی CDN) ← خود آدرس سرور
+        val hostParam = p["host"]?.split(",")?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
+        val sniRaw = p["sni"]?.takeIf { it.isNotEmpty() }
+            ?: (if (isIpAddress(host)) hostParam else null)
+            ?: host
         val t = JSONObject()
             .put("enabled", true)
-            .put("server_name", p["sni"]?.takeIf { it.isNotEmpty() } ?: host)
+            .put("server_name", sniRaw)
         if (insecure) t.put("insecure", true)
         p["alpn"]?.takeIf { it.isNotEmpty() }?.let { raw ->
             t.put("alpn", JSONArray().apply { raw.split(",").forEach { a -> put(a.trim()) } })

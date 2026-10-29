@@ -1,212 +1,389 @@
 package com.vex.client
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
-import android.widget.HorizontalScrollView
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * صفحه‌ی اصلی نیتیو: دکمه‌ی پاور، وضعیت، آمار ترافیک، کارت سرور فعال.
- * بدون WebView — کاملاً Kotlin.
+ * صفحه‌ی اصلی VEX — دقیقاً مطابق طرح مرجع:
+ *  کارت وضعیت (دکمه‌ی کره‌ی زمین + «قطع است» + نقش شیر و خورشید)،
+ *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی تاج‌دار،
+ *  دو کارت آمار (دانلود / آپلود) با قاب دوبل طلایی،
+ *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل با تاج + پینگ)،
+ *  دکمه‌ی شناور «+».
  */
 class HomeUi(private val act: MainActivity) {
 
-    lateinit var root: LinearLayout
+    lateinit var root: FrameLayout
         private set
 
     private lateinit var power: PowerButtonView
+    private lateinit var statusCard: LinearLayout
     private lateinit var stateText: TextView
     private lateinit var netText: TextView
-    private lateinit var statsCard: LinearLayout
+    private lateinit var globeBtn: FrameLayout
+    private lateinit var globeIc: IconView
+    private lateinit var lionSunIv: ImageView
+
     private lateinit var dnSpeed: TextView
     private lateinit var upSpeed: TextView
     private lateinit var dnTotal: TextView
     private lateinit var upTotal: TextView
-    private lateinit var serverCard: LinearLayout
-    private lateinit var serverName: TextView
-    private lateinit var serverSub: TextView
-    private lateinit var serverPing: TextView
-    private lateinit var serverBadge: TextView
-    private lateinit var serverEmptyHint: TextView
-    private lateinit var testBtn: TextView
-    private lateinit var detailsBtn: TextView
-    private lateinit var versionText: TextView
+    private lateinit var dnLabel: TextView
+    private lateinit var upLabel: TextView
+    private lateinit var dnIc: IconView
+    private lateinit var upIc: IconView
+    private lateinit var dnOuter: LinearLayout
+    private lateinit var upOuter: LinearLayout
+    private lateinit var dnInner: LinearLayout
+    private lateinit var upInner: LinearLayout
 
-    private var p: Palette = Themes.dark()
+    private lateinit var serverCard: LinearLayout
+    private lateinit var serverLabel: TextView
+    private lateinit var serverName: TextView
+    private lateinit var serverIp: TextView
+    private lateinit var serverBadge: LinearLayout
+    private lateinit var serverBadgeText: TextView
+    private lateinit var serverBadgeCrown: IconView
+    private lateinit var serverPing: TextView
+    private lateinit var serverPingIc: IconView
+
+    private lateinit var fab: FrameLayout
+    private lateinit var fabIc: IconView
+
+    private var p: Palette = Themes.royal()
 
     fun build(): View {
         val ctx = act
         p = Themes.resolve(ctx, act.store.settings.theme)
 
-        root = UI.col(ctx)
-        root.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 12))
+        root = FrameLayout(ctx)
 
-        // ---- دکمه‌ی پاور
-        power = PowerButtonView(ctx)
-        val pw = UI.dp(ctx, 188)
-        val powerWrap = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        power.layoutParams = LinearLayout.LayoutParams(pw, pw)
-        powerWrap.addView(power)
-        power.setOnClickListener { act.togglePower() }
-        root.addView(powerWrap)
+        val scroll = ScrollView(ctx).apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val col = UI.col(ctx)
+        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 96))
 
-        // ---- وضعیت
-        stateText = TextView(ctx).apply {
-            textSize = 23f; typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setPadding(0, UI.dp(ctx, 16), 0, UI.dp(ctx, 2))
-        }
-        root.addView(stateText)
+        col.addView(buildStatusCard())
+        col.addView(buildPowerZone())
+        col.addView(buildStatsRow())
+        col.addView(buildServerCard())
 
-        netText = TextView(ctx).apply {
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setPadding(UI.dp(ctx, 10), 0, UI.dp(ctx, 10), 0)
-        }
-        root.addView(netText)
+        scroll.addView(col, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        root.addView(scroll, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
-        // ---- کارت آمار
-        statsCard = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 12), UI.dp(ctx, 16), UI.dp(ctx, 12))
-        }
-        val grid = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-
-        fun statCol(lbl: String, tv: TextView): LinearLayout {
-            val c = UI.col(ctx)
-            c.gravity = Gravity.CENTER
-            val l = UI.label(ctx, lbl, 11.5f, p.muted)
-            l.gravity = Gravity.CENTER
-            tv.gravity = Gravity.CENTER
-            tv.textDirection = View.TEXT_DIRECTION_LTR
-            tv.textSize = 15f
-            tv.typeface = Typeface.DEFAULT_BOLD
-            c.addView(l)
-            c.addView(tv)
-            return c
-        }
-        dnSpeed = TextView(ctx); upSpeed = TextView(ctx); dnTotal = TextView(ctx); upTotal = TextView(ctx)
-        val c1 = statCol("سرعت دانلود", dnSpeed)
-        val c2 = statCol("سرعت آپلود", upSpeed)
-        val c3 = statCol("مجموع دانلود", dnTotal)
-        val c4 = statCol("مجموع آپلود", upTotal)
-        for (c in arrayOf(c1, c2, c3, c4)) c.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        val row1 = UI.row(ctx); row1.addView(c1); row1.addView(c2)
-        val row2 = UI.row(ctx); row2.addView(c3); row2.addView(c4)
-        row2.setPadding(0, UI.dp(ctx, 10), 0, 0)
-        statsCard.addView(row1)
-        statsCard.addView(row2)
-        val statsWrap = LinearLayout(ctx).apply { setPadding(0, UI.dp(ctx, 14), 0, 0) }
-        statsWrap.addView(statsCard, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        root.addView(statsWrap)
-
-        // ---- کارت سرور فعال
-        serverCard = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 12), UI.dp(ctx, 16), UI.dp(ctx, 12))
-            setOnClickListener { act.gotoServers() }
-        }
-        val scRow = UI.row(ctx)
-        serverBadge = UI.pill(ctx, "—", p.card2, p.muted)
-        serverName = UI.label(ctx, "سروری انتخاب نشده", 16f, p.text, bold = true)
-        serverName.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = UI.dp(ctx, 8)
-        }
-        serverPing = UI.pill(ctx, "—", p.card2, p.muted)
-        scRow.addView(serverBadge)
-        scRow.addView(serverName)
-        scRow.addView(serverPing)
-        serverSub = UI.label(ctx, "برای انتخاب سرور ضربه بزنید", 12f, p.muted)
-        serverSub.setPadding(0, UI.dp(ctx, 6), 0, 0)
-        serverEmptyHint = serverSub
-        serverCard.addView(scRow)
-        serverCard.addView(serverSub)
-        val serverWrap = LinearLayout(ctx).apply { setPadding(0, UI.dp(ctx, 12), 0, 0) }
-        serverWrap.addView(serverCard, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        root.addView(serverWrap)
-
-        // ---- دکمه‌های تست
-        val btnRow = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, UI.dp(ctx, 14), 0, 0)
-        }
-        testBtn = UI.softButton(ctx, "تست اینترنت", p)
-        testBtn.setOnClickListener { act.testInternetNow() }
-        detailsBtn = UI.softButton(ctx, "جزئیات خطا", p)
-        detailsBtn.setOnClickListener { act.showErrDetails() }
-        testBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginEnd = UI.dp(ctx, 6)
-        }
-        detailsBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = UI.dp(ctx, 6)
-        }
-        btnRow.addView(testBtn); btnRow.addView(detailsBtn)
-        root.addView(btnRow)
-
-        versionText = UI.label(ctx, "VEX CLIENT v2.0.0 · هسته sing-box v1.11.15", 11f, p.muted)
-        versionText.gravity = Gravity.CENTER
-        versionText.setPadding(0, UI.dp(ctx, 18), 0, UI.dp(ctx, 4))
-        root.addView(versionText)
+        // ---- دکمه‌ی شناور + (افزودن کانفیگ)
+        fab = FrameLayout(ctx).apply { setPadding(UI.dp(ctx, 13), UI.dp(ctx, 13), UI.dp(ctx, 13), UI.dp(ctx, 13)) }
+        fabIc = IconView(ctx, "plus")
+        fab.addView(fabIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 28), UI.dp(ctx, 28), Gravity.CENTER))
+        fab.setOnClickListener { act.showAddMenu() }
+        root.addView(fab, FrameLayout.LayoutParams(
+            UI.dp(ctx, 56), UI.dp(ctx, 56),
+            Gravity.BOTTOM or Gravity.RIGHT).apply {
+            rightMargin = UI.dp(ctx, 20); bottomMargin = UI.dp(ctx, 16)
+        })
 
         applyTheme(p)
-        return ScrollView(ctx).also { sv ->
-            sv.addView(root)
-            sv.isFillViewport = true
-            sv.overScrollMode = View.OVER_SCROLL_NEVER
-        }
+        return root
     }
+
+    // ---------------------------------------------------------- کارت وضعیت
+
+    private fun buildStatusCard(): View {
+        val ctx = act
+        statusCard = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(UI.dp(ctx, 10), UI.dp(ctx, 10), UI.dp(ctx, 10), UI.dp(ctx, 10))
+            minimumHeight = UI.dp(ctx, 92)
+        }
+
+        // دکمه‌ی کره‌ی زمین (انتخاب سرور)
+        globeBtn = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12))
+        }
+        globeIc = IconView(ctx, "globe")
+        globeBtn.addView(globeIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 27), UI.dp(ctx, 27), Gravity.CENTER))
+        globeBtn.setOnClickListener { act.gotoServers() }
+        statusCard.addView(globeBtn, LinearLayout.LayoutParams(
+            UI.dp(ctx, 52), UI.dp(ctx, 52)))
+
+        // متن وضعیت
+        val textCol = UI.col(ctx).apply { gravity = Gravity.CENTER }
+        stateText = TextView(ctx).apply {
+            textSize = 19f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }
+        netText = TextView(ctx).apply {
+            textSize = 12f
+            gravity = Gravity.CENTER
+            maxLines = 2
+            setPadding(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0)
+        }
+        textCol.addView(stateText)
+        textCol.addView(netText)
+        textCol.layoutParams = LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0)
+        }
+        statusCard.addView(textCol)
+
+        // نقش برجسته‌ی شیر و خورشید
+        lionSunIv = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        statusCard.addView(lionSunIv, LinearLayout.LayoutParams(
+            UI.dp(ctx, 118), LinearLayout.LayoutParams.MATCH_PARENT))
+
+        return wrapCard(statusCard, topMarginDp = 0)
+    }
+
+    // ---------------------------------------------------------- ناحیه‌ی پاور
+
+    private fun buildPowerZone(): View {
+        val ctx = act
+        val zone = FrameLayout(ctx)
+
+        // شیر بالدار چپ (رو به راست = سمت مرکز)
+        val lionL = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        lionL.setImageResource(R.drawable.art_lion)
+        lionL.alpha = 0.88f
+        zone.addView(lionL, FrameLayout.LayoutParams(
+            UI.dp(ctx, 150), UI.dp(ctx, 160),
+            Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = UI.dp(ctx, 2) })
+
+        // شیر بالدار راست (آینه‌ی چپ)
+        val lionR = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            scaleX = -1f
+        }
+        lionR.setImageResource(R.drawable.art_lion)
+        lionR.alpha = 0.88f
+        zone.addView(lionR, FrameLayout.LayoutParams(
+            UI.dp(ctx, 150), UI.dp(ctx, 160),
+            Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 2) })
+
+        // دکمه‌ی پاور تاج‌دار
+        power = PowerButtonView(ctx)
+        power.setOnClickListener { act.togglePower() }
+        zone.addView(power, FrameLayout.LayoutParams(
+            UI.dp(ctx, 252), UI.dp(ctx, 252), Gravity.CENTER))
+
+        zone.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 270)).apply {
+            setMargins(0, UI.dp(ctx, 4), 0, UI.dp(ctx, 6))
+        }
+        return zone
+    }
+
+    // ---------------------------------------------------------- کارت‌های آمار
+
+    private fun buildStatsRow(): View {
+        val ctx = act
+
+        fun statCard(label: String, icon: String): LinearLayout {
+            val outer = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(UI.dp(ctx, 7), UI.dp(ctx, 7), UI.dp(ctx, 7), UI.dp(ctx, 7))
+            }
+            val inner = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(UI.dp(ctx, 10), UI.dp(ctx, 9), UI.dp(ctx, 10), UI.dp(ctx, 10))
+            }
+            val r1 = UI.row(ctx)
+            val lbl = UI.label(ctx, label, 14f, p.text, bold = true)
+            val ic = IconView(ctx, icon).apply { iconColor = p.accent; bold = true }
+            r1.addView(lbl)
+            r1.addView(ic, LinearLayout.LayoutParams(
+                UI.dp(ctx, 24), UI.dp(ctx, 24)).apply { marginStart = UI.dp(ctx, 7) })
+            inner.addView(r1)
+
+            val speed = TextView(ctx).apply {
+                textSize = 20f
+                typeface = Typeface.DEFAULT_BOLD
+                textDirection = View.TEXT_DIRECTION_LTR
+                gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                text = "0 B/s"
+            }
+            speed.setPadding(0, UI.dp(ctx, 6), 0, 0)
+            inner.addView(speed)
+
+            val total = TextView(ctx).apply {
+                textSize = 12f
+                textDirection = View.TEXT_DIRECTION_LTR
+                gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                text = "کل: 0 B"
+            }
+            total.setPadding(0, UI.dp(ctx, 2), 0, 0)
+            inner.addView(total)
+
+            outer.addView(inner, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+            if (icon == "down") { dnLabel = lbl; dnIc = ic; dnSpeed = speed; dnTotal = total; dnOuter = outer; dnInner = inner }
+            else { upLabel = lbl; upIc = ic; upSpeed = speed; upTotal = total; upOuter = outer; upInner = inner }
+            return outer
+        }
+
+        val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val dn = statCard("دانلود", "down")
+        val up = statCard("آپلود", "up")
+        row.addView(dn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(up, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = UI.dp(ctx, 8)
+        })
+        return wrapCard(row, topMarginDp = 2)
+    }
+
+    // ---------------------------------------------------------- کارت سرور
+
+    private fun buildServerCard(): View {
+        val ctx = act
+        serverCard = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(UI.dp(ctx, 14), UI.dp(ctx, 11), UI.dp(ctx, 14), UI.dp(ctx, 12))
+            setOnClickListener { act.gotoServers() }
+        }
+
+        serverLabel = UI.label(ctx, "سرور انتخابشده", 12f, p.muted)
+
+        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 7), 0, 0) }
+
+        // نام + IP
+        val nameCol = UI.col(ctx)
+        serverName = UI.label(ctx, "سروری انتخاب نشده", 16f, p.text, bold = true).apply {
+            maxLines = 1
+        }
+        serverIp = UI.label(ctx, "—", 12f, p.muted).apply {
+            textDirection = View.TEXT_DIRECTION_LTR
+            gravity = Gravity.RIGHT
+            setPadding(0, UI.dp(ctx, 2), 0, 0)
+        }
+        nameCol.addView(serverName)
+        nameCol.addView(serverIp)
+        nameCol.layoutParams = LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        row.addView(nameCol)
+
+        // نشان قرمز پروتکل با تاج
+        serverBadge = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(UI.dp(ctx, 9), UI.dp(ctx, 4), UI.dp(ctx, 9), UI.dp(ctx, 4))
+        }
+        serverBadgeText = UI.label(ctx, "—", 11f, Color.WHITE, bold = true)
+        serverBadgeCrown = IconView(ctx, "crown").apply { iconColor = Color.WHITE; bold = true }
+        serverBadge.addView(serverBadgeText)
+        serverBadge.addView(serverBadgeCrown, LinearLayout.LayoutParams(
+            UI.dp(ctx, 13), UI.dp(ctx, 13)).apply { marginStart = UI.dp(ctx, 5) })
+        row.addView(serverBadge, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 8)
+        })
+
+        // پینگ با آیکون آنتن
+        val pingBox = UI.row(ctx)
+        serverPing = UI.label(ctx, "—", 13.5f, p.good, bold = true).apply {
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        serverPingIc = IconView(ctx, "signal").apply { iconColor = p.good }
+        pingBox.addView(serverPing)
+        pingBox.addView(serverPingIc, LinearLayout.LayoutParams(
+            UI.dp(ctx, 19), UI.dp(ctx, 19)).apply { marginStart = UI.dp(ctx, 5) })
+        row.addView(pingBox, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 10)
+        })
+
+        serverCard.addView(serverLabel)
+        serverCard.addView(row)
+        return wrapCard(serverCard, topMarginDp = 10)
+    }
+
+    /** قاب دوبل طلایی دور کارت‌ها (مطابق حکاکی طرح مرجع) */
+    private fun wrapCard(inner: View, topMarginDp: Int): View {
+        val ctx = act
+        val wrap = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
+        }
+        wrap.addView(inner, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        wrap.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, topMarginDp), 0, 0)
+        }
+        return wrap
+    }
+
+    // ---------------------------------------------------------- تم
 
     fun applyTheme(np: Palette) {
         p = np
         val ctx = act
-        root.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 12))
+
+        // کارت وضعیت
+        statusCard.background = UI.card(ctx, p, 22, stroke = p.line, fillColor = p.card)
+        globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2)
+        globeIc.iconColor = p.accent
+        stateText.setTextColor(stateColor())
+        netText.setTextColor(if (act.connectionState == "connected" && act.netState == 2) p.mid else p.muted)
+        lionSunIv.setImageResource(R.drawable.art_lionsun)
+
+        // دکمه پاور
         power.palette = p
-        power.shir = p.isShir
-        stateText.setTextColor(p.text)
-        netText.setTextColor(p.muted)
-        statsCard.background = UI.card(ctx, p)
+
+        // کارت‌های آمار — قاب دوبل
+        dnOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card)
+        upOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card)
+        dnInner.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.5f), fillColor = Color.TRANSPARENT)
+        upInner.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.5f), fillColor = Color.TRANSPARENT)
+        dnLabel.setTextColor(p.text); upLabel.setTextColor(p.text)
+        dnIc.iconColor = p.accent; upIc.iconColor = p.accent
         dnSpeed.setTextColor(p.text); upSpeed.setTextColor(p.text)
-        dnTotal.setTextColor(p.text); upTotal.setTextColor(p.text)
-        // رنگ لیبل‌ها داخل ستون‌ها
-        colorStatLabels(statsCard, p)
-        serverCard.background = UI.card(ctx, p)
-        serverName.setTextColor(p.text)
-        serverSub.setTextColor(p.muted)
-        testBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
-        testBtn.setTextColor(p.text)
-        detailsBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
-        detailsBtn.setTextColor(p.text)
-        versionText.setTextColor(p.muted)
+        dnTotal.setTextColor(p.muted); upTotal.setTextColor(p.muted)
+
+        // کارت سرور
+        serverCard.background = UI.card(ctx, p, 20, stroke = p.line, fillColor = p.card)
+        serverLabel.setTextColor(p.muted)
+        serverIp.setTextColor(p.muted)
         renderServerCard()
+
+        // دکمه‌ی شناور
+        fab.background = UI.fabBg(ctx, p)
+        fabIc.iconColor = p.accent
     }
 
-    private fun colorStatLabels(card: LinearLayout, p: Palette) {
-        for (i in 0 until card.childCount) {
-            val row = card.getChildAt(i)
-            if (row is LinearLayout) {
-                for (j in 0 until row.childCount) {
-                    val col = row.getChildAt(j)
-                    if (col is LinearLayout && col.childCount >= 2) {
-                        (col.getChildAt(0) as? TextView)?.setTextColor(p.muted)
-                        (col.getChildAt(1) as? TextView)?.setTextColor(p.text)
-                    }
-                }
-            }
-        }
+    private fun stateColor(): Int = when (act.connectionState) {
+        "connected" -> p.good
+        "connecting" -> p.mid
+        else -> p.text
     }
 
     // ---------------------------------------------------------- رندر
 
     fun render() {
-        renderPower()
+        renderStatus()
         renderServerCard()
     }
 
-    private fun renderPower() {
+    private fun renderStatus() {
         val st = act.connectionState
         power.mode = when (st) {
             "connected" -> "on"
@@ -218,25 +395,19 @@ class HomeUi(private val act: MainActivity) {
             "connecting" -> "در حال اتصال…"
             else -> "قطع است"
         }
-        stateText.setTextColor(
-            when (st) {
-                "connected" -> p.good
-                "connecting" -> p.mid
-                else -> p.muted
-            }
-        )
-        when (st) {
+        stateText.setTextColor(stateColor())
+        netText.text = when (st) {
             "connected" -> when (act.netState) {
-                1 -> if (act.netMs >= 0) "اینترنت از مسیر سرور تأیید شد · ${act.netMs}ms"
-                else "اینترنت از مسیر سرور تأیید شد"
-                2 -> act.netMsg.ifEmpty { "تونل فعال است ولی اینترنت رد نشد" }
+                1 -> if (act.netMs >= 0) "اینترنت تأیید شد · ${act.netMs}ms" else "اینترنت تأیید شد"
+                2 -> (act.netMsg.ifEmpty { "تونل فعال است ولی اینترنت رد نشد" })
                 else -> "در حال تست اینترنت…"
             }
-            "connecting" -> "هسته sing-box در حال راه‌اندازی…"
-            else -> act.lastError.takeIf { it.isNotEmpty() } ?: "برای اتصال، دکمه را بزنید"
-        }.let { netText.text = it }
-        if (st != "connected") netText.setTextColor(if (act.netState == 2 && st != "connected") p.bad else p.muted)
-        else netText.setTextColor(if (act.netState == 2) p.mid else p.good)
+            "connecting" -> "در حال اتصال به سرور…"
+            else -> act.lastError.takeIf { it.isNotEmpty() }?.lineSequence()?.firstOrNull()
+                    ?: "برای اتصال دکمهی پاور را بزن"
+        }
+        netText.maxLines = if (st == "connected" && act.netState == 2) 3 else 2
+        netText.setTextColor(if (st == "connected" && act.netState == 2) p.mid else p.muted)
     }
 
     fun renderServerCard() {
@@ -244,34 +415,35 @@ class HomeUi(private val act: MainActivity) {
         if (s == null) {
             serverName.text = "سروری انتخاب نشده"
             serverName.setTextColor(p.muted)
-            serverBadge.text = "—"
-            serverBadge.background = UI.card(act, p, 20, fillColor = p.card2)
-            serverBadge.setTextColor(p.muted)
+            serverIp.text = "برای انتخاب، کارت را لمس کن"
+            serverBadgeText.text = "—"
+            serverBadge.background = UI.card(act, p, 10, fillColor = p.card2)
+            serverBadgeText.setTextColor(p.muted)
+            serverBadgeCrown.iconColor = p.muted
             serverPing.text = "—"
-            serverPing.background = UI.card(act, p, 20, fillColor = p.card2)
             serverPing.setTextColor(p.muted)
-            serverSub.text = "برای انتخاب سرور ضربه بزنید"
+            serverPingIc.iconColor = p.muted
             return
         }
         serverName.text = s.name
         serverName.setTextColor(p.text)
-        serverBadge.text = UI.protoLabel(s.protocol)
-        serverBadge.background = UI.card(act, p, 20, fillColor = UI.alpha(p.accent, 0.16f))
-        serverBadge.setTextColor(p.accent)
-        serverPing.text = UI.pingText(s.ping)
-        serverPing.background = UI.card(act, p, 20, fillColor = UI.alpha(UI.pingColor(p, s.ping), 0.16f))
-        serverPing.setTextColor(UI.pingColor(p, s.ping))
         val inf = try { LinkParser.info(s.raw) } catch (_: Throwable) { null }
-        val hp = inf?.host?.let { h -> inf.port?.let { po -> "$h:$po" } ?: h } ?: ""
-        serverSub.text = hp.ifEmpty { "برای تغییر ضربه بزنید" }
+        serverIp.text = inf?.host ?: "—"
+        serverBadgeText.text = UI.protoLabel(s.protocol)
+        serverBadge.background = UI.card(act, p, 10, fillColor = 0xFFC43A32.toInt())
+        serverBadgeText.setTextColor(Color.WHITE)
+        serverBadgeCrown.iconColor = Color.WHITE
+        serverPing.text = UI.pingText(s.ping)
+        serverPing.setTextColor(UI.pingColor(p, s.ping))
+        serverPingIc.iconColor = UI.pingColor(p, s.ping)
     }
 
     /** به‌روزرسانی آمار هر ثانیه از سرویس */
     fun onStats(dn: Long, up: Long, tdn: Long, tup: Long) {
         dnSpeed.text = "${UI.fmtBytes(dn)}/s"
         upSpeed.text = "${UI.fmtBytes(up)}/s"
-        dnTotal.text = UI.fmtBytes(tdn)
-        upTotal.text = UI.fmtBytes(tup)
+        dnTotal.text = "کل: ${UI.fmtBytes(tdn)}"
+        upTotal.text = "کل: ${UI.fmtBytes(tup)}"
     }
 
     /** حالت‌های اولیه‌ی آمار بر اساس snapshot سرویس */

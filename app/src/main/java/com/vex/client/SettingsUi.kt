@@ -50,6 +50,7 @@ class SettingsUi(private val act: MainActivity) {
         themeCard.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 14))
         themeCard.addView(sectionLabel(ctx, "تم"))
         themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 8), 0, 0) }
+        themeChips.addView(themeChip("سلطنتی VEX", "royal"))
         themeChips.addView(themeChip("سیستم", "system"))
         themeChips.addView(themeChip("تیره", "dark"))
         themeChips.addView(themeChip("روشن", "light"))
@@ -140,6 +141,12 @@ class SettingsUi(private val act: MainActivity) {
         note.setPadding(0, UI.dp(ctx, 10), 0, 0)
         advCard.addView(note)
         addCard(advCard)
+
+        // نسخه‌ی برنامه
+        val ver = UI.label(ctx, "VEX CLIENT v3.0.0 · هسته sing-box v1.11.15", 11f, p.muted)
+        ver.gravity = Gravity.CENTER
+        ver.setPadding(0, UI.dp(ctx, 16), 0, UI.dp(ctx, 4))
+        root.addView(ver)
 
         scroll.addView(root, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))

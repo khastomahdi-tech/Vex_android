@@ -58,6 +58,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         @Volatile var snapUp: Long = 0
         @Volatile var snapTDn: Long = 0
         @Volatile var snapTUp: Long = 0
+        /** زمان اتصال موفق برای محاسبه‌ی مدت جلسه در صفحه‌ی آمار */
+        @Volatile var connectedAtMs: Long = 0
 
         // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
         private val logBuf = ArrayDeque<String>(400)
@@ -160,6 +162,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 synchronized(stateLock) { if (gen != generation) return@thread }
                 verified = false
                 uiState = "connected"
+                connectedAtMs = System.currentTimeMillis()
                 startForeground(NOTIF_ID, notif("متصل است", "در حال تست اینترنت..."))
                 stateListener?.invoke("connected", "")
                 startNetTestLoop(gen)
@@ -192,9 +195,15 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         startForeground(NOTIF_ID, notif("متصل است", "اینترنت از مسیر سرور تأیید شد · ${ms}ms"))
                     } else {
                         verified = false
-                        netState = 2; netMsg = err; netMs = -1
-                        netListener?.invoke(false, -1, err)
-                        startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", err))
+                        netState = 2
+                        // دلیل واقعی را از لاگ هسته اضافه کن تا کاربر علت اصلی را ببیند
+                        // (مثلاً TLS handshake failure / authentication failed / timeout)
+                        val coreErr = lastCoreError()
+                        netMsg = "ترافیک از سرور رد نشد ($err)" +
+                                (coreErr?.let { "\nهسته: $it" } ?: "")
+                        netMs = -1
+                        netListener?.invoke(false, -1, netMsg)
+                        startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", netMsg))
                     }
                 }
                 // منتظر تایمر بعدی یا درخواست تست فوری
@@ -251,6 +260,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
         uiState = "stopped"
+        connectedAtMs = 0
         timer?.cancel(); timer = null
         testThread?.interrupt(); testThread = null
         try { tun?.close() } catch (_: Exception) {}
