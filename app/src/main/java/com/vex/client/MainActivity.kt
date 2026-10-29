@@ -199,14 +199,14 @@ class MainActivity : ComponentActivity() {
         header.tag = "header"
         header.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 6))
 
-        // شیر محو پشت عنوان
+        // شیر محو پشت عنوان (نقش باز بال‌گشوده مثل طرح مرجع)
         val bgLion = ImageView(ctx).apply {
             setImageResource(R.drawable.art_lion)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            alpha = 0.10f
+            alpha = 0.08f
         }
         header.addView(bgLion, FrameLayout.LayoutParams(
-            UI.dp(ctx, 118), UI.dp(ctx, 118), Gravity.CENTER))
+            UI.dp(ctx, 172), UI.dp(ctx, 96), Gravity.CENTER))
 
         // عنوان مرکزی: تاج + VEX CLIENT
         val titleCol = UI.col(ctx).apply { gravity = Gravity.CENTER }
@@ -297,7 +297,6 @@ class MainActivity : ComponentActivity() {
         }
         return bar
     }
-
     fun switchTab(idx: Int) {
         currentTab = idx
         screenHome.visibility = if (idx == 0) View.VISIBLE else View.GONE
@@ -307,7 +306,12 @@ class MainActivity : ComponentActivity() {
         val p = Themes.resolve(this, store.settings.theme)
         for ((i, n) in navItems.withIndex()) {
             val active = i == idx
-            n.item.background = if (active) UI.card(this, p, 16, fillColor = p.accent) else null
+            // قرص طلایی گرادیانی برای آیتم فعال (مطابق طرح مرجع)
+            n.item.background = if (active) android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = UI.dp(this@MainActivity, 16).toFloat()
+                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
+                orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
+            } else null
             n.icon.iconColor = if (active) p.onAccent else Themes.goldMuted
             n.label.setTextColor(if (active) p.onAccent else Themes.goldMuted)
         }

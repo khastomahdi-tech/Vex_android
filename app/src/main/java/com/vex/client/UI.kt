@@ -9,6 +9,29 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.res.ResourcesCompat
+
+/** فونت فارسی وزیرمتن — مطابق تایپوگرافی طرح مرجع VEX */
+object Fonts {
+    @Volatile private var reg: Typeface? = null
+    @Volatile private var bold: Typeface? = null
+
+    fun regular(ctx: Context): Typeface {
+        val c = reg
+        if (c != null) return c
+        return try {
+            ResourcesCompat.getFont(ctx, R.font.vazir_regular)?.also { reg = it } ?: Typeface.DEFAULT
+        } catch (_: Throwable) { Typeface.DEFAULT }
+    }
+
+    fun bold(ctx: Context): Typeface {
+        val c = bold
+        if (c != null) return c
+        return try {
+            ResourcesCompat.getFont(ctx, R.font.vazir_bold)?.also { bold = it } ?: regular(ctx)
+        } catch (_: Throwable) { regular(ctx) }
+    }
+}
 
 /** پالت رنگی یک تم */
 data class Palette(
@@ -92,11 +115,11 @@ object UI {
 
     fun dp(context: Context, v: Int): Int = (v * context.resources.displayMetrics.density).toInt()
 
-    fun card(context: Context, p: Palette, radiusDp: Int = 18, stroke: Int? = null, fillColor: Int? = null): GradientDrawable =
+    fun card(context: Context, p: Palette, radiusDp: Int = 18, stroke: Int? = null, fillColor: Int? = null, strokeW: Float = 1f): GradientDrawable =
         GradientDrawable().apply {
             cornerRadius = dp(context, radiusDp).toFloat()
             setColor(fillColor ?: p.card)
-            if (stroke != null) setStroke(dp(context, 1), stroke)
+            if (stroke != null) setStroke(dp(context, if (strokeW <= 1f) 1 else if (strokeW <= 1.5f) 2 else 3), stroke)
         }
 
     fun label(context: Context, text: String, sizeSp: Float, color: Int, bold: Boolean = false): TextView =
@@ -104,7 +127,7 @@ object UI {
             this.text = text
             textSize = sizeSp
             setTextColor(color)
-            typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            typeface = if (bold) Fonts.bold(context) else Fonts.regular(context)
         }
 
     fun pill(context: Context, text: String, bg: Int, fg: Int, bold: Boolean = true): TextView =
@@ -112,7 +135,7 @@ object UI {
             this.text = text
             textSize = 12f
             setTextColor(fg)
-            typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            typeface = if (bold) Fonts.bold(context) else Fonts.regular(context)
             gravity = Gravity.CENTER
             setPadding(dp(context, 10), dp(context, 3), dp(context, 10), dp(context, 3))
             background = GradientDrawable().apply {

@@ -22,7 +22,8 @@ data class VexSettings(
     var ipv6: Boolean = false,
     var mux: Boolean = false,
     var logLevel: String = "info",  // info | warning | debug
-    var autoConnect: Boolean = false
+    var autoConnect: Boolean = false,
+    var allowInsecure: Boolean = true  // رد کردن تأیید گواهی TLS — پیش‌فرض روشن برای سرورهای CDN/self-signed
 )
 
 /**
@@ -72,7 +73,8 @@ class ServersStore(context: Context) {
                 ipv6 = o.optBoolean("ipv6", false),
                 mux = o.optBoolean("mux", false),
                 logLevel = o.optString("logLevel", "info"),
-                autoConnect = o.optBoolean("autoConnect", false)
+                autoConnect = o.optBoolean("autoConnect", false),
+                allowInsecure = o.optBoolean("allowInsecure", true)
             )
         } catch (_: Throwable) { settings = VexSettings() }
     }
@@ -100,6 +102,7 @@ class ServersStore(context: Context) {
             .put("mux", settings.mux)
             .put("logLevel", settings.logLevel)
             .put("autoConnect", settings.autoConnect)
+            .put("allowInsecure", settings.allowInsecure)
             .toString()).apply()
     }
 
@@ -168,6 +171,7 @@ class ServersStore(context: Context) {
         .put("dns", settings.dns)
         .put("logLevel", settings.logLevel)
         .put("mux", settings.mux)
+        .put("allowInsecure", settings.allowInsecure)
         .toString()
 
     companion object {

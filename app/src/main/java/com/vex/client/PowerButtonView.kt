@@ -150,11 +150,11 @@ class PowerButtonView(context: Context) : View(context) {
             canvas.drawCircle(cx, cy, gr * 2.3f, fillP)
             fillP.shader = null
         }
-        glyph.strokeWidth = dp(5.2f)
+        glyph.strokeWidth = dp(5.6f)
         glyph.color = when (mode) {
             "on" -> 0xFFFFD868.toInt()
             "busy" -> UI.alpha(p.accent, 0.85f)
-            else -> 0xFFC9A94E.toInt()
+            else -> 0xFFE3B94F.toInt()
         }
         canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, glyph)
         rect.set(cx - gr, cy - gr, cx + gr, cy + gr)

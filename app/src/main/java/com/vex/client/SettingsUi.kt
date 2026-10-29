@@ -93,6 +93,7 @@ class SettingsUi(private val act: MainActivity) {
         connCard.addView(switchRow("پروتکل IPv6", act.store.settings.ipv6) { v -> act.store.settings.ipv6 = v; act.store.saveSettings() })
         connCard.addView(switchRow("دور زدن شبکه‌ی محلی (LAN)", act.store.settings.bypassLan) { v -> act.store.settings.bypassLan = v; act.store.saveSettings() })
         connCard.addView(switchRow("Mux (چندگانه‌سازی)", act.store.settings.mux) { v -> act.store.settings.mux = v; act.store.saveSettings() })
+        connCard.addView(switchRow("رد کردن تأیید گواهی TLS (allowInsecure)", act.store.settings.allowInsecure) { v -> act.store.settings.allowInsecure = v; act.store.saveSettings() })
         connCard.addView(switchRow("اتصال خودکار هنگام باز شدن برنامه", act.store.settings.autoConnect) { v -> act.store.settings.autoConnect = v; act.store.saveSettings() })
         addCard(connCard)
 
@@ -143,7 +144,7 @@ class SettingsUi(private val act: MainActivity) {
         addCard(advCard)
 
         // نسخه‌ی برنامه
-        val ver = UI.label(ctx, "VEX CLIENT v3.0.0 · هسته sing-box v1.11.15", 11f, p.muted)
+        val ver = UI.label(ctx, "VEX CLIENT v3.1.0 · هسته sing-box v1.11.15", 11f, p.muted)
         ver.gravity = Gravity.CENTER
         ver.setPadding(0, UI.dp(ctx, 16), 0, UI.dp(ctx, 4))
         root.addView(ver)
@@ -193,7 +194,7 @@ class SettingsUi(private val act: MainActivity) {
         val chip = UI.pill(ctx, text, p.card2, p.text)
         chip.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 9), UI.dp(ctx, 14), UI.dp(ctx, 9))
         chip.textSize = 13f
-        chip.typeface = Typeface.DEFAULT_BOLD
+        chip.typeface = Fonts.bold(ctx)
         chip.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginEnd = UI.dp(ctx, 8)

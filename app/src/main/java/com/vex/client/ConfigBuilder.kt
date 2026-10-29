@@ -26,8 +26,17 @@ object ConfigBuilder {
     /** پورت inbound محلی برای تست واقعی اتصال (فقط روی لوکال‌هاست گوش می‌دهد) */
     const val LOCAL_TEST_PORT = 19085
 
+    /**
+     * تنظیم کاربر «رد کردن تأیید گواهی TLS» (allowInsecure).
+     * در build() از JSON ورودی خوانده می‌شود و در tls() اعمال.
+     * پیش‌فرض true — چون خیلی از سرورها (مخصوصاً پشت Cloudflare با SNI ناهماهنگ یا
+     * گواهی self-signed) بدون این گزینه «وصل می‌شوند ولی هیچ داده‌ای رد و بدل نمی‌شود».
+     */
+    @Volatile private var globalAllowInsecure: Boolean = true
+
     fun build(input: String): String {
         val j = JSONObject(input)
+        globalAllowInsecure = j.optBoolean("allowInsecure", true)
         val raw = j.optString("raw").trim()
         val outbound = if (raw.startsWith("{")) fromManual(JSONObject(raw)) else fromLink(raw)
         outbound.put("tag", "proxy")
@@ -210,7 +219,7 @@ object ConfigBuilder {
     private fun normalizeTls(t: JSONObject, server: String): JSONObject {
         val out = JSONObject().put("enabled", true)
         out.put("server_name", t.optString("server_name").ifEmpty { server })
-        if (t.optBoolean("insecure")) out.put("insecure", true)
+        if (t.optBoolean("insecure") || globalAllowInsecure) out.put("insecure", true)
         t.optJSONArray("alpn")?.let { if (it.length() > 0) out.put("alpn", it) }
         t.optJSONObject("utls")?.let { u -> if (u.optBoolean("enabled")) out.put("utls", u) }
         t.optJSONObject("reality")?.let { r -> if (r.optBoolean("enabled")) out.put("reality", r) }
@@ -455,12 +464,18 @@ object ConfigBuilder {
      *    رد و بدل نمی‌شود» — دقیقاً همان باگ معروف.
      *  - اگر آدرس سرور IP باشد و پارامتر host/sni داده شده باشد، از آن به‌عنوان server_name
      *    استفاده می‌کنیم (کانفیگ‌های CDN مثل Cloudflare با SNI=IP اصلاً handshake نمی‌شوند).
+     *
+     * رفع قطعیِ «اتصال می‌شود ولی داده رد و بدل نمی‌شود»:
+     *  ۱) allowInsecure: پارامتر لینک OR تنظیم کاربر OR وقتی SNI مقدار IP است
+     *     (تأیید گواهی برای IP بدون IP-SAN همیشه شکست می‌خورد؛ بدون این، هیچ داده‌ای عبور نمی‌کند).
+     *  ۲) uTLS پیش‌فرض chrome برای پروتکل‌های TCP-TLS: ClientHello پیش‌فرض Go امضای
+     *     شناخته‌شده‌ی DPI است و وسط handshake ریست می‌شود — با uTLS مثل v2rayNG/Hidden حیلت می‌شود.
      */
     private fun tls(p: Map<String, String>, host: String, always: Boolean = false, proto: String = ""): JSONObject? {
         val explicit = p["security"]?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
         val sec = explicit ?: if (always || proto == "trojan") "tls" else "none"
         if (sec == "none" && !always) return null
-        val insecure = listOf("allowInsecure", "insecure", "skipCertVerify", "skip_cert_insecure", "skipCert-verify").any { k ->
+        val linkInsecure = listOf("allowInsecure", "insecure", "skipCertVerify", "skip_cert_insecure", "skipCert-verify").any { k ->
             val v = p[k]
             v?.equals("1", true) == true || v?.equals("true", true) == true
         }
@@ -472,17 +487,24 @@ object ConfigBuilder {
         val t = JSONObject()
             .put("enabled", true)
             .put("server_name", sniRaw)
-        if (insecure) t.put("insecure", true)
+        if (linkInsecure || globalAllowInsecure || isIpAddress(sniRaw)) t.put("insecure", true)
         p["alpn"]?.takeIf { it.isNotEmpty() }?.let { raw ->
             t.put("alpn", JSONArray().apply { raw.split(",").forEach { a -> put(a.trim()) } })
         }
-        // اثر انگشت uTLS: برای Reality الزامی است و برای TLS معمولی هم اگر fp داده شده باشد اعمال می‌شود
-        val fp = p["fp"]?.takeIf { it.isNotEmpty() }
+        // اثر انگشت uTLS: اول fp لینک؛ اگر نبود chrome برای پروتکل‌های TCP-TLS (ضد DPI)
+        val fpParam = p["fp"]?.trim()?.takeIf { it.isNotEmpty() }
+        val tcpTlsProto = proto in setOf("vless", "vmess", "trojan", "ss", "shadowsocks")
+        val fp = when {
+            fpParam != null && fpParam != "none" -> fpParam
+            fpParam == "none" -> null          // کاربر صریحاً uTLS را خاموش کرده
+            tcpTlsProto || sec == "reality" -> "chrome"
+            else -> null                        // QUIC-based (hysteria2/tuic) نیازی به uTLS ندارد
+        }
         if (sec == "reality") {
             t.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp ?: "chrome"))
             t.put("reality", JSONObject().put("enabled", true)
                 .put("public_key", p["pbk"] ?: "").put("short_id", p["sid"] ?: ""))
-        } else if (fp != null && fp != "none") {
+        } else if (fp != null) {
             t.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp))
         }
         return t

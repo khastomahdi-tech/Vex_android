@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 24
         targetSdk = 34
-        versionCode = 8
-        versionName = "3.0.0"
+        versionCode = 9
+        versionName = "3.1.0"
     }
 
     buildTypes {

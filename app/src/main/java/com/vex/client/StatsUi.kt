@@ -50,7 +50,7 @@ class StatsUi(private val act: MainActivity) {
             tv.gravity = Gravity.CENTER
             tv.textDirection = View.TEXT_DIRECTION_LTR
             tv.textSize = 19f
-            tv.typeface = Typeface.DEFAULT_BOLD
+            tv.typeface = Fonts.bold(act)
             tv.setPadding(0, UI.dp(ctx, 6), 0, 0)
             c.addView(tv)
             val l = UI.label(ctx, lbl, 12f, p.muted)
@@ -78,7 +78,7 @@ class StatsUi(private val act: MainActivity) {
             tv.gravity = Gravity.CENTER
             tv.textDirection = View.TEXT_DIRECTION_LTR
             tv.textSize = 17f
-            tv.typeface = Typeface.DEFAULT_BOLD
+            tv.typeface = Fonts.bold(act)
             c.addView(tv)
             val l = UI.label(ctx, lbl, 12f, p.muted)
             l.gravity = Gravity.CENTER

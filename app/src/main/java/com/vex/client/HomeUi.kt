@@ -2,7 +2,9 @@ package com.vex.client
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.LightingColorFilter
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -31,6 +33,7 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var globeBtn: FrameLayout
     private lateinit var globeIc: IconView
     private lateinit var lionSunIv: ImageView
+    private lateinit var lionPanel: FrameLayout
 
     private lateinit var dnSpeed: TextView
     private lateinit var upSpeed: TextView
@@ -40,6 +43,8 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var upLabel: TextView
     private lateinit var dnIc: IconView
     private lateinit var upIc: IconView
+    private lateinit var dnIcBox: FrameLayout
+    private lateinit var upIcBox: FrameLayout
     private lateinit var dnOuter: LinearLayout
     private lateinit var upOuter: LinearLayout
     private lateinit var dnInner: LinearLayout
@@ -125,11 +130,12 @@ class HomeUi(private val act: MainActivity) {
         val textCol = UI.col(ctx).apply { gravity = Gravity.CENTER }
         stateText = TextView(ctx).apply {
             textSize = 19f
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = Fonts.bold(ctx)
             gravity = Gravity.CENTER
         }
         netText = TextView(ctx).apply {
             textSize = 12f
+            typeface = Fonts.regular(ctx)
             gravity = Gravity.CENTER
             maxLines = 2
             setPadding(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0)
@@ -142,12 +148,16 @@ class HomeUi(private val act: MainActivity) {
         }
         statusCard.addView(textCol)
 
-        // نقش برجسته‌ی شیر و خورشید
+        // نقش برجسته‌ی شیر و خورشید داخل قاب حکاکی‌شده (مطابق طرح مرجع)
+        lionPanel = FrameLayout(ctx)
         lionSunIv = ImageView(ctx).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(UI.dp(ctx, 5), UI.dp(ctx, 4), UI.dp(ctx, 5), UI.dp(ctx, 4))
         }
-        statusCard.addView(lionSunIv, LinearLayout.LayoutParams(
-            UI.dp(ctx, 118), LinearLayout.LayoutParams.MATCH_PARENT))
+        lionPanel.addView(lionSunIv, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        statusCard.addView(lionPanel, LinearLayout.LayoutParams(
+            UI.dp(ctx, 124), LinearLayout.LayoutParams.MATCH_PARENT))
 
         return wrapCard(statusCard, topMarginDp = 0)
     }
@@ -158,14 +168,16 @@ class HomeUi(private val act: MainActivity) {
         val ctx = act
         val zone = FrameLayout(ctx)
 
-        // شیر بالدار چپ (رو به راست = سمت مرکز)
+        // شیر بالدار چپ (رو به راست = سمت مرکز) — برنزی تیره مطابق طرح مرجع
+        val bronze = LightingColorFilter(0xFFC7A75E.toInt(), 0xFF140C02.toInt())
         val lionL = ImageView(ctx).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         lionL.setImageResource(R.drawable.art_lion)
-        lionL.alpha = 0.88f
+        lionL.colorFilter = bronze
+        lionL.alpha = 0.9f
         zone.addView(lionL, FrameLayout.LayoutParams(
-            UI.dp(ctx, 150), UI.dp(ctx, 160),
+            UI.dp(ctx, 160), UI.dp(ctx, 168),
             Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = UI.dp(ctx, 2) })
 
         // شیر بالدار راست (آینه‌ی چپ)
@@ -174,9 +186,10 @@ class HomeUi(private val act: MainActivity) {
             scaleX = -1f
         }
         lionR.setImageResource(R.drawable.art_lion)
-        lionR.alpha = 0.88f
+        lionR.colorFilter = bronze
+        lionR.alpha = 0.9f
         zone.addView(lionR, FrameLayout.LayoutParams(
-            UI.dp(ctx, 150), UI.dp(ctx, 160),
+            UI.dp(ctx, 160), UI.dp(ctx, 168),
             Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 2) })
 
         // دکمه‌ی پاور تاج‌دار
@@ -204,29 +217,37 @@ class HomeUi(private val act: MainActivity) {
             }
             val inner = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(UI.dp(ctx, 10), UI.dp(ctx, 9), UI.dp(ctx, 10), UI.dp(ctx, 10))
+                setPadding(UI.dp(ctx, 11), UI.dp(ctx, 10), UI.dp(ctx, 11), UI.dp(ctx, 11))
             }
+            // ردیف اول: لیبل راست + آیکون دایره‌ای طلایی چپ (دو سر کارت — مطابق طرح)
             val r1 = UI.row(ctx)
-            val lbl = UI.label(ctx, label, 14f, p.text, bold = true)
+            val lbl = UI.label(ctx, label, 14.5f, p.text, bold = true)
+            lbl.layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            val icBox = FrameLayout(ctx)
             val ic = IconView(ctx, icon).apply { iconColor = p.accent; bold = true }
+            icBox.addView(ic, FrameLayout.LayoutParams(
+                UI.dp(ctx, 15), UI.dp(ctx, 15), Gravity.CENTER))
             r1.addView(lbl)
-            r1.addView(ic, LinearLayout.LayoutParams(
-                UI.dp(ctx, 24), UI.dp(ctx, 24)).apply { marginStart = UI.dp(ctx, 7) })
+            r1.addView(icBox, LinearLayout.LayoutParams(
+                UI.dp(ctx, 30), UI.dp(ctx, 30)))
             inner.addView(r1)
 
             val speed = TextView(ctx).apply {
-                textSize = 20f
-                typeface = Typeface.DEFAULT_BOLD
+                textSize = 21f
+                typeface = Fonts.bold(ctx)
                 textDirection = View.TEXT_DIRECTION_LTR
                 gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
                 text = "0 B/s"
             }
-            speed.setPadding(0, UI.dp(ctx, 6), 0, 0)
+            speed.setPadding(0, UI.dp(ctx, 7), 0, 0)
             inner.addView(speed)
 
             val total = TextView(ctx).apply {
                 textSize = 12f
-                textDirection = View.TEXT_DIRECTION_LTR
+                typeface = Fonts.regular(ctx)
+                // RTL طبیعی مثل طرح مرجع (کل: 0 B) ولی چسبیده به لبه‌ی چپ کارت
+                textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL
                 gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
                 text = "کل: 0 B"
             }
@@ -236,8 +257,11 @@ class HomeUi(private val act: MainActivity) {
             outer.addView(inner, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
-            if (icon == "down") { dnLabel = lbl; dnIc = ic; dnSpeed = speed; dnTotal = total; dnOuter = outer; dnInner = inner }
-            else { upLabel = lbl; upIc = ic; upSpeed = speed; upTotal = total; upOuter = outer; upInner = inner }
+            if (icon == "down") {
+                dnLabel = lbl; dnIc = ic; dnIcBox = icBox; dnSpeed = speed; dnTotal = total; dnOuter = outer; dnInner = inner
+            } else {
+                upLabel = lbl; upIc = ic; upIcBox = icBox; upSpeed = speed; upTotal = total; upOuter = outer; upInner = inner
+            }
             return outer
         }
 
@@ -338,29 +362,39 @@ class HomeUi(private val act: MainActivity) {
         p = np
         val ctx = act
 
-        // کارت وضعیت
-        statusCard.background = UI.card(ctx, p, 22, stroke = p.line, fillColor = p.card)
-        globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2)
+        // کارت وضعیت — قاب برجسته‌ی طلایی مثل طرح
+        statusCard.background = UI.card(ctx, p, 22, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
+        globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         globeIc.iconColor = p.accent
         stateText.setTextColor(stateColor())
         netText.setTextColor(if (act.connectionState == "connected" && act.netState == 2) p.mid else p.muted)
+        // نقش شیر و خورشید داخل قاب تیره‌ی حکاکی‌شده
+        lionPanel.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.75f), fillColor = 0xFF0C0903.toInt())
         lionSunIv.setImageResource(R.drawable.art_lionsun)
 
         // دکمه پاور
         power.palette = p
 
         // کارت‌های آمار — قاب دوبل
-        dnOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card)
-        upOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card)
+        dnOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
+        upOuter.background = UI.card(ctx, p, 19, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
         dnInner.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.5f), fillColor = Color.TRANSPARENT)
         upInner.background = UI.card(ctx, p, 14, stroke = UI.alpha(p.line, 0.5f), fillColor = Color.TRANSPARENT)
         dnLabel.setTextColor(p.text); upLabel.setTextColor(p.text)
         dnIc.iconColor = p.accent; upIc.iconColor = p.accent
+        // دایره‌ی طلایی دور آیکون‌های دانلود/آپلود (مطابق طرح مرجع)
+        fun iconCircle(): GradientDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(UI.alpha(p.accent, 0.16f))
+            setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.55f))
+        }
+        dnIcBox.background = iconCircle()
+        upIcBox.background = iconCircle()
         dnSpeed.setTextColor(p.text); upSpeed.setTextColor(p.text)
         dnTotal.setTextColor(p.muted); upTotal.setTextColor(p.muted)
 
         // کارت سرور
-        serverCard.background = UI.card(ctx, p, 20, stroke = p.line, fillColor = p.card)
+        serverCard.background = UI.card(ctx, p, 20, stroke = p.line, fillColor = p.card, strokeW = 1.5f)
         serverLabel.setTextColor(p.muted)
         serverIp.setTextColor(p.muted)
         renderServerCard()
@@ -373,7 +407,7 @@ class HomeUi(private val act: MainActivity) {
     private fun stateColor(): Int = when (act.connectionState) {
         "connected" -> p.good
         "connecting" -> p.mid
-        else -> p.text
+        else -> 0xFFE9C464.toInt() // طلایی گرم «قطع است» مطابق طرح مرجع
     }
 
     // ---------------------------------------------------------- رندر

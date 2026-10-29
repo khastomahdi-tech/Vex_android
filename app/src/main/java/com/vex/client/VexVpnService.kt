@@ -199,8 +199,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         // دلیل واقعی را از لاگ هسته اضافه کن تا کاربر علت اصلی را ببیند
                         // (مثلاً TLS handshake failure / authentication failed / timeout)
                         val coreErr = lastCoreError()
+                        val hint = hintFor((coreErr ?: "") + " " + err)
                         netMsg = "ترافیک از سرور رد نشد ($err)" +
-                                (coreErr?.let { "\nهسته: $it" } ?: "")
+                                (coreErr?.let { "\nهسته: $it" } ?: "") +
+                                (hint?.let { "\nراهنما: $it" } ?: "")
                         netMs = -1
                         netListener?.invoke(false, -1, netMsg)
                         startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", netMsg))
@@ -255,6 +257,30 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
         Log.e(TAG, "real internet test failed: $lastMsg")
         return "ترافیک از سرور رد نشد ($lastMsg) — کانفیگ یا سرور را بررسی کن"
+    }
+
+    /**
+     * تبدیل خطای واقعی هسته به راهنمای قابل‌فهم فارسی برای رفع سریع مشکل «داده رد و بدل نشد»
+     */
+    private fun hintFor(err: String): String? = when {
+        err.contains("CERTIFICATE_VERIFY_FAILED", true) || err.contains("x509", true) ||
+                err.contains("certificate", true) ->
+            "تأیید گواهی TLS شکست خورد — «رد کردن تأیید گواهی TLS» را در تنظیمات روشن کن یا SNI درست را در لینک بگذار"
+        err.contains("handshake failure", true) || err.contains("handshake timeout", true) ||
+                err.contains("tls", true) && err.contains("error", true) ->
+            "TLS handshake رد شد — SNI یا فینگرپرینت (fp) کانفیگ را با نرم‌افزارهای دیگر مقایسه کن"
+        err.contains("authentication", true) || err.contains("invalid password", true) ||
+                err.contains("unauthorized", true) ->
+            "رمز/شناسه‌ی کانفیگ اشتباه است — کانفیگ را دوباره از اپراتور بگیر"
+        err.contains("connection reset", true) || err.contains("EOF", true) ||
+                err.contains("broken pipe", true) ->
+            "اتصال در میانه‌ی راه قطع شد (احتمالاً DPI) — اگر ادامه داشت، سرور یا پورت دیگری را امتحان کن"
+        err.contains("timeout", true) || err.contains("timed out", true) ->
+            "سرور پاسخ نداد — اینترنت گوشی یا پورت سرور را بررسی کن"
+        err.contains("no route", true) || err.contains("network is unreachable", true) ||
+                err.contains("unreachable", true) ->
+            "شبکه در دسترس نیست — اتصال اینترنت گوشی را بررسی کن"
+        else -> null
     }
 
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
