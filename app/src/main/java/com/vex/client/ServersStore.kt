@@ -167,6 +167,21 @@ class ServersStore(context: Context) {
         }
     }
 
+    /** ویرایش کامل سرور: نام + متن کانفیگ (پروتکل از لینک جدید بازخوانی می‌شود) */
+    fun update(id: Int, newName: String, newRaw: String): Boolean {
+        val s = servers.firstOrNull { it.id == id } ?: return false
+        val raw = newRaw.trim()
+        if (raw.isEmpty()) return false
+        val proto = try { LinkParser.info(raw).protocol } catch (_: Throwable) { return false }
+        // اگر لینک جدید با سرور دیگری یکسان است، اجازه نده
+        if (servers.any { it.id != id && it.raw == raw }) return false
+        s.name = newName.ifEmpty { s.name }
+        s.raw = raw
+        s.protocol = proto.lowercase()
+        persistServers()
+        return true
+    }
+
     // ------------------------------------------------------------ کانفیگ اتصال
 
     /** بار JSON کامل برای VexVpnService / ConfigBuilder.build */

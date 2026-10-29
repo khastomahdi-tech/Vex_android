@@ -40,16 +40,81 @@ class IconView(context: Context, val icon: String) : View(context) {
         fill.color = iconColor
         when (icon) {
             "tg" -> {
-                // هواپیمای کاغذی تلگرام
+                // هواپیمای کاغذی تلگرام — طرح خوش‌نسبت با بال تاخورده‌ی دو رنگ
+                val body = Path()
+                body.moveTo(2.3f * u, 11.5f * u)   // دنباله
+                body.lineTo(21.7f * u, 3.0f * u)   // نوک بالا
+                body.lineTo(14.3f * u, 21.2f * u)  // پایین
+                body.lineTo(10.8f * u, 14.4f * u)  // فرورفتگی بال
+                body.close()
+                canvas.drawPath(body, fill)
+                // بال تاخورده (روشن‌تر = طلایی کم‌رنگ)
+                val flap = Path()
+                flap.moveTo(10.8f * u, 14.4f * u)
+                flap.lineTo(21.7f * u, 3.0f * u)
+                flap.lineTo(8.4f * u, 10.4f * u)
+                flap.close()
+                val fp = Paint(fill).apply { alpha = 150 }
+                canvas.drawPath(flap, fp)
+                // خط لبه‌ی پرواز برای برجستگی
+                val edge = Paint(stroke).apply { strokeWidth = 1.2f * u }
+                canvas.drawLine(2.3f * u, 11.5f * u, 21.7f * u, 3.0f * u, edge)
+            }
+            "timer" -> {
+                // زمان‌سنج (کرنومتر): بدنه + دکمه‌ی بالا + عقربه
+                val bc = cy + 1.6f * u
+                canvas.drawCircle(cx, bc, 7.4f * u, stroke)
+                // ساقه و کلاهک دکمه
+                canvas.drawLine(cx, bc - 10.6f * u, cx, bc - 7.4f * u, stroke)
+                val cap = Paint(stroke).apply { strokeWidth = sw * 1.2f }
+                canvas.drawLine(cx - 2.6f * u, bc - 10.9f * u, cx + 2.6f * u, bc - 10.9f * u, cap)
+                // تیک ساعت ۱۲ داخل بدنه
+                canvas.drawLine(cx, bc - 7.4f * u + 1.2f * u, cx, bc - 4.6f * u, stroke)
+                // عقربه به سمت یک‌ونیم
+                val hand = Paint(stroke).apply { strokeWidth = sw * 1.15f }
+                canvas.drawLine(cx, bc, cx + 4.0f * u, bc - 3.2f * u, hand)
+                // محور
+                canvas.drawCircle(cx, bc, 1.2f * u, fill)
+            }
+            "pencil" -> {
+                // مداد مورب با نوک پر
                 val p = Path()
-                p.moveTo(2.2f * u, 20.5f * u)
-                p.lineTo(22f * u, 12f * u)
-                p.lineTo(2.2f * u, 3.5f * u)
-                p.lineTo(2.2f * u, 10f * u)
-                p.lineTo(15.5f * u, 12f * u)
-                p.lineTo(2.2f * u, 14f * u)
+                p.moveTo(3.2f * u, 17.0f * u)
+                p.lineTo(16.8f * u, 3.5f * u)
+                p.lineTo(19.7f * u, 6.5f * u)
+                p.lineTo(6.1f * u, 20.0f * u)
                 p.close()
-                canvas.drawPath(p, fill)
+                canvas.drawPath(p, stroke)
+                // خط لبه‌ی چوب
+                canvas.drawLine(9.9f * u, 10.3f * u, 18.3f * u, 5.0f * u, stroke)
+                // نوک پر
+                val tip = Path()
+                tip.moveTo(3.2f * u, 17.0f * u)
+                tip.lineTo(6.1f * u, 20.0f * u)
+                tip.lineTo(4.2f * u, 20.8f * u)
+                tip.close()
+                canvas.drawPath(tip, fill)
+            }
+            "trash" -> {
+                // سطل آشغال: درپوش + دستگیره + بدنه با شیارها
+                canvas.drawLine(4.8f * u, 7.6f * u, 19.2f * u, 7.6f * u, stroke)
+                val handle = Path()
+                handle.moveTo(9.6f * u, 7.6f * u)
+                handle.lineTo(9.6f * u, 5.6f * u)
+                handle.lineTo(14.4f * u, 5.6f * u)
+                handle.lineTo(14.4f * u, 7.6f * u)
+                canvas.drawPath(handle, stroke)
+                // بدنه‌ی باریک‌شونده
+                val bodyP = Path()
+                bodyP.moveTo(6.6f * u, 7.6f * u)
+                bodyP.lineTo(7.6f * u, 19.2f * u)
+                bodyP.lineTo(16.4f * u, 19.2f * u)
+                bodyP.lineTo(17.4f * u, 7.6f * u)
+                canvas.drawPath(bodyP, stroke)
+                // شیارها
+                val rib = Paint(stroke).apply { strokeWidth = sw * 0.85f }
+                canvas.drawLine(10.2f * u, 10.4f * u, 10.6f * u, 16.6f * u, rib)
+                canvas.drawLine(13.8f * u, 10.4f * u, 13.4f * u, 16.6f * u, rib)
             }
             "globe" -> {
                 val r = 9f * u

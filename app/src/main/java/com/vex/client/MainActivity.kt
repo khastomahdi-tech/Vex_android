@@ -175,6 +175,9 @@ class MainActivity : ComponentActivity() {
         renderAll()
         homeUi.restoreStats()
 
+        // پیش‌نمایش ورود: دو شیر بالدار از بالا می‌افتند (لمس = رد کردن)
+        IntroSplash.show(this)
+
         // اتصال خودکار
         if (store.settings.autoConnect && connectionState == "stopped") {
             store.selected()?.let { s ->
@@ -492,6 +495,7 @@ class MainActivity : ComponentActivity() {
             switchTab(1)
             UI.toast(this, "$saved سرور ذخیره شد")
             pingAll(silent = true)
+            dialogs.dismissAddMenu() // بستن خودکار منوی افزودن پس از ذخیره
         } else {
             UI.toast(this, "کانفیگ تکراری یا نامعتبر بود")
         }
@@ -646,6 +650,7 @@ class MainActivity : ComponentActivity() {
     fun showCoreLog() = dialogs.showCoreLog()
     fun showAddMenu() = dialogs.showAddMenu()
     fun showServerMenu(s: Server) = dialogs.showServerMenu(s)
+    fun showEditServer(s: Server) = dialogs.showEditServer(s)
     fun confirmDelete(ids: Set<Int>, after: () -> Unit) = dialogs.confirmDelete(ids, after)
 
     override fun onBackPressed() {

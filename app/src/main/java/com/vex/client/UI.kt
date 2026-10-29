@@ -115,6 +115,8 @@ object UI {
 
     fun dp(context: Context, v: Int): Int = (v * context.resources.displayMetrics.density).toInt()
 
+    fun dp(context: Context, v: Float): Int = (v * context.resources.displayMetrics.density).toInt()
+
     fun card(context: Context, p: Palette, radiusDp: Int = 18, stroke: Int? = null, fillColor: Int? = null, strokeW: Float = 1f): GradientDrawable =
         GradientDrawable().apply {
             cornerRadius = dp(context, radiusDp).toFloat()

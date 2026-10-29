@@ -62,9 +62,6 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var serverPing: TextView
     private lateinit var serverPingIc: IconView
 
-    private lateinit var fab: FrameLayout
-    private lateinit var fabIc: IconView
-
     private var p: Palette = Themes.royal()
 
     fun build(): View {
@@ -78,7 +75,7 @@ class HomeUi(private val act: MainActivity) {
             overScrollMode = View.OVER_SCROLL_NEVER
         }
         val col = UI.col(ctx)
-        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 96))
+        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 24))
 
         col.addView(buildStatusCard())
         col.addView(buildPowerZone())
@@ -89,18 +86,6 @@ class HomeUi(private val act: MainActivity) {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         root.addView(scroll, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-
-        // ---- دکمه‌ی شناور + (افزودن کانفیگ)
-        fab = FrameLayout(ctx).apply { setPadding(UI.dp(ctx, 13), UI.dp(ctx, 13), UI.dp(ctx, 13), UI.dp(ctx, 13)) }
-        fabIc = IconView(ctx, "plus")
-        fab.addView(fabIc, FrameLayout.LayoutParams(
-            UI.dp(ctx, 28), UI.dp(ctx, 28), Gravity.CENTER))
-        fab.setOnClickListener { act.showAddMenu() }
-        root.addView(fab, FrameLayout.LayoutParams(
-            UI.dp(ctx, 56), UI.dp(ctx, 56),
-            Gravity.BOTTOM or Gravity.RIGHT).apply {
-            rightMargin = UI.dp(ctx, 20); bottomMargin = UI.dp(ctx, 16)
-        })
 
         applyTheme(p)
         return root
@@ -172,27 +157,15 @@ class HomeUi(private val act: MainActivity) {
         val ctx = act
         val zone = FrameLayout(ctx)
 
-        // شیر بالدار چپ (رو به راست = سمت مرکز) — برنزی تیره مطابق طرح مرجع
-        val bronze = LightingColorFilter(0xFFC7A75E.toInt(), 0xFF140C02.toInt())
-        val lionL = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-        lionL.setImageResource(R.drawable.art_lion)
-        lionL.colorFilter = bronze
-        lionL.alpha = 0.9f
-        zone.addView(lionL, FrameLayout.LayoutParams(
+        // جعبه‌ی شیر چپ (رو به راست = سمت مرکز) + تاج بالای سرش
+        val leftBox = lionWithCrown(ctx, mirrored = false)
+        zone.addView(leftBox, FrameLayout.LayoutParams(
             UI.dp(ctx, 160), UI.dp(ctx, 168),
             Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = UI.dp(ctx, 2) })
 
-        // شیر بالدار راست (آینه‌ی چپ)
-        val lionR = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            scaleX = -1f
-        }
-        lionR.setImageResource(R.drawable.art_lion)
-        lionR.colorFilter = bronze
-        lionR.alpha = 0.9f
-        zone.addView(lionR, FrameLayout.LayoutParams(
+        // جعبه‌ی شیر راست (آینه‌ی چپ) + تاج بالای سرش
+        val rightBox = lionWithCrown(ctx, mirrored = true)
+        zone.addView(rightBox, FrameLayout.LayoutParams(
             UI.dp(ctx, 160), UI.dp(ctx, 168),
             Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 2) })
 
@@ -207,6 +180,33 @@ class HomeUi(private val act: MainActivity) {
             setMargins(0, UI.dp(ctx, 4), 0, UI.dp(ctx, 6))
         }
         return zone
+    }
+
+    /** شیر بالدار برنزی + تاج طلایی نشسته بر سرش */
+    private fun lionWithCrown(ctx: android.content.Context, mirrored: Boolean): FrameLayout {
+        val box = FrameLayout(ctx)
+        val bronze = LightingColorFilter(0xFFC7A75E.toInt(), 0xFF140C02.toInt())
+        val lion = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            colorFilter = bronze
+            alpha = 0.9f
+            if (mirrored) scaleX = -1f
+        }
+        lion.setImageResource(R.drawable.art_lion)
+        box.addView(lion, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // سر شیر رو به راست در ~۷۲٪ عرض است؛ در آینه ۲۸٪
+        val headX = if (mirrored) 0.28f else 0.72f
+        val crownSize = UI.dp(ctx, 32)
+        val crown = IconView(ctx, "crown").apply {
+            iconColor = 0xFFF5D061.toInt(); bold = true
+        }
+        box.addView(crown, FrameLayout.LayoutParams(crownSize, UI.dp(ctx, 23)).apply {
+            leftMargin = (UI.dp(ctx, 160) * headX - crownSize / 2f).toInt()
+            topMargin = UI.dp(ctx, 1)
+        })
+        return box
     }
 
     // ---------------------------------------------------------- کارت‌های آمار
@@ -420,10 +420,6 @@ class HomeUi(private val act: MainActivity) {
         serverLabel.setTextColor(p.muted)
         serverIp.setTextColor(p.muted)
         renderServerCard()
-
-        // دکمه‌ی شناور
-        fab.background = UI.fabBg(ctx, p)
-        fabIc.iconColor = p.accent
     }
 
     private fun stateColor(): Int = when (act.connectionState) {

@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 21
         targetSdk = 34
-        versionCode = 12
-        versionName = "3.4.0"
+        versionCode = 13
+        versionName = "3.5.0"
     }
 
     signingConfigs {

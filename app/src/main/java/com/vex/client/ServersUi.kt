@@ -5,12 +5,17 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.widget.CheckBox
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * صفحه‌ی سرورها (نیتیو): لیست، انتخاب سرور فعال، پینگ، حذف، افزودن.
+ * صفحه‌ی سرورها (نیتیو):
+ *  - نوار بالا: عنوان + دکمه‌ی زمان‌سنج (پینگ همه) + «+ افزودن»
+ *  - کارت هر سرور: چک‌باکس، نام، آدرس، نشان پروتکل، پینگ +
+ *    سه دکمه‌ی گرد: پینگ (زمان‌سنج)، ویرایش (مداد)، حذف (سطل آشغال)
+ *  - لمس کارت = فعال‌سازی سرور، نگه‌داشتن = منوی کامل سرور
  */
 class ServersUi(private val act: MainActivity) {
 
@@ -19,9 +24,10 @@ class ServersUi(private val act: MainActivity) {
 
     private lateinit var title: TextView
     private lateinit var addBtn: TextView
+    private lateinit var timerBtn: FrameLayout
+    private lateinit var timerIc: IconView
     private lateinit var listContainer: LinearLayout
     private lateinit var listScroll: ScrollView
-    private lateinit var pingAllBtn: TextView
     private lateinit var deleteBtn: TextView
     private lateinit var emptyHint: TextView
     private lateinit var bottomBar: LinearLayout
@@ -40,9 +46,21 @@ class ServersUi(private val act: MainActivity) {
         val top = UI.row(ctx)
         title = UI.label(ctx, "کانفیگها", 19f, p.text, bold = true)
         title.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        top.addView(title)
+
+        // دکمه‌ی زمان‌سنج — مثل دکمه‌ی گرد بالای صفحه‌ی خانه؛ پینگ همه‌ی سرورها
+        timerBtn = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
+            setOnClickListener { act.pingAll() }
+        }
+        timerIc = IconView(ctx, "timer").apply { bold = true }
+        timerBtn.addView(timerIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 22), UI.dp(ctx, 22), Gravity.CENTER))
+        top.addView(timerBtn, LinearLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46)).apply { marginStart = UI.dp(ctx, 8) })
+
         addBtn = UI.primaryButton(ctx, "+ افزودن", p)
         addBtn.setOnClickListener { act.showAddMenu() }
-        top.addView(title)
         top.addView(addBtn)
         root.addView(top)
 
@@ -65,19 +83,16 @@ class ServersUi(private val act: MainActivity) {
         emptyHint.gravity = Gravity.CENTER
         emptyHint.setPadding(UI.dp(ctx, 20), UI.dp(ctx, 60), UI.dp(ctx, 20), 0)
 
-        // ---- نوار پایین
+        // ---- نوار پایین (فقط حذف انتخاب‌شده‌ها)
         bottomBar = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, 0) }
-        pingAllBtn = UI.softButton(ctx, "پینگ همه", p)
-        pingAllBtn.setOnClickListener { act.pingAll() }
         deleteBtn = UI.softButton(ctx, "حذف انتخاب‌شده", p)
         deleteBtn.setTextColor(p.bad)
         deleteBtn.setOnClickListener {
             if (checked.isEmpty()) UI.toast(ctx, "چیزی برای حذف انتخاب نشده")
             else act.confirmDelete(checked.toSet()) { checked.clear(); render() }
         }
-        pingAllBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = UI.dp(ctx, 6) }
-        deleteBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = UI.dp(ctx, 6) }
-        bottomBar.addView(pingAllBtn)
+        deleteBtn.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         bottomBar.addView(deleteBtn)
         root.addView(bottomBar)
 
@@ -91,8 +106,9 @@ class ServersUi(private val act: MainActivity) {
         title.setTextColor(p.text)
         addBtn.background = UI.primaryBg(ctx, p)
         addBtn.setTextColor(p.onAccent)
-        pingAllBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
-        pingAllBtn.setTextColor(p.text)
+        // دکمه‌ی زمان‌سنج گرد طلایی — هم‌سبک دکمه‌ی کره‌ی زمین صفحه‌ی خانه
+        timerBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
+        timerIc.iconColor = p.accent
         deleteBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
         deleteBtn.setTextColor(p.bad)
         render()
@@ -113,6 +129,20 @@ class ServersUi(private val act: MainActivity) {
             emptyHint.visibility = View.GONE
         }
         for (s in servers) listContainer.addView(serverRow(s))
+    }
+
+    /** دکمه‌ی گرد کوچک با آیکون، برای ردیف عملیات هر سرور */
+    private fun circAction(icon: String, tint: Int, desc: String, onClick: () -> Unit): View {
+        val ctx = act
+        val b = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
+            contentDescription = desc
+            setOnClickListener { onClick() }
+        }
+        val ic = IconView(ctx, icon).apply { iconColor = tint; bold = true }
+        b.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 19), UI.dp(ctx, 19), Gravity.CENTER))
+        b.background = UI.card(ctx, p, 17, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
+        return b
     }
 
     private fun serverRow(s: Server): View {
@@ -154,12 +184,6 @@ class ServersUi(private val act: MainActivity) {
         subRow.addView(addr, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         col.addView(subRow)
 
-        if (selected) {
-            val active = UI.label(ctx, "● فعال", 11f, p.accent, bold = true)
-            active.setPadding(0, UI.dp(ctx, 4), 0, 0)
-            col.addView(active)
-        }
-
         top.addView(col)
 
         val ping = UI.pill(ctx, UI.pingText(s.ping),
@@ -169,6 +193,31 @@ class ServersUi(private val act: MainActivity) {
         })
 
         card.addView(top)
+
+        // ---- ردیف عملیات: پینگ (زمان‌سنج) / ویرایش (مداد) / حذف (سطل) + نشان فعال
+        val actions = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, 0) }
+
+        val activeTag = UI.label(ctx, if (selected) "● فعال" else "", 11f, p.accent, bold = true)
+        activeTag.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        actions.addView(activeTag)
+
+        fun actionLp(): LinearLayout.LayoutParams =
+            LinearLayout.LayoutParams(UI.dp(ctx, 35), UI.dp(ctx, 35)).apply { marginStart = UI.dp(ctx, 6) }
+
+        // پینگ همین سرور
+        actions.addView(circAction("timer", p.accent, "پینگ سرور") {
+            act.pingServers(listOf(s.id))
+        }, actionLp())
+        // ویرایش اطلاعات سرور
+        actions.addView(circAction("pencil", p.text, "ویرایش سرور") {
+            act.showEditServer(s)
+        }, actionLp())
+        // حذف سرور
+        actions.addView(circAction("trash", p.bad, "حذف سرور") {
+            act.confirmDelete(setOf(s.id)) { act.renderAll() }
+        }, actionLp())
+
+        card.addView(actions)
 
         // انتخاب به‌عنوان سرور فعال + منوی نگه‌داشتن
         card.setOnClickListener { act.selectServer(s) }

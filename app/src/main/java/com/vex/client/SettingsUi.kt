@@ -25,10 +25,11 @@ class SettingsUi(private val act: MainActivity) {
     private lateinit var themeChips: LinearLayout
     private lateinit var mtuEdit: EditText
     private lateinit var dnsEdit: EditText
-    private lateinit var swIpv6: Switch
-    private lateinit var swLan: Switch
-    private lateinit var swMux: Switch
-    private lateinit var swAuto: Switch
+    private lateinit var swIpv6: VexSwitch
+    private lateinit var swLan: VexSwitch
+    private lateinit var swMux: VexSwitch
+    private lateinit var swAuto: VexSwitch
+    private val allSwitches = ArrayList<VexSwitch>(8)
     private lateinit var logSpinner: Spinner
     private lateinit var pingSpinner: Spinner
     private lateinit var logBtn: TextView
@@ -174,7 +175,7 @@ class SettingsUi(private val act: MainActivity) {
         addCard(advCard)
 
         // نسخه‌ی برنامه
-        val ver = UI.label(ctx, "VEX CLIENT v3.3.0 · هسته sing-box v1.11.15 · آمار از Clash API", 11f, p.muted)
+        val ver = UI.label(ctx, "VEX CLIENT v3.5.0 · هسته sing-box v1.11.15 · آمار از Clash API", 11f, p.muted)
         ver.gravity = Gravity.CENTER
         ver.setPadding(0, UI.dp(ctx, 16), 0, UI.dp(ctx, 4))
         root.addView(ver)
@@ -210,12 +211,16 @@ class SettingsUi(private val act: MainActivity) {
         val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 12), 0, 0) }
         val tv = UI.label(ctx, text, 14.5f, p.text)
         tv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        val sw = Switch(ctx).apply {
+        tv.setOnClickListener { (row.tag as? VexSwitch)?.performClick() }
+        val sw = VexSwitch(ctx).apply {
             isChecked = value
-            setOnCheckedChangeListener { _, now -> onChange(now) }
+            onCheckedChange = { now -> onChange(now) }
         }
+        row.tag = sw
+        allSwitches.add(sw)
         row.addView(tv)
-        row.addView(sw)
+        row.addView(sw, LinearLayout.LayoutParams(
+            UI.dp(ctx, 52), UI.dp(ctx, 29)).apply { marginStart = UI.dp(ctx, 10) })
         return row
     }
 
@@ -281,6 +286,8 @@ class SettingsUi(private val act: MainActivity) {
         logBtn.setTextColor(p.text)
         resetBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
         resetBtn.setTextColor(p.bad)
+        // سوییچ‌های لوکس — هم‌رنگ تم فعلی
+        for (sw in allSwitches) sw.palette = p
     }
 
     private fun recolor(v: View, p: Palette) {

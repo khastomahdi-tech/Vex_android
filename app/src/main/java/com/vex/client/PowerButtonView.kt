@@ -1,5 +1,6 @@
 package com.vex.client
 
+import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -12,8 +13,10 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -48,6 +51,30 @@ class PowerButtonView(context: Context) : View(context) {
 
     private var animator: ValueAnimator? = null
     private var phase = 0f
+    private var pressAnim: ObjectAnimator? = null
+
+    /** بازخورد لمسی لوکس: فرو رفتن نرم هنگام فشردن، جهش هنگام رها کردن */
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> animateScale(0.945f, 110)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> animateScale(1f, 260)
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private fun animateScale(to: Float, dur: Long) {
+        pressAnim?.cancel()
+        pressAnim = ObjectAnimator.ofFloat(this, "scaleX", scaleX, to).apply {
+            duration = dur
+            interpolator = if (to > scaleX) OvershootInterpolator(2.4f) else LinearInterpolator()
+            start()
+        }
+        ObjectAnimator.ofFloat(this, "scaleY", scaleY, to).apply {
+            duration = dur
+            interpolator = if (to > scaleX) OvershootInterpolator(2.4f) else LinearInterpolator()
+            start()
+        }
+    }
 
     private fun restartAnim() {
         animator?.cancel()
@@ -87,7 +114,7 @@ class PowerButtonView(context: Context) : View(context) {
         val glowA = when (mode) {
             "on" -> 0.42f + 0.10f * sin(phase * 2f * Math.PI).toFloat()
             "busy" -> 0.20f + 0.22f * (0.5f + 0.5f * sin(phase * 2f * Math.PI).toFloat())
-            else -> 0f
+            else -> 0.10f // نفس ملایم حتی در حالت خاموش — حس فلز گران‌بها
         }
         if (glowA > 0.01f) {
             paint.shader = RadialGradient(
@@ -96,6 +123,15 @@ class PowerButtonView(context: Context) : View(context) {
                 Color.TRANSPARENT, Shader.TileMode.CLAMP
             )
             canvas.drawCircle(cx, cy, rMain * 1.62f, paint)
+            paint.shader = null
+        }
+        // هاله‌ی دوم دوردست — عمق بیشتر در حالت روشن
+        if (mode != "off") {
+            paint.shader = RadialGradient(
+                cx, cy, rMain * 1.95f,
+                UI.alpha(p.accent, 0.12f), Color.TRANSPARENT, Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(cx, cy, rMain * 1.95f, paint)
             paint.shader = null
         }
 
@@ -127,6 +163,18 @@ class PowerButtonView(context: Context) : View(context) {
         }
         stroke.pathEffect = null
 
+        // ستاره‌ی مدارگرد روی حلقه‌ی نقطه‌چین (در روشن/در حال اتصال)
+        if (mode != "off") {
+            val orbA = phase * 2f * Math.PI
+            val orbR = rMain + dp(26f)
+            fillP.shader = RadialGradient(
+                cx + (orbR * Math.cos(orbA)).toFloat(), cy + (orbR * Math.sin(orbA)).toFloat(), dp(8f),
+                0xFFFFE9A8.toInt(), Color.TRANSPARENT, Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(cx + (orbR * Math.cos(orbA)).toFloat(), cy + (orbR * Math.sin(orbA)).toFloat(), dp(8f), fillP)
+            fillP.shader = null
+        }
+
         // ---------- ۳) حلقه‌ی اصلی گرادیانی طلایی ----------
         val golds = intArrayOf(
             0xFF8A6A1B.toInt(), 0xFFF5D061.toInt(), 0xFFE8B923.toInt(),
@@ -147,6 +195,20 @@ class PowerButtonView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, rMain + dp(6.2f), stroke)
         canvas.drawCircle(cx, cy, rMain - dp(6.2f), stroke)
 
+        // درخشش آینه‌ای چرخان روی حلقه — حس فلز صیقلی
+        val specSweep = SweepGradient(
+            cx, cy,
+            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, UI.alpha(0xFFFFF6D8.toInt(), 0.75f), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.42f, 0.5f, 0.58f)
+        )
+        canvas.save()
+        if (mode != "off") canvas.rotate(phase * 360f, cx, cy) else canvas.rotate(-38f, cx, cy)
+        stroke.shader = specSweep
+        stroke.strokeWidth = dp(11f)
+        canvas.drawCircle(cx, cy, rMain, stroke)
+        stroke.shader = null
+        canvas.restore()
+
         // ---------- ۴) صفحه‌ی داخلی تیره ----------
         fillP.shader = RadialGradient(
             cx - rMain * 0.25f, cy - rMain * 0.32f, rMain * 1.35f,
@@ -154,6 +216,20 @@ class PowerButtonView(context: Context) : View(context) {
         )
         canvas.drawCircle(cx, cy, rMain - dp(7f), fillP)
         fillP.shader = null
+        // نور افتاده از بالا-چپ روی صفحه (جلوی محدب)
+        fillP.shader = RadialGradient(
+            cx - rMain * 0.38f, cy - rMain * 0.45f, rMain * 1.05f,
+            UI.alpha(0xFFF5D061.toInt(), 0.10f), Color.TRANSPARENT, Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(cx, cy, rMain - dp(7f), fillP)
+        fillP.shader = null
+        // دو حلقه‌ی حکاکی ظریف داخل صفحه
+        stroke.shader = null
+        stroke.color = UI.alpha(0xFFE8B923.toInt(), 0.20f)
+        stroke.strokeWidth = dp(1f)
+        canvas.drawCircle(cx, cy, rMain - dp(14f), stroke)
+        stroke.color = UI.alpha(0xFFE8B923.toInt(), 0.12f)
+        canvas.drawCircle(cx, cy, rMain - dp(17.5f), stroke)
 
         // ---------- ۵) گلیف پاور ----------
         val gr = rMain * 0.46f
@@ -165,15 +241,30 @@ class PowerButtonView(context: Context) : View(context) {
             canvas.drawCircle(cx, cy, gr * 2.3f, fillP)
             fillP.shader = null
         }
-        glyph.strokeWidth = dp(5.6f)
         glyph.color = when (mode) {
             "on" -> 0xFFFFD868.toInt()
             "busy" -> UI.alpha(p.accent, 0.85f)
             else -> 0xFFE3B94F.toInt()
         }
+        // هاله‌ی زیر گلیف در حالت روشن (نور پخش)
+        if (mode == "on") {
+            val halo = Paint(glyph).apply {
+                strokeWidth = dp(11f)
+                this.color = UI.alpha(0xFFFFD868.toInt(), 0.22f)
+            }
+            canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, halo)
+            rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
+            canvas.drawArc(rect, -55f, 270f, false, halo)
+        }
+        glyph.strokeWidth = dp(5.8f)
         canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, glyph)
         rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
         canvas.drawArc(rect, -55f, 270f, false, glyph)
+        // نقطه‌ی درخشان سر خط پاور
+        if (mode != "off") {
+            fillP.color = UI.alpha(0xFFFFF3C4.toInt(), if (mode == "on") 0.95f else 0.6f)
+            canvas.drawCircle(cx, cy - gr, dp(2.4f), fillP)
+        }
 
         // ---------- ۶) تاج طلایی بالای حلقه ----------
         drawCrown(canvas, cx, cy - rMain - dp(21f), dp(15f))

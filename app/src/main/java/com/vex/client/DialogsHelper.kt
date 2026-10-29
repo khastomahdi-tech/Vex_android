@@ -23,6 +23,14 @@ class DialogsHelper(private val act: MainActivity) {
     private val ctx: Context get() = act
     private val p: Palette get() = Themes.resolve(act, act.store.settings.theme)
 
+    private var addMenuDlg: AlertDialog? = null
+
+    /** بستن خودکار منوی افزودن بعد از ذخیره‌ی موفق کانفیگ */
+    fun dismissAddMenu() {
+        try { addMenuDlg?.dismiss() } catch (_: Throwable) {}
+        addMenuDlg = null
+    }
+
     // ------------------------------------------------------------ پایه
 
     private fun wrapForm(content: LinearLayout, scrollable: Boolean = true): View {
@@ -82,8 +90,13 @@ class DialogsHelper(private val act: MainActivity) {
     // ------------------------------------------------------------ منوی افزودن
 
     fun showAddMenu() {
+        dismissAddMenu()
         val col = UI.col(ctx)
         col.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 8), UI.dp(ctx, 16), UI.dp(ctx, 16))
+        // پرسش راهنما — «چطور کانفیگ را وارد می‌کنی؟»
+        val q = UI.label(ctx, "چطور می‌خوای کانفیگ (سرور) را وارد کنی؟", 13.5f, p.muted)
+        q.setPadding(UI.dp(ctx, 4), UI.dp(ctx, 2), UI.dp(ctx, 4), UI.dp(ctx, 10))
+        col.addView(q)
         col.addView(menuRow("پیست از کلیپ‌بورد") { act.pasteFromClipboard() })
         col.addView(menuRow("اسکن QR (دوربین)") { act.startQrScan() })
         col.addView(menuRow("QR از گالری") { act.startQrGallery() })
@@ -91,7 +104,7 @@ class DialogsHelper(private val act: MainActivity) {
         col.addView(menuRow("افزودن دستی (vless/vmess/trojan/ss/hy2/tuic)") { showManualAdd() })
         col.addView(menuRow("وایرگارد (فایل conf / دستی)") { showWireGuardAdd() })
         col.addView(menuRow("دریافت اشتراک (subscription)") { showSubscription() })
-        dialog("افزودن سرور", wrapForm(col, scrollable = false), null, null, "بستن")
+        addMenuDlg = dialog("افزودن سرور", wrapForm(col, scrollable = false), null, null, "بستن")
     }
 
     // ------------------------------------------------------------ افزودن دستی
@@ -173,6 +186,7 @@ class DialogsHelper(private val act: MainActivity) {
                     act.renderAll(); act.switchTab(1)
                     act.toast("سرور ذخیره شد")
                     act.pingServers(listOf(sv.id), silent = true)
+                    dismissAddMenu()
                 }
             } catch (e: Throwable) {
                 act.toast("خطا: ${e.message ?: "ورودی نامعتبر"}")
@@ -254,6 +268,7 @@ class DialogsHelper(private val act: MainActivity) {
                     act.renderAll(); act.switchTab(1)
                     act.toast("سرور وایرگارد ذخیره شد")
                     act.pingServers(listOf(sv.id), silent = true)
+                    dismissAddMenu()
                 }
             } catch (e: Throwable) {
                 act.toast("خطا: ${e.message ?: "ورودی نامعتبر"}")
@@ -283,6 +298,50 @@ class DialogsHelper(private val act: MainActivity) {
         })
     }
 
+    // ------------------------------------------------------------ ویرایش سرور
+
+    /** ویرایش اطلاعات سرور: نام نمایشی + متن کانفیگ (لینک) */
+    fun showEditServer(s: Server) {
+        val col = UI.col(ctx)
+        val name = EditText(ctx).apply {
+            setText(s.name)
+            textSize = 14f
+            setSingleLine(true)
+            setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 10))
+            background = UI.card(ctx, p, 12, stroke = p.line, fillColor = p.card2)
+            setTextColor(p.text)
+            setHintTextColor(p.muted)
+        }
+        val raw = EditText(ctx).apply {
+            setText(s.raw)
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.TOP or Gravity.START
+            minLines = 3
+            maxLines = 8
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 10))
+            background = UI.card(ctx, p, 12, stroke = p.line, fillColor = p.card2)
+            setTextColor(p.text)
+            setHintTextColor(p.muted)
+        }
+        col.addView(formLabel("نام نمایشی")); col.addView(name)
+        col.addView(formLabel("متن کانفیگ (لینک سرور)")); col.addView(raw)
+        dialog("ویرایش سرور", wrapForm(col), "ذخیره", {
+            val n = name.text.toString().trim()
+            val r = raw.text.toString().trim()
+            if (r.isEmpty()) { act.toast("متن کانفیگ خالی است"); return@dialog }
+            val ok = act.store.update(s.id, n, r)
+            if (ok) {
+                act.renderAll()
+                act.toast("سرور ویرایش شد")
+                act.pingServers(listOf(s.id), silent = true)
+            } else {
+                act.toast("کانفیگ معتبر نیست یا تکراری است")
+            }
+        })
+    }
+
     // ------------------------------------------------------------ منوی سرور
 
     fun showServerMenu(s: Server) {
@@ -293,6 +352,7 @@ class DialogsHelper(private val act: MainActivity) {
         col.addView(title)
         col.addView(menuRow("فعال‌سازی این سرور") { act.selectServer(s) })
         col.addView(menuRow("تست پینگ") { act.pingServers(listOf(s.id)) })
+        col.addView(menuRow("ویرایش اطلاعات") { showEditServer(s) })
         col.addView(menuRow("تغییر نام") { showRename(s) })
         col.addView(menuRow("اشتراک‌گذاری") {
             try {
