@@ -29,7 +29,14 @@ data class VexSettings(
     var pingTimeout: Int = 4,           // تایم‌اوت پینگ TCP (ثانیه: 2/4/8)
     // حالت per-app مثل v2rayNG: 0 = همه‌ی برنامه‌ها، 1 = فقط برنامه‌های انتخابی، 2 = همه به‌جز انتخابی‌ها
     var perAppMode: Int = 0,
-    var perAppPackages: MutableSet<String> = mutableSetOf() // پکیج‌های انتخاب‌شده
+    var perAppPackages: MutableSet<String> = mutableSetOf(), // پکیج‌های انتخاب‌شده
+    // --- تنظیمات پیشرفته‌تر (مثل v2rayNG) ---
+    var domainStrategy: String = "prefer_ipv4", // prefer_ipv4 | prefer_ipv6 | ipv4_only | ipv6_only
+    var tcpFastOpen: Boolean = false,   // TCP Fast Open روی outbound
+    var muxPadding: Boolean = false,    // پدینگ Mux (وقتی Mux روشن است)
+    var showNotifSpeed: Boolean = true, // نمایش سرعت زنده در اعلان
+    var hapticOnConnect: Boolean = true,// لرزش کوتاه هنگام اتصال موفق
+    var showIntro: Boolean = true       // نمایش اسپلش ورود (شیرهای سقوطی)
 )
 
 /**
@@ -42,6 +49,18 @@ class ServersStore(context: Context) {
         .getSharedPreferences("vex_store", Context.MODE_PRIVATE)
 
     val servers = mutableListOf<Server>()
+
+    /**
+     * سرورهای رایگان — به‌صورت خودکار از منابع اشتراک عمومی گرفته می‌شوند.
+     * فقط سرورهایی که پینگ موفق دارند اینجا ذخیره می‌شوند؛ کاربر نمی‌تواند
+     * ویرایش/حذفشان کند یا مشخصاتشان را ببیند — فقط انتخاب و اتصال.
+     */
+    val freeServers = mutableListOf<Server>()
+
+    /** آخرین زمان دریافت موفق سرورهای رایگان (ms epoch؛ صفر = هیچ‌وقت) */
+    var freeLastFetch: Long = 0L
+        private set
+
     var selectedId: Int = -1
         private set
     var settings = VexSettings()
@@ -53,6 +72,7 @@ class ServersStore(context: Context) {
 
     private fun load() {
         servers.clear()
+        freeServers.clear()
         try {
             val arr = JSONArray(prefs.getString(KEY_SERVERS, "[]") ?: "[]")
             for (i in 0 until arr.length()) {
@@ -68,6 +88,22 @@ class ServersStore(context: Context) {
                 ))
             }
         } catch (_: Throwable) {}
+        try {
+            val arr = JSONArray(prefs.getString(KEY_FREE, "[]") ?: "[]")
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val raw = o.optString("raw")
+                if (raw.isEmpty()) continue
+                freeServers.add(Server(
+                    id = o.optInt("id"),
+                    name = o.optString("name", "Vex Free Server"),
+                    protocol = o.optString("protocol", "?").lowercase(),
+                    raw = raw,
+                    ping = o.optInt("ping", -1)
+                ))
+            }
+        } catch (_: Throwable) {}
+        freeLastFetch = prefs.getLong(KEY_FREE_TS, 0L)
         selectedId = prefs.getInt(KEY_SELECTED, -1)
         try {
             val o = JSONObject(prefs.getString(KEY_SETTINGS, "{}") ?: "{}")
@@ -84,6 +120,12 @@ class ServersStore(context: Context) {
                 autoReconnect = o.optBoolean("autoReconnect", true),
                 autoNetTest = o.optBoolean("autoNetTest", true),
                 pingTimeout = o.optInt("pingTimeout", 4).coerceIn(2, 8),
+                domainStrategy = o.optString("domainStrategy", "prefer_ipv4"),
+                tcpFastOpen = o.optBoolean("tcpFastOpen", false),
+                muxPadding = o.optBoolean("muxPadding", false),
+                showNotifSpeed = o.optBoolean("showNotifSpeed", true),
+                hapticOnConnect = o.optBoolean("hapticOnConnect", true),
+                showIntro = o.optBoolean("showIntro", true),
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {
                     val arr = o.optJSONArray("perAppPackages")
@@ -108,6 +150,18 @@ class ServersStore(context: Context) {
         prefs.edit().putString(KEY_SERVERS, arr.toString()).apply()
     }
 
+    private fun persistFree() {
+        val arr = JSONArray()
+        for (s in freeServers) arr.put(JSONObject()
+            .put("id", s.id)
+            .put("name", s.name)
+            .put("protocol", s.protocol)
+            .put("raw", s.raw)
+            .put("ping", s.ping))
+        prefs.edit().putString(KEY_FREE, arr.toString())
+            .putLong(KEY_FREE_TS, freeLastFetch).apply()
+    }
+
     fun saveSettings() {
         prefs.edit().putString(KEY_SETTINGS, JSONObject()
             .put("theme", settings.theme)
@@ -124,6 +178,12 @@ class ServersStore(context: Context) {
             .put("pingTimeout", settings.pingTimeout)
             .put("perAppMode", settings.perAppMode)
             .put("perAppPackages", JSONArray(settings.perAppPackages))
+            .put("domainStrategy", settings.domainStrategy)
+            .put("tcpFastOpen", settings.tcpFastOpen)
+            .put("muxPadding", settings.muxPadding)
+            .put("showNotifSpeed", settings.showNotifSpeed)
+            .put("hapticOnConnect", settings.hapticOnConnect)
+            .put("showIntro", settings.showIntro)
             .toString()).apply()
     }
 
@@ -156,9 +216,9 @@ class ServersStore(context: Context) {
     fun remove(id: Int) = remove(listOf(id))
 
     fun setPing(id: Int, ms: Int) {
-        servers.firstOrNull { it.id == id }?.let {
+        (servers.firstOrNull { it.id == id } ?: freeServers.firstOrNull { it.id == id })?.let {
             it.ping = ms
-            persistServers()
+            if (servers.any { s -> s.id == id }) persistServers() else persistFree()
         }
     }
 
@@ -167,10 +227,15 @@ class ServersStore(context: Context) {
         prefs.edit().putInt(KEY_SELECTED, selectedId).apply()
     }
 
-    fun selected(): Server? = servers.firstOrNull { it.id == selectedId }
+    fun selected(): Server? =
+        servers.firstOrNull { it.id == selectedId }
+            ?: freeServers.firstOrNull { it.id == selectedId }
 
     /** نام/پروتکل سرور انتخاب‌شده برای کارت صفحه‌ی اصلی */
     fun selectedInfo(): Server? = selected()
+
+    /** آیا سرور انتخاب‌شده از لیست رایگان است؟ */
+    fun isFree(s: Server): Boolean = freeServers.any { it.id == s.id }
 
     fun updateName(id: Int, newName: String) {
         servers.firstOrNull { it.id == id }?.let {
@@ -194,6 +259,16 @@ class ServersStore(context: Context) {
         return true
     }
 
+    // ------------------------------------------------------------ سرورهای رایگان
+
+    /** جایگزینی کامل لیست سرورهای رایگان (فقط سرورهای سالم/پینگ‌دار از قبل فیلتر شده‌اند) */
+    fun replaceFreeServers(list: List<Server>) {
+        freeServers.clear()
+        freeServers.addAll(list)
+        freeLastFetch = System.currentTimeMillis()
+        persistFree()
+    }
+
     // ------------------------------------------------------------ کانفیگ اتصال
 
     /** بار JSON کامل برای VexVpnService / ConfigBuilder.build */
@@ -208,11 +283,19 @@ class ServersStore(context: Context) {
         .put("logLevel", settings.logLevel)
         .put("mux", settings.mux)
         .put("allowInsecure", settings.allowInsecure)
+        .put("domainStrategy", settings.domainStrategy)
+        .put("tcpFastOpen", settings.tcpFastOpen)
+        .put("muxPadding", settings.muxPadding)
         .toString()
 
     companion object {
         private const val KEY_SERVERS = "servers"
         private const val KEY_SELECTED = "selected_id"
         private const val KEY_SETTINGS = "settings"
+        private const val KEY_FREE = "free_servers"
+        private const val KEY_FREE_TS = "free_last_fetch"
+
+        /** شناسه‌ی سرورهای رایگان از این عدد شروع می‌شود تا با سرورهای کاربر تداخل نکند */
+        const val FREE_ID_BASE = 100000
     }
 }

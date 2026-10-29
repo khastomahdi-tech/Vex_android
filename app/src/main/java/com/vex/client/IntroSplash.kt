@@ -18,7 +18,7 @@ import android.widget.TextView
 /**
  * پیش‌نمایش ورود VEX — پیش از ورود به برنامه:
  *  دو شیر بالدار روبه‌روی هم از بالای صفحه به مرکز سقوط می‌کنند و می‌نشینند،
- *  تاج بالای سر هر شیر، سپس عنوان طلایی VEX CLIENT ظاهر می‌شود.
+ *  تاج حذف شد — دو شیر + عنوان طلایی VEX CLIENT
  *  لمس صفحه = رد کردن؛ پس از ~۲٫۴ ثانیه محو و حذف می‌شود.
  */
 object IntroSplash {
@@ -33,7 +33,7 @@ object IntroSplash {
             isFocusable = true
         }
 
-        // ---------------- صحنه‌ی مرکزی: دو شیر + تاج + عنوان ----------------
+        // ---------------- صحنه‌ی مرکزی: دو شیر + عنوان ----------------
         val stage = FrameLayout(ctx)
         val stageLp = FrameLayout.LayoutParams(
             UI.dp(ctx, 340), UI.dp(ctx, 300), Gravity.CENTER)
@@ -52,14 +52,11 @@ object IntroSplash {
             Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 4) }
         stage.addView(rightBox, rightLp)
 
-        // عنوان: تاج + VEX CLIENT
+        // عنوان: VEX CLIENT
         val titleCol = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             alpha = 0f
-        }
-        val crown = IconView(ctx, "crown").apply {
-            iconColor = 0xFFF5D061.toInt(); bold = true
         }
         val title = TextView(ctx).apply {
             text = "VEX CLIENT"
@@ -70,9 +67,6 @@ object IntroSplash {
             gravity = Gravity.CENTER
             setShadowLayer(9f * density, 0f, 0f, 0x66E8B923)
         }
-        titleCol.addView(crown, LinearLayout.LayoutParams(UI.dp(ctx, 30), UI.dp(ctx, 23)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
         titleCol.addView(title)
         stage.addView(titleCol, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -162,7 +156,7 @@ object IntroSplash {
         overlay.animate().alpha(1f).setDuration(180).start()
     }
 
-    /** جعبه‌ی شیر طبیعی طلایی + هاله‌ی نور پشتش + تاج بالای سرش */
+    /** جعبه‌ی شیر طبیعی طلایی + هاله‌ی نور پشتش */
     private fun lionBox(ctx: Activity, mirrored: Boolean): FrameLayout {
         val box = FrameLayout(ctx)
         // هاله‌ی طلایی محو پشت شیر — جلوه‌ی سلطنتی روی زمینه‌ی سیاه
@@ -183,17 +177,6 @@ object IntroSplash {
         }
         box.addView(lion, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-
-        // تاج بالای سر — سر شیر رو به راست در ~۷۲٪ عرض است؛ در آینه ۲۸٪
-        val headX = if (mirrored) 0.28f else 0.72f
-        val crownSize = UI.dp(ctx, 34)
-        val crown = IconView(ctx, "crown").apply {
-            iconColor = 0xFFF5D061.toInt(); bold = true
-        }
-        box.addView(crown, FrameLayout.LayoutParams(crownSize, UI.dp(ctx, 24)).apply {
-            leftMargin = (UI.dp(ctx, 170) * headX - crownSize / 2f).toInt()
-            topMargin = UI.dp(ctx, 0)
-        })
         return box
     }
 }

@@ -2,12 +2,9 @@ package com.vex.client
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.Outline
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -15,13 +12,12 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * صفحه‌ی اصلی VEX — چیدمان جدید:
- *  ردیف هویت (آیکون دایره‌ای برنامه + «Vex کلاینت» + دکمه‌ی کره‌ی زمین برای انتخاب سرور)؛
- *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی تاج‌دار؛
+ * صفحه‌ی اصلی VEX — چیدمان تمیز:
+ *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی پاور (بدون هیچ تاج و علامت اضافه)؛
+ *  بالای پاور هیچ چیز نیست — هویت برنامه فقط در هدر بالای صفحه است؛
  *  زیر پاور: متن وضعیت («اتصال با موفقیت انجام شد») + تایمر زنده‌ی مدت اتصال؛
  *  دو کارت آمار (دانلود / آپلود) با قاب دوبل طلایی؛
- *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل با تاج + پینگ).
- *  کارت قدیمی وضعیت بالای پاور حذف شد — وضعیت فقط با حلقه‌ی سبز پاور و متن زیر آن نشان داده می‌شود.
+ *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل + پینگ).
  */
 class HomeUi(private val act: MainActivity) {
 
@@ -31,12 +27,6 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var power: PowerButtonView
     private lateinit var statusText: TextView
     private lateinit var timerText: TextView
-    private lateinit var identIconBox: FrameLayout
-    private lateinit var identIcon: ImageView
-    private lateinit var vexTv: TextView
-    private lateinit var clientTv: TextView
-    private lateinit var globeBtn: FrameLayout
-    private lateinit var globeIc: IconView
 
     private lateinit var dnSpeed: TextView
     private lateinit var upSpeed: TextView
@@ -60,7 +50,6 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var serverIp: TextView
     private lateinit var serverBadge: LinearLayout
     private lateinit var serverBadgeText: TextView
-    private lateinit var serverBadgeCrown: IconView
     private lateinit var serverPing: TextView
     private lateinit var serverPingIc: IconView
 
@@ -87,7 +76,6 @@ class HomeUi(private val act: MainActivity) {
         val col = UI.col(ctx)
         col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 6), UI.dp(ctx, 14), UI.dp(ctx, 24))
 
-        col.addView(buildIdentityRow())
         col.addView(buildPowerZone())
         col.addView(buildConnectionStatus())
         col.addView(buildStatsRow())
@@ -104,89 +92,25 @@ class HomeUi(private val act: MainActivity) {
         return root
     }
 
-    // ---------------------------------------------------------- ردیف هویت
-
-    /** ردیف بالا: آیکون دایره‌ای Vex + «Vex کلاینت» (Vex تیره، کلاینت آبی) + دکمه‌ی کره‌ی زمین */
-    private fun buildIdentityRow(): View {
-        val ctx = act
-        val row = UI.row(ctx).apply {
-            setPadding(UI.dp(ctx, 4), UI.dp(ctx, 6), UI.dp(ctx, 4), UI.dp(ctx, 4))
-        }
-
-        // آیکون دایره‌ای برنامه (با حلقه‌ی طلایی) — سمت راست
-        identIconBox = FrameLayout(ctx)
-        identIcon = ImageView(ctx).apply {
-            setImageResource(R.mipmap.ic_launcher)
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            clipToOutline = true
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setOval(0, 0, view.width, view.height)
-                }
-            }
-        }
-        identIconBox.addView(identIcon, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        row.addView(identIconBox, LinearLayout.LayoutParams(
-            UI.dp(ctx, 46), UI.dp(ctx, 46)))
-
-        // متن «Vex کلاینت» کنار آیکون
-        val nameRow = UI.row(ctx).apply { setPadding(UI.dp(ctx, 10), 0, 0, 0) }
-        vexTv = TextView(ctx).apply {
-            text = "Vex"
-            textSize = 20f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-            includeFontPadding = false
-            letterSpacing = 0.02f
-        }
-        clientTv = TextView(ctx).apply {
-            text = "کلاینت"
-            textSize = 16f
-            typeface = Fonts.bold(ctx)
-            includeFontPadding = false
-        }
-        nameRow.addView(vexTv)
-        nameRow.addView(clientTv, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = UI.dp(ctx, 6)
-            gravity = Gravity.CENTER_VERTICAL
-        })
-        row.addView(nameRow, LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        // دکمه‌ی کره‌ی زمین (انتخاب سرور) — سمت چپ
-        globeBtn = FrameLayout(ctx).apply {
-            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
-        }
-        globeIc = IconView(ctx, "globe").apply { bold = true }
-        globeBtn.addView(globeIc, FrameLayout.LayoutParams(
-            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
-        globeBtn.setOnClickListener { act.gotoServers() }
-        row.addView(globeBtn, LinearLayout.LayoutParams(
-            UI.dp(ctx, 46), UI.dp(ctx, 46)))
-
-        return row
-    }
-
     // ---------------------------------------------------------- ناحیه‌ی پاور
 
     private fun buildPowerZone(): View {
         val ctx = act
         val zone = FrameLayout(ctx)
 
-        // جعبه‌ی شیر چپ (رو به راست = سمت مرکز) + تاج بالای سرش
-        val leftBox = lionWithCrown(ctx, mirrored = false)
+        // جعبه‌ی شیر چپ (رو به راست = سمت مرکز)
+        val leftBox = lionBox(ctx, mirrored = false)
         zone.addView(leftBox, FrameLayout.LayoutParams(
             UI.dp(ctx, 160), UI.dp(ctx, 168),
             Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = UI.dp(ctx, 2) })
 
-        // جعبه‌ی شیر راست (آینه‌ی چپ) + تاج بالای سرش
-        val rightBox = lionWithCrown(ctx, mirrored = true)
+        // جعبه‌ی شیر راست (آینه‌ی چپ)
+        val rightBox = lionBox(ctx, mirrored = true)
         zone.addView(rightBox, FrameLayout.LayoutParams(
             UI.dp(ctx, 160), UI.dp(ctx, 168),
             Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 2) })
 
-        // دکمه‌ی پاور تاج‌دار
+        // دکمه‌ی پاور
         power = PowerButtonView(ctx)
         power.setOnClickListener { act.togglePower() }
         zone.addView(power, FrameLayout.LayoutParams(
@@ -199,8 +123,8 @@ class HomeUi(private val act: MainActivity) {
         return zone
     }
 
-    /** شیر بالدار طبیعی طلایی + هاله‌ی نور پشتش + تاج طلایی نشسته بر سرش */
-    private fun lionWithCrown(ctx: android.content.Context, mirrored: Boolean): FrameLayout {
+    /** شیر بالدار طبیعی طلایی + هاله‌ی نور پشتش — بدون تاج و هیچ علامت اضافه */
+    private fun lionBox(ctx: android.content.Context, mirrored: Boolean): FrameLayout {
         val box = FrameLayout(ctx)
         // هاله‌ی طلایی محو پشت شیر — عمق و جلوه‌ی سلطنتی
         val glow = android.graphics.drawable.GradientDrawable().apply {
@@ -218,17 +142,6 @@ class HomeUi(private val act: MainActivity) {
         lion.setImageResource(R.drawable.art_lion)
         box.addView(lion, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-
-        // سر شیر رو به راست در ~۷۲٪ عرض است؛ در آینه ۲۸٪
-        val headX = if (mirrored) 0.28f else 0.72f
-        val crownSize = UI.dp(ctx, 32)
-        val crown = IconView(ctx, "crown").apply {
-            iconColor = 0xFFF5D061.toInt(); bold = true
-        }
-        box.addView(crown, FrameLayout.LayoutParams(crownSize, UI.dp(ctx, 23)).apply {
-            leftMargin = (UI.dp(ctx, 160) * headX - crownSize / 2f).toInt()
-            topMargin = UI.dp(ctx, 1)
-        })
         return box
     }
 
@@ -380,17 +293,14 @@ class HomeUi(private val act: MainActivity) {
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         row.addView(nameCol)
 
-        // نشان قرمز پروتکل با تاج
+        // نشان قرمز پروتکل
         serverBadge = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(UI.dp(ctx, 9), UI.dp(ctx, 4), UI.dp(ctx, 9), UI.dp(ctx, 4))
         }
         serverBadgeText = UI.label(ctx, "—", 11f, Color.WHITE, bold = true)
-        serverBadgeCrown = IconView(ctx, "crown").apply { iconColor = Color.WHITE; bold = true }
         serverBadge.addView(serverBadgeText)
-        serverBadge.addView(serverBadgeCrown, LinearLayout.LayoutParams(
-            UI.dp(ctx, 13), UI.dp(ctx, 13)).apply { marginStart = UI.dp(ctx, 5) })
         row.addView(serverBadge, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginStart = UI.dp(ctx, 8)
@@ -443,19 +353,6 @@ class HomeUi(private val act: MainActivity) {
     fun applyTheme(np: Palette) {
         p = np
         val ctx = act
-
-        // آیکون دایره‌ای + حلقه‌ی طلایی دورش
-        identIconBox.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(if (Themes.isLightBg(p)) 0xFFFFFFFF.toInt() else p.card2)
-            setStroke(UI.dp(ctx, 2), p.accent)
-        }
-        identIcon.setPadding(UI.dp(ctx, 3), UI.dp(ctx, 3), UI.dp(ctx, 3), UI.dp(ctx, 3))
-        // Vex تیره، کلاینت آبی (در تم تیره متن روشن برای خوانایی)
-        vexTv.setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
-        clientTv.setTextColor(p.accent)
-        globeBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
-        globeIc.iconColor = p.accent
 
         // دکمه پاور
         power.palette = p
@@ -541,7 +438,6 @@ class HomeUi(private val act: MainActivity) {
             serverBadgeText.text = "—"
             serverBadge.background = UI.card(act, p, 10, fillColor = p.card2)
             serverBadgeText.setTextColor(p.muted)
-            serverBadgeCrown.iconColor = p.muted
             serverPing.text = "—"
             serverPing.setTextColor(p.muted)
             serverPingIc.iconColor = p.muted
@@ -549,12 +445,16 @@ class HomeUi(private val act: MainActivity) {
         }
         serverName.text = s.name
         serverName.setTextColor(p.text)
-        val inf = try { LinkParser.info(s.raw) } catch (_: Throwable) { null }
-        serverIp.text = inf?.host ?: "—"
+        if (act.store.isFree(s)) {
+            // سرورهای رایگان: مشخصات (IP/پورت) هرگز نشان داده نمی‌شود
+            serverIp.text = "سرور رایگان — مشخصات مخفی است"
+        } else {
+            val inf = try { LinkParser.info(s.raw) } catch (_: Throwable) { null }
+            serverIp.text = inf?.host ?: "—"
+        }
         serverBadgeText.text = UI.protoLabel(s.protocol)
         serverBadge.background = UI.card(act, p, 10, fillColor = 0xFFC43A32.toInt())
         serverBadgeText.setTextColor(Color.WHITE)
-        serverBadgeCrown.iconColor = Color.WHITE
         serverPing.text = UI.pingText(s.ping)
         serverPing.setTextColor(UI.pingColor(p, s.ping))
         serverPingIc.iconColor = UI.pingColor(p, s.ping)

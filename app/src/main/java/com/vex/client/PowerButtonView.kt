@@ -25,9 +25,9 @@ import kotlin.math.sin
  *  - حلقه‌ی اصلی با گرادیان طلایی فلزی
  *  - دو خط لبه‌ی باریک بالا و پایین حلقه
  *  - حلقه‌ی باریک دوم + حلقه‌ی تزئینی نقطه‌چین بیرونی
- *  - تاج طلایی نشسته بر بالای حلقه
  *  - صفحه‌ی داخلی تیره با درخشش ملایم مرکز
  *  - گلیف پاور طلایی با هاله در حالت روشن، تنفس/چرخش در حالت اتصال
+ *  (تاج حذف شد — دکمه کاملاً متقارن و وسط‌چین است)
  */
 class PowerButtonView(context: Context) : View(context) {
 
@@ -106,9 +106,9 @@ class PowerButtonView(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         val cx = w / 2f
-        val cy = h / 2f + dp(6f)
+        val cy = h / 2f
         val p = palette
-        val rMain = min(w, h) / 2f - dp(38f) // شعاع حلقه‌ی اصلی
+        val rMain = min(w, h) / 2f - dp(29f) // شعاع حلقه‌ی اصلی
 
         // رنگ پایه‌ی حلقه: اتصال موفق = سبز، بقیه = طلایی/اکsent تم
         val connected = mode == "on"
@@ -279,41 +279,6 @@ class PowerButtonView(context: Context) : View(context) {
                 if (mode == "on") 0.95f else 0.6f)
             canvas.drawCircle(cx, cy - gr, dp(2.4f), fillP)
         }
-
-        // ---------- ۶) تاج طلایی بالای حلقه ----------
-        drawCrown(canvas, cx, cy - rMain - dp(21f), dp(15f))
-    }
-
-    /** تاج طلایی؛ top = مرکز عمودی تاج، hw = نصف عرض تاج */
-    private fun drawCrown(canvas: Canvas, cx: Float, top: Float, hw: Float) {
-        val peak = top - hw * 0.42f
-        val baseY = top + hw * 0.55f
-        val path = Path()
-        path.moveTo(cx - hw, baseY)
-        path.lineTo(cx - hw, top - hw * 0.18f)
-        path.lineTo(cx - hw * 0.48f, top + hw * 0.14f)
-        path.lineTo(cx, peak)
-        path.lineTo(cx + hw * 0.48f, top + hw * 0.14f)
-        path.lineTo(cx + hw, top - hw * 0.18f)
-        path.lineTo(cx + hw, baseY)
-        path.close()
-        fillP.shader = LinearGradient(
-            cx - hw, peak, cx + hw, baseY,
-            0xFFF5D061.toInt(), 0xFFB98A1E.toInt(), Shader.TileMode.CLAMP
-        )
-        canvas.drawPath(path, fillP)
-        fillP.shader = null
-        // گوی‌های نوک تاج
-        fillP.color = 0xFFF5D061.toInt()
-        canvas.drawCircle(cx - hw, top - hw * 0.30f, dp(2.1f), fillP)
-        canvas.drawCircle(cx, peak - dp(1.6f), dp(2.3f), fillP)
-        canvas.drawCircle(cx + hw, top - hw * 0.30f, dp(2.1f), fillP)
-        // نوار پایه
-        fillP.color = UI.alpha(0xFF9A7824.toInt(), 0.95f)
-        canvas.drawRoundRect(
-            RectF(cx - hw, baseY + dp(1.2f), cx + hw, baseY + dp(3.6f)),
-            dp(1.4f), dp(1.4f), fillP
-        )
     }
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density

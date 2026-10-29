@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  آیکون رسمی تلگرام (SVG) — دایره‌ی آبی + هواپیمای کاغذی سفید.
+  قابل استفاده در ImageView با android:src (بدون نیاز به AppCompat).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- دایره‌ی آبی تلگرام -->
+    <path
+        android:fillColor="#2AABEE"
+        android:pathData="M12,0 C5.373,0 0,5.373 0,12 C0,18.627 5.373,24 12,24 C18.627,24 24,18.627 24,12 C24,5.373 18.627,0 12,0 Z" />
+
+    <!-- هواپیمای کاغذی سفید — لوگوی رسمی -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M5.49,11.6 L17.7,6.87 C18.27,6.66 18.77,6.99 18.58,7.86 L18.59,7.85 L16.53,17.63 C16.38,18.31 15.98,18.47 15.42,18.15 L12.34,15.87 L10.85,17.3 C10.69,17.46 10.55,17.6 10.24,17.6 L10.45,14.49 L16.16,9.33 C16.41,9.11 16.1,8.99 15.77,9.21 L8.72,13.66 L5.68,12.71 C5.03,12.5 5.02,12.05 5.49,11.6 Z" />
+</vector>

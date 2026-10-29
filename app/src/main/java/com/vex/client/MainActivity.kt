@@ -15,6 +15,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -70,7 +72,7 @@ class MainActivity : ComponentActivity() {
 
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
-    private lateinit var tgIc: IconView
+    private lateinit var tgIcImg: ImageView
     private lateinit var gearBtn: FrameLayout
     private lateinit var gearIc: IconView
     private lateinit var identIcon: ImageView
@@ -82,6 +84,10 @@ class MainActivity : ComponentActivity() {
     private class NavItem(val item: LinearLayout, val icon: IconView, val label: TextView)
     private val navItems = ArrayList<NavItem>(4)
     private var currentTab = 0
+
+    /** آیا در حال دریافت سرورهای رایگان هستیم؟ (برای رندر صفحه‌ی سرورها) */
+    var freeFetching = false
+        private set
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -183,8 +189,8 @@ class MainActivity : ComponentActivity() {
         renderAll()
         homeUi.restoreStats()
 
-        // پیش‌نمایش ورود: دو شیر بالدار از بالا می‌افتند (لمس = رد کردن)
-        IntroSplash.show(this)
+        // پیش‌نمایش ورود: دو شیر بالدار از بالا می‌افتند (لمس = رد کردن) — قابل خاموش کردن از تنظیمات
+        if (store.settings.showIntro) IntroSplash.show(this)
 
         // اتصال خودکار
         if (store.settings.autoConnect && connectionState == "stopped") {
@@ -219,12 +225,12 @@ class MainActivity : ComponentActivity() {
         header.addView(bgLion, FrameLayout.LayoutParams(
             UI.dp(ctx, 172), UI.dp(ctx, 96), Gravity.CENTER))
 
-        // عنوان مرکزی: آیکون دایره‌ای برنامه + «Vex کلاینت»
+        // عنوان مرکزی: آیکون دایره‌ای برنامه (آیکون اصلی/اولیه) + «Vex Client» انگلیسی
         val titleRow = UI.row(ctx).apply { gravity = Gravity.CENTER }
         identIconBox = FrameLayout(ctx)
         identIcon = ImageView(ctx).apply {
             setImageResource(R.mipmap.ic_launcher)
-            scaleType = ImageView.ScaleType.CENTER_CROP
+            scaleType = ImageView.ScaleType.FIT_CENTER // آیکون اصلی کامل داخل دایره — بدون برش
             clipToOutline = true
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: android.graphics.Outline) {
@@ -245,7 +251,7 @@ class MainActivity : ComponentActivity() {
             letterSpacing = 0.02f
         }
         clientTv = TextView(ctx).apply {
-            text = "کلاینت"
+            text = "Client" // انگلیسی — طبق درخواست
             textSize = 16f
             typeface = Fonts.bold(ctx)
             includeFontPadding = false
@@ -273,13 +279,15 @@ class MainActivity : ComponentActivity() {
         header.addView(gearBtn, FrameLayout.LayoutParams(
             UI.dp(ctx, 46), UI.dp(ctx, 46), Gravity.RIGHT or Gravity.CENTER_VERTICAL))
 
-        // دکمه‌ی تلگرام (سمت چپ) — رفتن به کانال تلگرام
+        // دکمه‌ی تلگرام (سمت چپ) — آیکون رسمی SVG تلگرام؛ رفتن به کانال تلگرام
         tgBtn = FrameLayout(ctx).apply {
-            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
+            setPadding(UI.dp(ctx, 10), UI.dp(ctx, 10), UI.dp(ctx, 10), UI.dp(ctx, 10))
         }
-        tgIc = IconView(ctx, "tg").apply { bold = true }
-        tgBtn.addView(tgIc, FrameLayout.LayoutParams(
-            UI.dp(ctx, 25), UI.dp(ctx, 25), Gravity.CENTER))
+        tgIcImg = ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_telegram)
+        }
+        tgBtn.addView(tgIcImg, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         // لمس = بازکردن کانال تلگرام (اول اپلیکیشن تلگرام، بعد مرورگر)
         tgBtn.setOnClickListener { openTelegramChannel() }
         header.addView(tgBtn, FrameLayout.LayoutParams(
@@ -288,7 +296,7 @@ class MainActivity : ComponentActivity() {
         return header
     }
 
-    /** نوار پایین چهارتیکه با آیکون: خانه / کانفیگها / آمار / تنظیمات */
+    /** نوار پایین سه‌تیکه با آیکون: خانه / سرورها / آمار */
     private fun buildBottomNav(): View {
         val ctx = this
         val bar = UI.row(ctx)
@@ -302,7 +310,7 @@ class MainActivity : ComponentActivity() {
         // در RTL اولین فرزند سمت راست است — تنظیمات از دکمه‌ی گیر بالای صفحه باز می‌شود
         val defs = listOf(
             Triple("خانه", "home", 0),
-            Triple("کانفیگها", "list", 1),
+            Triple("سرورها", "list", 1),
             Triple("آمار", "chart", 2)
         )
         for ((lbl, ic, idx) in defs) {
@@ -392,8 +400,8 @@ class MainActivity : ComponentActivity() {
                 setColor(if (Themes.isLightBg(p)) 0xFFFFFFFF.toInt() else p.card2)
                 setStroke(UI.dp(this@MainActivity, 2), p.accent)
             }
-            identIcon.setPadding(UI.dp(this@MainActivity, 3), UI.dp(this@MainActivity, 3),
-                UI.dp(this@MainActivity, 3), UI.dp(this@MainActivity, 3))
+            identIcon.setPadding(UI.dp(this@MainActivity, 4), UI.dp(this@MainActivity, 4),
+                UI.dp(this@MainActivity, 4), UI.dp(this@MainActivity, 4))
             vexTv.setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
             clientTv.setTextColor(p.accent)
         }
@@ -424,7 +432,11 @@ class MainActivity : ComponentActivity() {
 
     private fun onServiceState(st: String, msg: String) {
         when (st) {
-            "connected" -> connectionState = "connected"
+            "connected" -> {
+                connectionState = "connected"
+                // بازخورد لرزشی کوتاه هنگام اتصال موفق (اگر در تنظیمات روشن باشد)
+                if (store.settings.hapticOnConnect) vibrateConnected()
+            }
             "stopped" -> connectionState = "stopped"
             "error" -> {
                 connectionState = "stopped"
@@ -433,6 +445,18 @@ class MainActivity : ComponentActivity() {
             }
         }
         renderAll()
+    }
+
+    /** لرزش کوتاه اتصال موفق */
+    private fun vibrateConnected() {
+        try {
+            val v = getSystemService(Vibrator::class.java) ?: return
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION") v.vibrate(60)
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun onNetResult(ok: Boolean, ms: Int, msg: String) {
@@ -470,6 +494,7 @@ class MainActivity : ComponentActivity() {
         // تنظیمات رفتاری سرویس (پیش از شروع)
         VexVpnService.autoReconnect = store.settings.autoReconnect
         VexVpnService.autoNetTest = store.settings.autoNetTest
+        VexVpnService.showNotifSpeed = store.settings.showNotifSpeed
         VexVpnService.perAppMode = store.settings.perAppMode
         VexVpnService.perAppPackages = store.settings.perAppPackages.toSet()
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -662,6 +687,11 @@ class MainActivity : ComponentActivity() {
         pingServers(store.servers.map { it.id }, silent)
     }
 
+    /** پینگ همه‌ی سرورهای رایگان */
+    fun pingFreeAll(silent: Boolean = false) {
+        pingServers(store.freeServers.map { it.id }, silent)
+    }
+
     fun pingServers(ids: List<Int>, silent: Boolean = false) {
         if (pingRunning) { if (!silent) UI.toast(this, "پینگ در حال اجراست"); return }
         if (ids.isEmpty()) { if (!silent) UI.toast(this, "سروری برای پینگ نیست"); return }
@@ -670,14 +700,49 @@ class MainActivity : ComponentActivity() {
         val pingTimeout = store.settings.pingTimeout
         Thread {
             for (id in ids) {
-                val s = store.servers.firstOrNull { it.id == id } ?: continue
-                val inf = try { LinkParser.info(s.raw) } catch (_: Throwable) { null }
-                val ms = if (inf?.host.isNullOrBlank()) -2 else NetUtil.tcpPing(inf!!.host!!, inf.port ?: 443, pingTimeout)
+                val s = store.servers.firstOrNull { it.id == id }
+                    ?: store.freeServers.firstOrNull { it.id == id }
+                    ?: continue
+                val ms = FreeServers.pingOne(s, pingTimeout)
                 store.setPing(id, ms)
                 main.post { serversUi.render(); homeUi.renderServerCard() }
             }
             pingRunning = false
             main.post { if (!silent) UI.toast(this, "پینگ تمام شد") }
+        }.start()
+    }
+
+    // ---------------- سرورهای رایگان ----------------
+
+    /**
+     * دریافت خودکار سرورهای رایگان از منابع اشتراک عمومی:
+     * دریافت موازی → پارس → پینگ موازی → فقط سرورهای سالم در لیست می‌نشینند.
+     * همه با نام یکسان «Vex Free Server N» — بدون امکان ویرایش/حذف/مشاهده‌ی مشخصات.
+     */
+    fun refreshFreeServers() {
+        if (FreeServers.fetching) { UI.toast(this, "دریافت سرورهای رایگان در حال اجراست"); return }
+        UI.toast(this, "در حال دریافت سرورهای رایگان…")
+        freeFetching = true
+        serversUi.freeProgressMsg = "در حال دریافت از منابع رایگان…"
+        if (serversUi.tab == 1) serversUi.render()
+        Thread {
+            val alive = FreeServers.fetchAliveServers { msg ->
+                main.post {
+                    serversUi.freeProgressMsg = msg
+                    if (serversUi.tab == 1) serversUi.render()
+                }
+            }
+            freeFetching = false
+            main.post {
+                if (alive.isNotEmpty()) {
+                    store.replaceFreeServers(alive)
+                    UI.toast(this, "${alive.size} سرور رایگان سالم ذخیره شد")
+                } else if (store.freeLastFetch == 0L) {
+                    UI.toast(this, "دریافت ناموفق بود — دوباره تلاش کن")
+                }
+                serversUi.render()
+                homeUi.renderServerCard()
+            }
         }.start()
     }
 

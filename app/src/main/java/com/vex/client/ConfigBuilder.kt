@@ -48,11 +48,19 @@ object ConfigBuilder {
         val bypassLan = j.optBoolean("bypassLan", true)
         val ipv6 = j.optBoolean("ipv6", false)
         val useMux = j.optBoolean("mux", false)
+        val muxPad = j.optBoolean("muxPadding", false)
+        val tfo = j.optBoolean("tcpFastOpen", false)
+        val domainStrategy = j.optString("domainStrategy", "prefer_ipv4").trim()
         val dnsUser = j.optString("dns", "1.1.1.1").trim().ifEmpty { "1.1.1.1" }
         val dnsAddress = if (dnsUser.contains("://")) dnsUser else "tcp://$dnsUser"
         val logLevel = j.optString("logLevel", "warning").trim().ifEmpty { "warning" }
 
-        applyMux(outbound, useMux)
+        applyMux(outbound, useMux, muxPad)
+        // استراتژی دامنه + TCP Fast Open روی outbound واقعی sing-box
+        if (domainStrategy in setOf("prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only")) {
+            outbound.put("domain_strategy", domainStrategy)
+        }
+        if (tfo) outbound.put("tcp_fast_open", true)
 
         val rules = JSONArray()
         // بدون sniff، قانون protocol=dns هیچ‌وقت match نمی‌شود؛ sniff اول می‌آید
@@ -127,7 +135,7 @@ object ConfigBuilder {
     // ------------------------------------------------------------ mux
 
     /** Mux فقط برای vless/vmess/trojan و وقتی flow تنظیم نیست (Reality+Vision با mux سازگار نیست) */
-    private fun applyMux(o: JSONObject, enabled: Boolean) {
+    private fun applyMux(o: JSONObject, enabled: Boolean, padding: Boolean = false) {
         if (!enabled) return
         val type = o.optString("type")
         if (type !in setOf("vless", "vmess", "trojan")) return
@@ -137,7 +145,7 @@ object ConfigBuilder {
             .put("protocol", "h2mux")
             .put("max_connections", 4)
             .put("min_streams", 4)
-            .put("padding", false))
+            .put("padding", padding))
     }
 
     // ------------------------------------------------------------ ورودی دستی / JSON

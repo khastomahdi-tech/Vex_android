@@ -58,6 +58,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         @Volatile var snapUp: Long = 0
         @Volatile var snapTDn: Long = 0
         @Volatile var snapTUp: Long = 0
+
+        /** نمایش سرعت زنده در اعلان (تنظیم کاربر) */
+        @Volatile var showNotifSpeed: Boolean = true
         /** زمان اتصال موفق برای محاسبه‌ی مدت جلسه در صفحه‌ی آمار */
         @Volatile var connectedAtMs: Long = 0
 
@@ -363,7 +366,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                             snapTDn = totalRx; snapTUp = totalTx
                             statsListener?.invoke(down, up, totalRx, totalTx)
                             if (verified) {
-                                val body = "↓ ${fmt(down)}/s    ↑ ${fmt(up)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
+                                val body = if (showNotifSpeed)
+                                    "↓ ${fmt(down)}/s    ↑ ${fmt(up)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
+                                else
+                                    "اتصال برقرار و پایدار است\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
                                 try { nm.notify(NOTIF_ID, notif("متصل است", body)) } catch (_: Exception) {}
                             }
                         }
@@ -396,7 +402,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     statsListener?.invoke(dRx, dTx, totalRx, totalTx)
                     // نوتیفیکیشن فقط بعد از تأیید واقعی مسیر به «متصل است» تغییر می‌کند
                     if (verified) {
-                        val body = "↓ ${fmt(dRx)}/s    ↑ ${fmt(dTx)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
+                        val body = if (showNotifSpeed)
+                            "↓ ${fmt(dRx)}/s    ↑ ${fmt(dTx)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
+                        else
+                            "اتصال برقرار و پایدار است\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
                         try { nm.notify(NOTIF_ID, notif("متصل است", body)) } catch (_: Exception) {}
                     }
                 }

@@ -33,6 +33,7 @@ class SettingsUi(private val act: MainActivity) {
     private lateinit var perAppPickBtn: TextView
     private lateinit var perAppCount: TextView
     private val themedButtons = ArrayList<TextView>(4)
+    private lateinit var domainSpinner: Spinner
 
     private var p: Palette = Themes.dark()
     private var building = false
@@ -61,6 +62,21 @@ class SettingsUi(private val act: MainActivity) {
         connCard.addView(switchRow("تست خودکار اینترنت پس از اتصال",
             "بعد از وصل شدن، واقعی بودن اینترنت بررسی می‌شود", act.store.settings.autoNetTest) { v ->
             act.store.settings.autoNetTest = v; act.store.saveSettings()
+        })
+        connCard.addView(divider())
+        connCard.addView(switchRow("لرزش هنگام اتصال موفق",
+            "با برقراری اتصال، بازخورد لرزشی کوتاه داده می‌شود", act.store.settings.hapticOnConnect) { v ->
+            act.store.settings.hapticOnConnect = v; act.store.saveSettings()
+        })
+        connCard.addView(divider())
+        connCard.addView(switchRow("نمایش سرعت زنده در اعلان",
+            "سرعت دانلود/آپلود هر ثانیه در نوتیفیکیشن نشان داده می‌شود", act.store.settings.showNotifSpeed) { v ->
+            act.store.settings.showNotifSpeed = v; act.store.saveSettings()
+        })
+        connCard.addView(divider())
+        connCard.addView(switchRow("صفحه‌ی ورود (اسپلش)",
+            "نمایش انیمیشن شیرهای طلایی هنگام باز شدن برنامه", act.store.settings.showIntro) { v ->
+            act.store.settings.showIntro = v; act.store.saveSettings()
         })
         addCard(connCard)
 
@@ -121,14 +137,49 @@ class SettingsUi(private val act: MainActivity) {
             act.store.settings.mux = v; act.store.saveSettings()
         })
         netCard.addView(divider())
+        netCard.addView(switchRow("پدینگ Mux",
+            "پوشاندن الگوی ترافیک داخل تونل Mux (فقط وقتی Mux روشن است)", act.store.settings.muxPadding) { v ->
+            act.store.settings.muxPadding = v; act.store.saveSettings()
+        })
+        netCard.addView(divider())
+        netCard.addView(switchRow("TCP Fast Open",
+            "باز شدن سریع اتصال TCP — روی بعضی شبکه‌ها سرعت اولین اتصال بیشتر می‌شود", act.store.settings.tcpFastOpen) { v ->
+            act.store.settings.tcpFastOpen = v; act.store.saveSettings()
+        })
+        netCard.addView(divider())
         netCard.addView(switchRow("رد کردن تأیید گواهی TLS", "allowInsecure — برای سرورهای با گواهی خودامضا", act.store.settings.allowInsecure) { v ->
             act.store.settings.allowInsecure = v; act.store.saveSettings()
         })
+        netCard.addView(divider())
+        netCard.addView(fieldLabel(ctx, "استراتژی دامنه (مثل v2rayNG)"))
+        domainSpinner = Spinner(ctx).apply {
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                arrayOf("ترجیح IPv4", "ترجیح IPv6", "فقط IPv4", "فقط IPv6"))
+            setSelection(when (act.store.settings.domainStrategy) {
+                "prefer_ipv6" -> 1
+                "ipv4_only" -> 2
+                "ipv6_only" -> 3
+                else -> 0
+            })
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                    if (building) return
+                    act.store.settings.domainStrategy = when (pos) {
+                        1 -> "prefer_ipv6"; 2 -> "ipv4_only"; 3 -> "ipv6_only"; else -> "prefer_ipv4"
+                    }
+                    act.store.saveSettings()
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+        }
+        netCard.addView(domainSpinner, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
         addCard(netCard)
 
         // ================= برنامه‌ها (per-app) =================
         val appCard = sectionCard("برنامه‌ها (Per-app)", "list")
         appCard.addView(subLabel("مثل v2rayNG: تعیین کن تونل برای کدام برنامه‌ها فعال باشد"))
+        appCard.addView(divider(6))
         perAppChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
         perAppChips.addView(perAppChip("همه", 0))
         perAppChips.addView(perAppChip("فقط انتخابی‌ها", 1))
@@ -141,6 +192,7 @@ class SettingsUi(private val act: MainActivity) {
         }
         appCard.addView(perAppCount)
 
+        appCard.addView(divider())
         perAppPickBtn = softRowButton("انتخاب برنامه‌ها…")
         perAppPickBtn.setOnClickListener {
             if (act.store.settings.perAppMode == 0) {
@@ -199,6 +251,7 @@ class SettingsUi(private val act: MainActivity) {
         // ================= ظاهر =================
         val themeCard = sectionCard("ظاهر", "home")
         themeCard.addView(subLabel("انتخاب رنگ و حالت نمایش برنامه"))
+        themeCard.addView(divider(6))
         themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
         themeChips.addView(themeChip("روشن", "light"))
         themeChips.addView(themeChip("تیره", "dark"))
@@ -214,14 +267,17 @@ class SettingsUi(private val act: MainActivity) {
         logBtn.setOnClickListener { act.showCoreLog() }
         toolsCard.addView(logBtn)
         toolsCard.addView(divider())
+        val errBtn = softRowButton("جزئیات آخرین خطا")
+        errBtn.setOnClickListener { act.showErrDetails() }
+        toolsCard.addView(errBtn)
+        toolsCard.addView(divider())
         val resetBtn = softRowButton("بازنشانی همه‌ی تنظیمات", tag = "bad")
         resetBtn.setOnClickListener { act.resetSettings() }
         toolsCard.addView(resetBtn)
         addCard(toolsCard)
 
         // ================= درباره =================
-        val aboutCard = sectionCard("درباره", "crown")
-        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.8.0 (16)"))
+        val aboutCard = sectionCard("درباره", "globe")        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.8.0 (16)"))
         aboutCard.addView(divider())
         aboutCard.addView(infoRow("هسته‌ی پراکسی", "sing-box v1.11.15"))
         aboutCard.addView(divider())
