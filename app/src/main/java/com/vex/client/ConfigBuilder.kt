@@ -157,6 +157,8 @@ object ConfigBuilder {
             "insecure" to (if (c.optBoolean("allowInsecure", false)) "1" else "")
         )
         if (c.has("headerType")) p["headerType"] = c.optString("headerType")
+        // روش رمزنگاری دستی برای Shadowsocks (لینک ss خودش method دارد)
+        if (proto == "ss" || proto == "shadowsocks") p["ssMethod"] = c.optString("method")
         return buildOutbound(
             proto,
             c.optString("address"),
@@ -418,7 +420,9 @@ object ConfigBuilder {
             }
             "trojan" -> o.put("type", "trojan").put("password", secret)
             "vmess" -> o.put("type", "vmess").put("uuid", secret).put("security", "auto").put("alter_id", 0).put("packet_encoding", "xudp")
-            "shadowsocks", "ss" -> o.put("type", "shadowsocks").put("method", "aes-256-gcm").put("password", secret)
+            "shadowsocks", "ss" -> o.put("type", "shadowsocks")
+                .put("method", p["ssMethod"]?.takeIf { it.isNotEmpty() } ?: "aes-256-gcm")
+                .put("password", secret)
             "hysteria2", "hy2" -> {
                 o.put("type", "hysteria2").put("password", secret)
                 val obfs = p["obfs"] ?: ""

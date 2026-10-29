@@ -49,6 +49,16 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         @Volatile var statsListener: ((Long, Long, Long, Long) -> Unit)? = null
         @Volatile var netListener: ((Boolean, Int, String) -> Unit)? = null // ok, ms, پیام
 
+        // ---- وضعیت فعلی برای بازگردانی UI (وقتی اکتیویتی دوباره باز می‌شود) ----
+        @Volatile var uiState: String = "stopped"   // stopped | connecting | connected
+        @Volatile var netState: Int = 0             // 0 ناشناخته، 1 تأیید، 2 رد شد
+        @Volatile var netMsg: String = ""
+        @Volatile var netMs: Int = -1
+        @Volatile var snapDn: Long = 0
+        @Volatile var snapUp: Long = 0
+        @Volatile var snapTDn: Long = 0
+        @Volatile var snapTUp: Long = 0
+
         // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
         private val logBuf = ArrayDeque<String>(400)
         fun pushCoreLog(line: String) {
@@ -99,9 +109,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
     override fun onCreate() {
         super.onCreate()
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "وضعیت VEX", NotificationManager.IMPORTANCE_LOW)
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "وضعیت VEX", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -115,6 +127,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private fun startVpn(config: String) {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
         startForeground(NOTIF_ID, notif("در حال اتصال...", "راه‌اندازی هسته..."))
+        uiState = "connecting"
+        netState = 0; netMsg = ""; netMs = -1
         clearCoreLogs()
         val gen: Int
         synchronized(stateLock) { gen = ++generation }
@@ -145,6 +159,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 // ---- اتصال اعلام می‌شود (مانند v2rayNG)؛ تست اینترنت در پس‌زمینه ----
                 synchronized(stateLock) { if (gen != generation) return@thread }
                 verified = false
+                uiState = "connected"
                 startForeground(NOTIF_ID, notif("متصل است", "در حال تست اینترنت..."))
                 stateListener?.invoke("connected", "")
                 startNetTestLoop(gen)
@@ -172,10 +187,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     if (gen != generation) return@thread
                     if (err == null) {
                         verified = true
+                        netState = 1; netMsg = ""; netMs = ms
                         netListener?.invoke(true, ms, "")
                         startForeground(NOTIF_ID, notif("متصل است", "اینترنت از مسیر سرور تأیید شد · ${ms}ms"))
                     } else {
                         verified = false
+                        netState = 2; netMsg = err; netMs = -1
                         netListener?.invoke(false, -1, err)
                         startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", err))
                     }
@@ -233,6 +250,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
+        uiState = "stopped"
         timer?.cancel(); timer = null
         testThread?.interrupt(); testThread = null
         try { tun?.close() } catch (_: Exception) {}
@@ -264,6 +282,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     val dTx = (up - lastTx).coerceAtLeast(0)
                     lastRx = dn; lastTx = up
                     totalRx += dRx; totalTx += dTx
+                    snapDn = dRx; snapUp = dTx; snapTDn = totalRx; snapTUp = totalTx
                     statsListener?.invoke(dRx, dTx, totalRx, totalTx)
                     // نوتیفیکیشن فقط بعد از تأیید واقعی مسیر به «متصل است» تغییر می‌کند
                     if (verified) {

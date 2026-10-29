@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,7 +31,15 @@ jobs:
           yes | "$SDKMANAGER" --install "ndk;26.3.11579264" > /dev/null 2>&1 || true
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
 
+      - name: Restore libbox AAR cache
+        id: aar
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libbox.aar
+          key: libbox-v1.11.15-aar2
+
       - name: Build sing-box core (libbox AAR)
+        if: steps.aar.outputs.cache-hit != 'true'
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.4
@@ -52,6 +63,10 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Read version
+        id: ver
+        run: echo "v=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon
 
@@ -59,3 +74,17 @@ jobs:
         with:
           name: vex-client-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish GitHub Release (public download link)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.ver.outputs.v }}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" app/build/outputs/apk/debug/app-debug.apk \
+            --title "VEX CLIENT $TAG" \
+            --notes "دانلود مستقیم APK — نسخه‌ی نیتیو (بدون HTML) با هسته‌ی واقعی sing-box v1.11.15
+
+            نصب: فایل app-debug.apk را دانلود و نصب کنید (اجازه‌ی نصب از منابع ناشناس لازم است).
+
+            پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"

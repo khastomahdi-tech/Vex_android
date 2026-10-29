@@ -1,0 +1,198 @@
+package com.vex.client
+
+import android.content.Context
+import android.content.res.Configuration
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+
+/** پالت رنگی یک تم */
+data class Palette(
+    val bg: Int,
+    val bg2: Int,
+    val card: Int,
+    val card2: Int,
+    val line: Int,
+    val text: Int,
+    val muted: Int,
+    val accent: Int,
+    val onAccent: Int,
+    val good: Int,
+    val mid: Int,
+    val slow: Int,
+    val bad: Int,
+    val glow: Int,
+    val isShir: Boolean
+)
+
+/** تم‌های برنامه: روشن / تیره / شیر و خورشید / سیستم */
+object Themes {
+
+    fun light() = Palette(
+        bg = 0xFFEEF2FA.toInt(), bg2 = 0xFFFFFFFF.toInt(),
+        card = 0xFFFFFFFF.toInt(), card2 = 0xFFF2F5FC.toInt(),
+        line = 0xFFE0E6F2.toInt(), text = 0xFF152038.toInt(), muted = 0xFF6C7896.toInt(),
+        accent = 0xFF4F7CFF.toInt(), onAccent = 0xFFFFFFFF.toInt(),
+        good = 0xFF27B37B.toInt(), mid = 0xFFF0A01F.toInt(), slow = 0xFFE86F3F.toInt(),
+        bad = 0xFFE84A6F.toInt(), glow = 0x294F7CFF, isShir = false
+    )
+
+    fun dark() = Palette(
+        bg = 0xFF060A14.toInt(), bg2 = 0xFF0C1426.toInt(),
+        card = 0xFF111B31.toInt(), card2 = 0xFF17233F.toInt(),
+        line = 0xFF1F2D4D.toInt(), text = 0xFFEEF3FF.toInt(), muted = 0xFF8B97B5.toInt(),
+        accent = 0xFF4F7CFF.toInt(), onAccent = 0xFFFFFFFF.toInt(),
+        good = 0xFF34C77B.toInt(), mid = 0xFFF6A821.toInt(), slow = 0xFFFF7A59.toInt(),
+        bad = 0xFFFF5470.toInt(), glow = 0x3D4F7CFF, isShir = false
+    )
+
+    fun shir() = Palette(
+        bg = 0xFF100C05.toInt(), bg2 = 0xFF17120A.toInt(),
+        card = 0xFF1C1509.toInt(), card2 = 0xFF261D0E.toInt(),
+        line = 0xFF3E3015.toInt(), text = 0xFFFFF3D6.toInt(), muted = 0xFFB3A179.toInt(),
+        accent = 0xFFE8B923.toInt(), onAccent = 0xFF221A05.toInt(),
+        good = 0xFF9ACD64.toInt(), mid = 0xFFE8B923.toInt(), slow = 0xFFE88B3B.toInt(),
+        bad = 0xFFE85D5D.toInt(), glow = 0x47E8B923, isShir = true
+    )
+
+    /** انتخاب پالت بر اساس تنظیمات و وضعیت تیره/روشن سیستم */
+    fun resolve(context: Context, setting: String): Palette = when (setting) {
+        "light" -> light()
+        "dark" -> dark()
+        "shir" -> shir()
+        else -> {
+            val night = (context.resources.configuration.uiMode and
+                    Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            if (night) dark() else light()
+        }
+    }
+}
+
+/** ابزارهای مشترک ساخت UI نیتیو */
+object UI {
+
+    fun dp(context: Context, v: Int): Int = (v * context.resources.displayMetrics.density).toInt()
+
+    fun card(context: Context, p: Palette, radiusDp: Int = 18, stroke: Int? = null, fillColor: Int? = null): GradientDrawable =
+        GradientDrawable().apply {
+            cornerRadius = dp(context, radiusDp).toFloat()
+            setColor(fillColor ?: p.card)
+            if (stroke != null) setStroke(dp(context, 1), stroke)
+        }
+
+    fun label(context: Context, text: String, sizeSp: Float, color: Int, bold: Boolean = false): TextView =
+        TextView(context).apply {
+            this.text = text
+            textSize = sizeSp
+            setTextColor(color)
+            typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+
+    fun pill(context: Context, text: String, bg: Int, fg: Int, bold: Boolean = true): TextView =
+        TextView(context).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(fg)
+            typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 10), dp(context, 3), dp(context, 10), dp(context, 3))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(context, 20).toFloat()
+                setColor(bg)
+            }
+        }
+
+    /** دکمه‌ی پررنگ (accent) */
+    fun primaryButton(context: Context, text: String, p: Palette): TextView =
+        TextView(context).apply {
+            this.text = text
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(p.onAccent)
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(context, 14).toFloat()
+                setColor(p.accent)
+            }
+        }
+
+    /** پس‌زمینه‌ی دکمه‌ی پررنگ */
+    fun primaryBg(context: Context, p: Palette): GradientDrawable =
+        GradientDrawable().apply {
+            cornerRadius = dp(context, 14).toFloat()
+            setColor(p.accent)
+        }
+
+    /** دکمه‌ی ملایم (کارت رنگی) */
+    fun softButton(context: Context, text: String, p: Palette): TextView =
+        TextView(context).apply {
+            this.text = text
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(p.text)
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(context, 14).toFloat()
+                setColor(p.card2)
+                setStroke(dp(context, 1), p.line)
+            }
+        }
+
+    fun row(context: Context): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+    }
+
+    fun col(context: Context): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+    }
+
+    fun toast(context: Context, msg: String) {
+        try { Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() } catch (_: Throwable) {}
+    }
+
+    fun fmtBytes(n: Long): String {
+        if (n < 0) return "0 B"
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        var v = n.toDouble()
+        var i = 0
+        while (v >= 1024.0 && i < units.size - 1) { v /= 1024.0; i++ }
+        return if (i == 0) "${n} B"
+        else java.lang.String.format(java.util.Locale.US, "%.2f %s", v, units[i])
+    }
+
+    fun pingColor(p: Palette, ms: Int): Int = when {
+        ms == -1 || ms == -2 -> p.muted
+        ms < 150 -> p.good
+        ms < 300 -> p.mid
+        else -> p.slow
+    }
+
+    fun pingText(ms: Int): String = when {
+        ms == -1 -> "—"
+        ms == -2 -> "×"
+        else -> "$ms ms"
+    }
+
+    fun protoLabel(proto: String): String = when (proto.lowercase()) {
+        "shadowsocks", "ss" -> "SS"
+        "hysteria2", "hy2" -> "HY2"
+        "wireguard", "wg" -> "WG"
+        "vmess" -> "VMESS"
+        else -> proto.uppercase()
+    }
+
+    fun alpha(argb: Int, a: Float): Int {
+        val base = argb and 0x00FFFFFF
+        val ai = (a.coerceIn(0f, 1f) * 255).toInt()
+        return (ai shl 24) or base
+    }
+}
