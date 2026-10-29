@@ -9,14 +9,27 @@ android {
 
     defaultConfig {
         applicationId = "com.vex.client"
-        minSdk = 24
+        minSdk = 21
         targetSdk = 34
-        versionCode = 11
-        versionName = "3.3.0"
+        versionCode = 12
+        versionName = "3.4.0"
+    }
+
+    signingConfigs {
+        create("vex") {
+            storeFile = file("vex.keystore")
+            storePassword = "vexVex2024"
+            keyAlias = "vex"
+            keyPassword = "vexVex2024"
+        }
     }
 
     buildTypes {
-        release { isMinifyEnabled = false }
+        debug { signingConfig = signingConfigs.getByName("vex") }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("vex")
+        }
     }
 
     packaging {
