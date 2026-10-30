@@ -100,6 +100,9 @@ class MainActivity : ComponentActivity() {
     /** اتصال خودکار پس از ورود با کاشی VPN یا اعلان «برنامه بسته شد» */
     private var pendingAutoConnect = false
 
+    /** نسخه‌ی حداقل مدیر (min_ver) — اگر از نسخه‌ی فعلی بالاتر بود، بنر «نسخه‌ی جدید» می‌آید */
+    private var pendingUpdateVer = 0
+
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
     private lateinit var tgIcImg: ImageView
@@ -226,6 +229,8 @@ class MainActivity : ComponentActivity() {
             // بسته باشد کاربر اصلاً وارد نمی‌شود و همین‌جا پیام انگلیسی می‌بیند.
             val info = TelegramGate.notifyInstall(this) ?: TelegramGate.gateInfo()
             TelegramGate.ackIfChanged(info.gate, this)
+            // اعلام «نسخه‌ی جدید» — مدیر در پنل/ربات min_ver را بالاتر از این نسخه گذاشته باشد
+            pendingUpdateVer = if (info.minVer > TelegramGate.selfVersionCode(this).toInt()) info.minVer else 0
             // مصرف جمع‌شده‌ی قبلی (اگر مانده) به بک‌اند ربات گزارش می‌شود
             TrafficStore.flushAsync(this)
             if (info.gate == TelegramGate.CLOSED) {
@@ -330,12 +335,17 @@ class MainActivity : ComponentActivity() {
             renderAll()
             homeUi.restoreStats()
 
+            // بنر «نسخه‌ی جدید منتشر شده» — اگر مدیر حداقل نسخه را بالا برده باشد
+            if (pendingUpdateVer > 0) homeUi.showUpdateBanner(pendingUpdateVer)
+
             // به‌روزرسانی خودکار سرورهای رایگان
             scheduleFreeAutoRefresh()
             Thread { refreshFreeServers(silent = true) }.start()
 
             // اعلان‌های تازه‌ی مدیر (اگر هنگام بسته‌بودن برنامه فرستاده شده باشند)
             Thread { Notifier.fetchAndShow(this) }.start()
+            // ضربان پس‌زمینه‌ی اعلان‌ها — حتی وقتی برنامه کاملاً بسته است، سیستم هر ۱۵ دقیقه بیدار می‌کند
+            NotifyWorker.ensure(this)
             // تیک مستقل اعلان‌ها — حتی اگر «به‌روزرسانی خودکار سرورها» خاموش باشد هم فعال است
             main.removeCallbacks(notifTick)
             main.post(notifTick)
@@ -561,6 +571,17 @@ class MainActivity : ComponentActivity() {
 
     /** بازکردن تنظیمات از دکمه‌ی گیر بالای صفحه */
     fun gotoSettings() = switchTab(3)
+
+    /** دانلود APK — اول دامنه‌ی شخصی (میرور کلادفلر)، بعد pages.dev */
+    fun openApkDownload() {
+        for (u in arrayOf("https://demonvpn.shop/apk", "https://vex-gate.pages.dev/apk")) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u)))
+                return
+            } catch (_: Throwable) {}
+        }
+        UI.toast(this, "مرورگر در دسترس نیست")
+    }
 
     // ---------------- هدر متحرک (همراه اسکرول) ----------------
 
@@ -1226,8 +1247,7 @@ class MainActivity : ComponentActivity() {
 
     /**
      * حالت‌های قفل: checking / no-internet / closed / tampered
-     * صفحه‌ی «در حال اتصال» فقط دو چیز دارد: آیکون برنامه (گوشه‌گرد) بالای صفحه
-     * و عبارت «در حال اتصال به برنامه» زیر آن — هیچ چیز دیگری.
+     * حالت «checking» فقط آیکون برنامه را نشان می‌دهد — هیچ متنی زیرش نیست.
      */
     private fun setGateUi(state: String) {
         if (!gateBuilt) return
@@ -1252,22 +1272,21 @@ class MainActivity : ComponentActivity() {
         gateRoot.addView(ic, LinearLayout.LayoutParams(
             UI.dp(ctx, 112), UI.dp(ctx, 112)).apply { gravity = Gravity.CENTER_HORIZONTAL })
 
-        // وضعیت / پیام زیر آیکون
+        // «در حال اتصال به برنامه» حذف شد — حالت checking فقط آیکون را نشان می‌دهد
+        if (state == "checking") return
+
+        // وضعیت / پیام زیر آیکون (فقط حالت‌های خطا)
         val title = TextView(ctx).apply {
             textSize = 16.5f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
             setPadding(0, UI.dp(ctx, 28), 0, 0)
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
                 "closed" -> { text = "App Access Closed"; setTextColor(p.bad) }
-                "tampered" -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
-                else -> { text = "در حال اتصال به برنامه"; setTextColor(p.text) }
+                else -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
             }
         }
         gateRoot.addView(title, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // حالت «در حال اتصال» همین‌جا تمام است — فقط آیکون و متن
-        if (state == "checking") return
 
         val msg = TextView(ctx).apply {
             textSize = 13.5f; gravity = Gravity.CENTER; setTextColor(p.muted)

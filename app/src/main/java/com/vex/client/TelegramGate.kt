@@ -53,8 +53,8 @@ object TelegramGate {
     const val OPEN = "open"
     const val CLOSED = "closed"
 
-    /** وضعیت دروازه + دلیل بسته‌بودن (متن مدیر در ربات) */
-    data class GateInfo(val gate: String, val reason: String?)
+    /** وضعیت دروازه + دلیل بسته‌بودن (متن مدیر در ربات) + حداقل نسخه‌ی مجاز (به‌روزرسانی اجباری) */
+    data class GateInfo(val gate: String, val reason: String?, val minVer: Int = 0)
 
     /** سرور رایگانِ مدیریت‌شده از ربات */
     data class FreeServerDto(val id: Long, val name: String, val proto: String, val raw: String, val label: String = "")
@@ -105,14 +105,15 @@ object TelegramGate {
         val body = get("/v1/state") ?: return GateInfo(OPEN, null)
         return try {
             val o = JSONObject(body)
+            val mv = o.optInt("min_ver", 0)
             if (o.optBoolean("ok") && o.optString("gate") == CLOSED) {
                 val ts = o.optLong("ts", 0L)
                 // پاسخ مستقیم سرور ts ندارد (صفر) و همیشه معتبر است؛ فایل پشتیبان گیت‌هاب
                 // اگر بیش از ۱۵ دقیقه کهنه باشد قابل‌اعتماد نیست — دروازه باز فرض می‌شود
                 // تا هیچ کاربری با اسنپ‌شات قدیمی بی‌دلیل قفل نشود.
-                if (ts in 1..(System.currentTimeMillis() - 15 * 60_000L)) return GateInfo(OPEN, null)
-                GateInfo(CLOSED, o.optString("reason", null as String?))
-            } else GateInfo(OPEN, null)
+                if (ts in 1..(System.currentTimeMillis() - 15 * 60_000L)) return GateInfo(OPEN, null, mv)
+                GateInfo(CLOSED, o.optString("reason", null as String?), mv)
+            } else GateInfo(OPEN, null, mv)
         } catch (_: Throwable) {
             GateInfo(OPEN, null)
         }
@@ -143,7 +144,7 @@ object TelegramGate {
             return try {
                 val o = JSONObject(res)
                 if (o.optBoolean("ok"))
-                    GateInfo(o.optString("gate", OPEN), o.optString("reason", null as String?))
+                    GateInfo(o.optString("gate", OPEN), o.optString("reason", null as String?), o.optInt("min_ver", 0))
                 else null
             } catch (_: Throwable) { null }
         } catch (_: Throwable) {
@@ -346,4 +347,7 @@ object TelegramGate {
         if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode
         else @Suppress("DEPRECATION") pi.versionCode.toLong()
     } catch (_: Throwable) { 0L }
+
+    /** versionCode خودِ برنامه — برای مقایسه با min_ver مدیر (به‌روزرسانی اجباری) */
+    fun selfVersionCode(ctx: Context): Long = pkgVersionCode(ctx)
 }

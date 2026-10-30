@@ -36,13 +36,16 @@
  *   /close [reason] locks the app; locked users see «دسترسی برنامه بسته شده است» + reason.
  *   Traffic: app reports session deltas (free/private); bot shows totals + top users.
  *   Install notification: exactly ONE per device (first install only — updates stay silent).
- *   /notify Title | Body  → push notification to every user's phone (app polls every 60s,
- *                           asks POST_NOTIFICATIONS on first launch).
+ *   /notify Title | Body  → push notification to every user's phone — reaches users even
+ *                           with the app fully closed: in-app tick every 45s + WorkManager
+ *                           background pulse every 15 min (system-scheduled, survives swipe-away).
  *   /sname <id> <prefix>  → set/remove the server prefix (emoji/label) shown in the app.
  *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
+ *   /panel → web admin panel link · /minver <code> → forced-update banner on old builds
+ *   /ping → health check · /reload → re-sync GitHub fallback snapshots · /notifs recent list
  */
 
-const SERVICE_V = 8;
+const SERVICE_V = 9;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -116,7 +119,8 @@ export default {
       if (path === "/v1/state" && request.method === "GET") {
         const gate = (await getSetting(env, "gate")) || "open";
         const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
-        return json({ ok: true, gate, reason });
+        const minVer = Number(await getSetting(env, "min_ver")) || 0;
+        return json({ ok: true, gate, reason, min_ver: minVer });
       }
       if (path === "/v1/report" && request.method === "POST") {
         return report(request, env);
@@ -338,6 +342,38 @@ async function handleAdmin(path, url, request, env) {
     return J({ ok: true, servers: (fs.servers || []).length, notifs: (nt.list || []).length, gate: st.gate });
   }
 
+  if (path === "/admin/settings" && request.method === "GET") {
+    const mv = Number(await getSetting(env, "min_ver")) || 0;
+    const cr = (await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON;
+    const owner = await getSetting(env, "owner");
+    return J({ ok: true, min_ver: mv, close_reason: cr, owner, service_v: SERVICE_V });
+  }
+
+  if (path === "/admin/settings" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    let changed = false;
+    if (b.min_ver !== undefined) {
+      const mv = Math.max(0, Math.round(Number(b.min_ver) || 0));
+      await setSetting(env, "min_ver", String(mv));
+      changed = true;
+    }
+    if (b.close_reason !== undefined) {
+      const cr = String(b.close_reason || "").trim().slice(0, 400);
+      if (cr) { await setSetting(env, "close_reason", cr); changed = true; }
+    }
+    if (changed) await ghSync(env, "state.json", await stateSnapshot(env));
+    return J({ ok: true, min_ver: Number(await getSetting(env, "min_ver")) || 0 });
+  }
+
+  if (path === "/admin/notifications/delete" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const id = parseInt(b.id, 10);
+    if (!id) return J({ ok: false, error: "id required" }, 400);
+    await env.DB.prepare("DELETE FROM notifications WHERE id = ?1").bind(id).run();
+    await ghSync(env, "notifications.json", await notifSnapshot(env));
+    return J({ ok: true });
+  }
+
   return J({ ok: false, error: "not found" }, 404);
 }
 
@@ -373,6 +409,7 @@ async function report(request, env) {
   const opens = row ? (row.opens + 1) : 1;
   const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
   const gate = (await getSetting(env, "gate")) || "open";
+  const minVer = Number(await getSetting(env, "min_ver")) || 0;
 
   // notify owner ONLY on brand-new install — exactly ONE message per device.
   // routine opens and version updates stay completely silent (owner request).
@@ -390,7 +427,7 @@ async function report(request, env) {
     await tgSend(env, owner, text);
   }
 
-  return json({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null, users: total ? total.n : 0 });
+  return json({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null, min_ver: minVer, users: total ? total.n : 0 });
 }
 
 async function ack(request, env) {
@@ -511,6 +548,30 @@ async function handleUpdate(up, env) {
     const rest = text.replace(/^\/fsadd\s*/i, "").trim();
     if (rest) { await addFreeServers(rest, chatId, env); return; }
     await askAddFreeServer(chatId, env);
+  } else if (lc.startsWith("/panel")) {
+    await tgSend(env, chatId,
+      "🌐 <b>پنل مدیریت وب Vex</b>\n\n" +
+      "همه‌ی اختیارات ربات + آمار و نمودار نصب، همین‌جا در مرورگر:\n" +
+      "🔒 https://panel.demonvpn.shop\n" +
+      "(اگر نشد: https://vex-panel.pages.dev)\n\n" +
+      "🔑 کلید ورود همان کلید ادمین است.",
+      kb([[{ text: "🌐 بازکردن پنل", url: "https://panel.demonvpn.shop" }], [{ text: "⬅️ منوی اصلی", callback_data: "menu" }]]));
+  } else if (lc.startsWith("/minver")) {
+    await minverCmd(text.replace(/^\/minver\s*/i, "").trim(), chatId, env);
+  } else if (lc.startsWith("/ping")) {
+    const t0 = Date.now();
+    await env.DB.prepare("SELECT 1 AS x").first();
+    const dbms = Date.now() - t0;
+    const fs = await countFs(env);
+    const gate = (await getSetting(env, "gate")) || "open";
+    await tgSend(env, chatId,
+      "🏓 سرویس سالم است\n" +
+      "🗄 دیتابیس: " + dbms + "ms\n" +
+      "🖥 سرورهای رایگان فعال: " + fs + "\n" +
+      "🚦 دروازه: " + (gate === "closed" ? "🔒 بسته" : "🔓 باز") + "\n" +
+      "⚙️ نسخه‌ی سرویس: v" + SERVICE_V, mainMenu());
+  } else if (lc.startsWith("/reload")) {
+    await syncSnaps(chatId, env);
   } else if (lc.startsWith("/menu") || lc.startsWith("/help")) {
     await tgSend(env, chatId, "منوی مدیریت Vex:", mainMenu());
   } else if (pend === null) {
@@ -576,6 +637,12 @@ async function handleCb(data, chatId, env) {
       "برای پاک‌کردن پیشوند بنویس: <code>-</code>\n\nبرای لغو /cancel");
   } else if (data === "fs_list") {
     await sendFsList(chatId, env);
+  } else if (data === "notifs") {
+    await sendNotifs(chatId, env);
+  } else if (data === "minver") {
+    await minverCmd("", chatId, env);
+  } else if (data === "syncsnap") {
+    await syncSnaps(chatId, env);
   } else if (data === "fs_delall") {
     const n = await countFs(env);
     if (!n) { await tgSend(env, chatId, "لیست سرورهای رایگان خالی است."); return; }
@@ -602,9 +669,11 @@ function mainMenu() {
     [{ text: "📊 آمار", callback_data: "stats" }, { text: "👥 کاربران", callback_data: "users" }],
     [{ text: "📈 مصرف ترافیک", callback_data: "traffic" }, { text: "📥 نصب از گیت‌هاب", callback_data: "ghstats" }],
     [{ text: "🖥 سرورهای رایگان", callback_data: "fs" }],
-    [{ text: "📢 ارسال اعلان به کاربران", callback_data: "notify" }],
+    [{ text: "📢 ارسال اعلان", callback_data: "notify" }, { text: "📜 اعلان‌های اخیر", callback_data: "notifs" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
-    [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }]
+    [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }],
+    [{ text: "🔄 حداقل نسخه", callback_data: "minver" }, { text: "🔄 همگام‌سازی", callback_data: "syncsnap" }],
+    [{ text: "🌐 پنل مدیریت وب", url: "https://panel.demonvpn.shop" }]
   ]);
 }
 
@@ -653,6 +722,8 @@ async function sendStats(chatId, env) {
   const fs = await countFs(env);
   const gate = (await getSetting(env, "gate")) || "open";
   const tt = await trafficTotals(env);
+  const nc = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications").first();
+  const mv = Number(await getSetting(env, "min_ver")) || 0;
   await tgSend(env, chatId,
     "📊 <b>آمار Vex Client</b>\n" +
     "👥 کل کاربران (نصب‌ها): <b>" + (t ? t.n : 0) + "</b>\n" +
@@ -660,6 +731,8 @@ async function sendStats(chatId, env) {
     "🟢 کاربران فعال ۲۴ ساعت گذشته: " + (active ? active.n : 0) + "\n" +
     "🔁 مجموع ورودها: " + (op ? op.n : 0) + "\n" +
     "🖥 سرورهای رایگان فعال: " + fs + "\n" +
+    "📢 اعلان‌های ارسال‌شده: " + (nc ? nc.n : 0) + "\n" +
+    "🔄 حداقل نسخه‌ی مجاز: " + (mv ? mv : "—") + "\n" +
     "🆓 مصرف سرورهای رایگان: " + fmtB(tt.freeB) + "\n" +
     "🔑 مصرف سرورهای شخصی: " + fmtB(tt.privB) + "\n" +
     "🧮 مصرف کل: <b>" + fmtB(tt.freeB + tt.privB) + "</b>\n" +
@@ -973,7 +1046,7 @@ async function askNotify(chatId, env) {
     "📢 <b>ارسال اعلان به کاربران</b>\n\n" +
     "عنوان و متن اعلان را در یک پیام بفرست، با این شکل:\n" +
     "<code>عنوان اعلان | متن توضیحات اعلان</code>\n\n" +
-    "اعلان برای همه‌ی کاربرانی که دسترسی اعلان داده‌اند، به‌صورت نوتیفیکیشن سیستم بالای صفحه می‌آید.\n\nبرای لغو /cancel");
+    "اعلان برای همه‌ی کاربرانی که دسترسی اعلان داده‌اند، به‌صورت نوتیفیکیشن سیستم بالای صفحه می‌آید — حتی اگر برنامه‌شان بسته باشد.\n\nبرای لغو /cancel");
 }
 
 async function doNotify(text, chatId, env) {
@@ -993,7 +1066,66 @@ async function doNotify(text, chatId, env) {
     "📢 اعلان ثبت شد (شماره‌ی " + id + ")\n\n" +
     "🏷 عنوان: <b>" + esc(title) + "</b>\n" +
     (body ? "📝 متن: " + esc(body) + "\n" : "") +
-    "\n⏱ تا حداکثر ۶۰ ثانیه‌ی دیگر روی گوشی کاربران آنلاین بالای صفحه ظاهر می‌شود.", mainMenu());
+    "\n⏱ کاربران آنلاین تا ۶۰ ثانیه دیگر، حتی اگر برنامه‌شان کاملاً بسته باشد حداکثر ۱۵ دقیقه دیگر این اعلان را بالای صفحه می‌بینند.", mainMenu());
+}
+
+/** 📜 اعلان‌های اخیر — برای مرور و یادآوری */
+async function sendNotifs(chatId, env) {
+  const rs = await env.DB.prepare(
+    "SELECT id, title, body, created_at FROM notifications ORDER BY id DESC LIMIT 6"
+  ).all();
+  const list = rs.results || [];
+  if (!list.length) {
+    await tgSend(env, chatId, "📜 هنوز اعلانی ثبت نشده — با 📢 ارسال اعلان اولین را بفرست.", mainMenu());
+    return;
+  }
+  let out = "📜 <b>اعلان‌های اخیر</b>";
+  for (const r of list) {
+    out += "\n\n#" + r.id + " · <b>" + esc(r.title) + "</b>" +
+      (r.body ? "\n" + esc(r.body) : "") +
+      "\n<i>" + new Date(r.created_at).toISOString().slice(0, 16).replace("T", " ") + " UTC</i>";
+  }
+  await tgSend(env, chatId, out, mainMenu());
+}
+
+/** 🔄 همگام‌سازی اسنپ‌شات‌های پشتیبان گیت‌هاب */
+async function syncSnaps(chatId, env) {
+  const st = await stateSnapshot(env);
+  const fs = await fsSnapshot(env);
+  const nt = await notifSnapshot(env);
+  await ghSync(env, "state.json", st);
+  await ghSync(env, "freeservers.json", fs);
+  await ghSync(env, "notifications.json", nt);
+  await tgSend(env, chatId,
+    "🔄 اسنپ‌شات‌های پشتیبان همگام شد:\n" +
+    "• state.json (دروازه: " + (st.gate === "closed" ? "بسته" : "باز") + ")\n" +
+    "• freeservers.json (" + (fs.servers || []).length + " سرور)\n" +
+    "• notifications.json (" + (nt.list || []).length + " اعلان)", mainMenu());
+}
+
+/** 🔄 حداقل نسخه‌ی مجاز — کاربران نسخه‌های قدیمی‌تر بنر «نسخه‌ی جدید» می‌بینند */
+async function minverCmd(rest, chatId, env) {
+  const cur = Number(await getSetting(env, "min_ver")) || 0;
+  if (!rest) {
+    await tgSend(env, chatId,
+      "🔄 <b>حداقل نسخه‌ی مجاز</b>\n\n" +
+      "الان: <b>" + (cur ? cur : "خاموش") + "</b>\n\n" +
+      "اگر این عدد از versionCode کاربر بالاتر باشد، موقع ورود بنر «🔔 نسخه‌ی جدید منتشر شده» با دکمه‌ی دانلود می‌بیند.\n\n" +
+      "تنظیم: <code>/minver 30</code>\nخاموش‌کردن: <code>/minver 0</code>\n\n" +
+      "💡 نسخه‌ی فعلی برنامه <b>30</b> است.", mainMenu());
+    return;
+  }
+  const n = Math.round(Number(rest));
+  if (isNaN(n) || n < 0) {
+    await tgSend(env, chatId, "عدد معتبر بده. مثال: <code>/minver 30</code> یا <code>/minver 0</code> برای خاموش‌کردن.", mainMenu());
+    return;
+  }
+  await setSetting(env, "min_ver", String(n));
+  await ghSync(env, "state.json", await stateSnapshot(env));
+  await tgSend(env, chatId,
+    n === 0
+      ? "🔄 حداقل نسخه خاموش شد — همه با هر نسخه‌ای می‌توانند استفاده کنند."
+      : "🔄 حداقل نسخه روی <b>" + n + "</b> تنظیم شد — کاربران نسخه‌های قدیمی‌تر موقع ورود بنر به‌روزرسانی می‌بینند.", mainMenu());
 }
 
 async function sendFsMenu(chatId, env) {
@@ -1034,7 +1166,8 @@ async function sendFsList(chatId, env) {
 async function stateSnapshot(env) {
   const gate = (await getSetting(env, "gate")) || "open";
   const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
-  return { ok: true, gate, reason, ts: Date.now() };
+  const minVer = Number(await getSetting(env, "min_ver")) || 0;
+  return { ok: true, gate, reason, min_ver: minVer, ts: Date.now() };
 }
 
 /** اسنپ‌شات سرورهای رایگان — همان شکل پاسخ /v1/freeservers */

@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 21
         targetSdk = 34
-        versionCode = 29
-        versionName = "3.22.0"
+        versionCode = 30
+        versionName = "3.23.0"
         // فقط گوشی‌های ARM — حذف کتابخانه‌های x86/x86_64 شبیه‌ساز → APK حدود ۱۶MB کوچک‌تر
         // (دانلود سبک‌تر = ریسک خرابی و خطای «بسته معتبر نیست» به‌مراتب کمتر)
         ndk {
@@ -64,6 +64,8 @@ dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.0")
+    // ضربان پس‌زمینه‌ی اعلان‌های مدیر — حتی وقتی برنامه بسته است (سیستم هر ۱۵ دقیقه بیدار می‌کند)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     // دوربین برای اسکنر QR
     implementation("androidx.camera:camera-core:1.3.4")

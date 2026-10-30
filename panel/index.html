@@ -25,6 +25,7 @@
   ::placeholder{color:#5F6E92;}
   button{font-family:inherit; cursor:pointer; border:none;}
   input,textarea,select{font-family:inherit;}
+  .hidden{display:none !important;}
 
   /* ---------- ورود ---------- */
   #loginWrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;}
@@ -35,144 +36,130 @@
   }
   .logoV{
     width:64px; height:64px; border-radius:18px; margin:0 auto 14px;
-    background:linear-gradient(160deg,#1B2A55,#101A38); border:1px solid var(--line2);
+    background:linear-gradient(160deg,#1B2A54,#0D1630); border:1px solid var(--line2);
     display:flex; align-items:center; justify-content:center;
-    font-size:34px; font-weight:800; color:var(--gold);
-    font-family:Arial,sans-serif;
+    font-size:30px; font-weight:800; color:var(--gold);
   }
-  .loginBox h1{font-size:20px; text-align:center; margin-bottom:4px;}
-  .loginBox h1 b{color:var(--gold);}
-  .loginBox .sub{color:var(--muted); font-size:12.5px; text-align:center; margin-bottom:22px;}
-  .field{
-    width:100%; background:#0D1631; border:1px solid var(--line); border-radius:13px;
-    color:var(--text); padding:13px 15px; font-size:14px; outline:none; direction:ltr; text-align:left;
+  .loginBox h1{font-size:19px; text-align:center; margin-bottom:6px;}
+  .loginBox p{font-size:12.5px; color:var(--muted); text-align:center; margin-bottom:20px; line-height:1.9;}
+  .inp{
+    width:100%; background:#0C142C; color:var(--text); border:1px solid var(--line);
+    border-radius:13px; padding:13px 15px; font-size:14px; outline:none; margin-bottom:10px;
+    transition:border-color .2s;
   }
-  .field:focus{border-color:var(--gold);}
-  .btnMain{
-    width:100%; margin-top:14px; padding:13px; border-radius:13px;
-    background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1A1503;
-    font-weight:800; font-size:15px;
+  .inp:focus{border-color:var(--gold);}
+  .btn{
+    background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1A1408;
+    border-radius:13px; padding:12px 18px; font-size:14px; font-weight:700;
+    transition:transform .15s, opacity .2s;
   }
-  .loginErr{color:var(--bad); font-size:12.5px; text-align:center; margin-top:12px; min-height:16px;}
+  .btn:active{transform:scale(.97);}
+  .btn.ghost{background:var(--card2); color:var(--text); border:1px solid var(--line2); font-weight:600;}
+  .btn.danger{background:linear-gradient(180deg,#F2635F,#E5484D); color:#fff;}
+  .btn.good{background:linear-gradient(180deg,#3EDC85,#27BE6D); color:#06290F;}
+  .btn.small{padding:7px 13px; font-size:12px; border-radius:10px;}
+  .btn.wfull{width:100%;}
+  #loginErr{color:var(--bad); font-size:12.5px; text-align:center; min-height:18px; margin-top:8px;}
 
-  /* ---------- چیدمان پنل ---------- */
-  #app{display:none; min-height:100vh;}
-  header.top{
-    position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:12px;
-    padding:12px 20px; background:rgba(11,18,38,.88); backdrop-filter:blur(10px);
-    border-bottom:1px solid var(--line);
+  /* ---------- پوسته‌ی اصلی ---------- */
+  #appWrap{max-width:1080px; margin:0 auto; padding:18px 16px 60px;}
+  .topbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
+  .topbar .brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:17px;}
+  .brandV{
+    width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(160deg,#1B2A54,#0D1630); border:1px solid var(--line2);
+    color:var(--gold); font-weight:800; font-size:19px;
   }
-  header.top .brand{display:flex; align-items:center; gap:10px; font-weight:800;}
-  header.top .brand .v{
-    width:34px; height:34px; border-radius:10px; background:#101A38; border:1px solid var(--line2);
-    display:flex; align-items:center; justify-content:center; color:var(--gold); font-weight:800; font-family:Arial,sans-serif;
+  .pill{
+    display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700;
+    border-radius:999px; padding:6px 13px; border:1px solid var(--line2); background:var(--card);
   }
-  header.top .who{margin-inline-start:auto; color:var(--muted); font-size:12px; display:flex; align-items:center; gap:10px;}
-  .btnGhost{
-    background:#101A38; color:var(--muted); border:1px solid var(--line);
-    padding:7px 14px; border-radius:10px; font-size:12.5px;
-  }
-  .btnGhost:hover{color:var(--text); border-color:var(--line2);}
+  .pill.open{color:var(--good); border-color:rgba(39,190,109,.5);}
+  .pill.closed{color:var(--bad); border-color:rgba(229,72,77,.5);}
+  .spacer{flex:1;}
 
-  nav.tabs{
-    display:flex; gap:6px; padding:10px 16px 0; overflow-x:auto; scrollbar-width:none;
+  .tabs{display:flex; gap:7px; flex-wrap:wrap; margin-bottom:18px;}
+  .tabBtn{
+    background:var(--card); color:var(--muted); border:1px solid var(--line);
+    border-radius:12px; padding:9px 15px; font-size:13px; font-weight:700;
+    transition:all .2s;
   }
-  nav.tabs::-webkit-scrollbar{display:none;}
-  nav.tabs button{
-    background:transparent; color:var(--muted); font-size:13.5px; font-weight:600;
-    padding:10px 16px; border-radius:13px 13px 0 0; border-bottom:2px solid transparent; white-space:nowrap;
-  }
-  nav.tabs button.on{color:var(--gold); border-bottom-color:var(--gold); background:rgba(232,193,90,.06);}
+  .tabBtn.on{background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1A1408; border-color:var(--gold);}
 
-  main{max-width:1120px; margin:0 auto; padding:18px 16px 60px;}
-  section.pane{display:none;}
-  section.pane.on{display:block;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:12px;}
+  .stat{
+    background:linear-gradient(180deg,var(--card2),var(--card)); border:1px solid var(--line);
+    border-radius:17px; padding:15px 16px;
+  }
+  .stat .t{font-size:12px; color:var(--muted); margin-bottom:7px;}
+  .stat .v{font-size:22px; font-weight:800; letter-spacing:.3px;}
+  .stat .s{font-size:11px; color:var(--muted); margin-top:5px;}
+  .stat.accent .v{color:var(--gold);}
 
   .card{
     background:linear-gradient(180deg,var(--card2),var(--card)); border:1px solid var(--line);
-    border-radius:18px; padding:18px; margin-bottom:14px;
+    border-radius:18px; padding:18px; margin-top:16px;
   }
-  .card h3{font-size:15px; margin-bottom:12px; display:flex; align-items:center; gap:8px;}
-  .card h3 .dot{width:8px; height:8px; border-radius:50%; background:var(--gold);}
+  .card h2{font-size:15.5px; margin-bottom:4px; display:flex; align-items:center; gap:8px;}
+  .card .desc{font-size:12px; color:var(--muted); line-height:2; margin-bottom:13px;}
+  .row{display:flex; gap:9px; flex-wrap:wrap; align-items:center;}
+  textarea.inp{min-height:110px; resize:vertical; line-height:1.9; font-size:12.5px;}
 
-  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:10px;}
-  .stat{
-    background:#0F1936; border:1px solid var(--line); border-radius:15px; padding:14px;
+  .slist{margin-top:13px; display:flex; flex-direction:column; gap:9px;}
+  .srow{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#0C142C; border:1px solid var(--line); border-radius:14px; padding:11px 13px;
   }
-  .stat .t{color:var(--muted); font-size:12px; margin-bottom:7px;}
-  .stat .v{font-size:21px; font-weight:800; direction:ltr; text-align:right;}
-  .stat .v small{font-size:12px; color:var(--muted); font-weight:400;}
+  .srow .name{font-size:13.5px; font-weight:700;}
+  .srow .meta{font-size:11px; color:var(--muted); margin-top:3px;}
+  .srow .id{color:#5F6E92; font-size:11px;}
+  .proto{
+    font-size:10px; font-weight:800; color:#fff; background:#C43A32;
+    border-radius:7px; padding:3px 8px; letter-spacing:.5px;
+  }
+  .lblTag{font-size:11px; color:var(--gold); border:1px solid rgba(232,193,90,.45); border-radius:8px; padding:2px 8px;}
+  .offTag{font-size:11px; color:var(--warn); border:1px solid rgba(251,138,52,.45); border-radius:8px; padding:2px 8px;}
 
-  .rowflex{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
-  .badge{
-    display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:99px;
-    font-size:12.5px; font-weight:700; border:1px solid;
+  .nrow{
+    background:#0C142C; border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-top:9px;
   }
-  .badge.open{color:var(--good); border-color:rgba(39,190,109,.45); background:rgba(39,190,109,.1);}
-  .badge.closed{color:var(--bad); border-color:rgba(229,72,77,.45); background:rgba(229,72,77,.1);}
+  .nrow .nt{font-weight:700; font-size:13.5px;}
+  .nrow .nb{font-size:12px; color:var(--muted); margin-top:4px; line-height:1.9;}
+  .nrow .nd{font-size:10.5px; color:#5F6E92; margin-top:6px;}
 
-  .btn{
-    padding:10px 18px; border-radius:12px; font-weight:700; font-size:13.5px;
-    background:#182550; color:var(--text); border:1px solid var(--line2);
-  }
-  .btn:hover{border-color:var(--gold);}
-  .btn.gold{background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1A1503; border:none;}
-  .btn.green{background:rgba(39,190,109,.14); color:var(--good); border:1px solid rgba(39,190,109,.5);}
-  .btn.red{background:rgba(229,72,77,.12); color:var(--bad); border:1px solid rgba(229,72,77,.5);}
-  .btn.sm{padding:6px 11px; font-size:12px; border-radius:9px;}
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th{color:var(--muted); font-weight:600; text-align:right; padding:8px 9px; border-bottom:1px solid var(--line2); font-size:11.5px; white-space:nowrap;}
+  td{padding:9px; border-bottom:1px solid var(--line); vertical-align:top;}
+  tr:hover td{background:rgba(232,193,90,.04);}
+  .ltdir{direction:ltr; text-align:left; font-size:11.5px; color:var(--muted);}
 
-  table{width:100%; border-collapse:collapse; font-size:13px;}
-  th{
-    color:var(--muted); font-weight:600; text-align:right; padding:9px 10px;
-    border-bottom:1px solid var(--line); white-space:nowrap; font-size:12px;
-  }
-  td{padding:10px; border-bottom:1px solid rgba(36,51,92,.55); vertical-align:middle;}
-  tr:last-child td{border-bottom:none;}
-  .tblWrap{overflow-x:auto;}
-  .mono{direction:ltr; text-align:left; font-family:monospace; font-size:12.5px;}
-  .tagP{
-    display:inline-block; padding:2px 8px; border-radius:7px; font-size:11px; font-weight:700;
-    background:rgba(196,58,50,.18); color:#FF8A80; border:1px solid rgba(196,58,50,.4);
-  }
-  .on-off{font-weight:800;}
-  .on-off.on{color:var(--good);} .on-off.off{color:var(--muted);}
+  .ghbar{margin-top:11px;}
+  .ghbar .t{display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted); margin-bottom:4px;}
+  .ghbar .bar{height:8px; border-radius:99px; background:#0C142C; border:1px solid var(--line); overflow:hidden;}
+  .ghbar .fill{height:100%; background:linear-gradient(90deg,var(--gold),var(--gold2)); border-radius:99px;}
 
-  textarea.area{
-    width:100%; min-height:110px; background:#0D1631; border:1px solid var(--line); border-radius:13px;
-    color:var(--text); padding:12px 14px; font-size:13px; outline:none; resize:vertical;
-    direction:ltr; text-align:left; line-height:1.8;
+  .reasons{display:flex; flex-direction:column; gap:8px; margin-top:11px;}
+  .reasons button{
+    text-align:right; direction:ltr; background:#0C142C; border:1px solid var(--line);
+    color:var(--text); border-radius:11px; padding:10px 13px; font-size:12px;
   }
-  textarea.area:focus{border-color:var(--gold);}
-  input.inp{
-    width:100%; background:#0D1631; border:1px solid var(--line); border-radius:12px;
-    color:var(--text); padding:11px 14px; font-size:13.5px; outline:none;
-  }
-  input.inp:focus{border-color:var(--gold);}
-  label.lbl{display:block; color:var(--muted); font-size:12.5px; margin:10px 0 6px;}
-  .hint{color:var(--muted); font-size:12px; line-height:2; margin-top:8px;}
+  .reasons button:hover{border-color:var(--gold);}
 
   .toast{
-    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(80px);
-    background:#182550; border:1px solid var(--line2); color:var(--text);
-    padding:11px 20px; border-radius:13px; font-size:13.5px; z-index:99;
-    transition:transform .25s; box-shadow:0 12px 30px rgba(0,0,0,.5); max-width:88vw;
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    background:#1C2A52; border:1px solid var(--line2); color:var(--text);
+    border-radius:13px; padding:11px 20px; font-size:13px; z-index:99;
+    box-shadow:0 12px 30px rgba(0,0,0,.4); opacity:0; pointer-events:none;
+    transition:opacity .25s, bottom .25s;
   }
-  .toast.show{transform:translateX(-50%) translateY(0);}
-  .toast.err{border-color:rgba(229,72,77,.6);} .toast.ok{border-color:rgba(39,190,109,.6);}
+  .toast.show{opacity:1; bottom:32px;}
+  .toast.err{border-color:rgba(229,72,77,.6);}
 
-  .empty{color:var(--muted); text-align:center; padding:26px 0; font-size:13px;}
-  .reasonBox{
-    background:#0D1631; border:1px dashed var(--line2); border-radius:12px; padding:12px 14px;
-    color:var(--muted); font-size:13px; line-height:1.9; margin-top:10px;
-  }
-  .verRow{display:flex; justify-content:space-between; gap:10px; padding:9px 4px; border-bottom:1px solid rgba(36,51,92,.55); font-size:13px;}
-  .verRow:last-child{border-bottom:none;}
-  .bar{height:6px; border-radius:6px; background:#0D1631; overflow:hidden; margin-top:6px;}
-  .bar i{display:block; height:100%; background:linear-gradient(90deg,var(--gold),var(--gold2));}
-  @media (max-width:640px){
-    header.top{padding:10px 12px;}
-    .stat .v{font-size:18px;}
-  }
+  .kv{display:flex; justify-content:space-between; gap:10px; padding:9px 2px; border-bottom:1px dashed var(--line); font-size:12.5px;}
+  .kv:last-child{border-bottom:none;}
+  .kv .k{color:var(--muted);}
+  .kv .v{font-weight:700;}
+  .hint{font-size:11px; color:#5F6E92; line-height:2; margin-top:10px;}
 </style>
 </head>
 <body>
@@ -181,480 +168,478 @@
 <div id="loginWrap">
   <div class="loginBox">
     <div class="logoV">V</div>
-    <h1>پنل مدیریت <b>VEX</b></h1>
-    <div class="sub">کنترل کامل برنامه — سرورها، وضعیت، اعلان‌ها و آمار</div>
-    <input id="keyInp" class="field" type="password" placeholder="Admin Key (vexa_…)" autocomplete="off" />
-    <button class="btnMain" onclick="login()">ورود به پنل</button>
-    <div class="loginErr" id="loginErr"></div>
+    <h1>پنل مدیریت VEX</h1>
+    <p>کنترل کامل برنامه از مرورگر — بستن/بازکردن، سرورها، اعلان‌ها، کاربران و به‌روزرسانی</p>
+    <input class="inp" id="keyInput" type="password" placeholder="🔑 کلید ادمین را وارد کن" autocomplete="off" />
+    <button class="btn wfull" onclick="doLogin()">ورود به پنل</button>
+    <div id="loginErr"></div>
   </div>
 </div>
 
 <!-- ================= پنل ================= -->
-<div id="app">
-  <header class="top">
-    <div class="brand"><span class="v">V</span> پنل مدیریت VEX</div>
-    <div class="who">
-      <span id="apiHost" class="mono" style="font-size:11px;"></span>
-      <button class="btnGhost" onclick="logout()">خروج</button>
-    </div>
-  </header>
+<div id="appWrap" class="hidden">
+  <div class="topbar">
+    <div class="brand"><div class="brandV">V</div><div>VEX <span style="color:var(--muted);font-weight:600;font-size:12px;">پنل مدیریت</span></div></div>
+    <div class="spacer"></div>
+    <span class="pill open" id="gatePill">🟢 باز</span>
+    <button class="btn ghost small" onclick="refreshAll(true)">🔄 تازه‌سازی</button>
+    <button class="btn ghost small" onclick="logout()">خروج</button>
+  </div>
 
-  <nav class="tabs" id="tabs">
-    <button class="on" data-pane="dash">📊 داشبورد</button>
-    <button data-pane="gate">🔒 وضعیت برنامه</button>
-    <button data-pane="srv">🖥 سرورهای رایگان</button>
-    <button data-pane="ntf">📢 اعلان‌ها</button>
-    <button data-pane="usr">👥 کاربران</button>
-    <button data-pane="gh">📥 گیت‌هاب</button>
-  </nav>
+  <div class="tabs" id="tabs">
+    <button class="tabBtn on" data-t="ov">📊 نمای کلی</button>
+    <button class="tabBtn" data-t="srv">🖥 سرورها</button>
+    <button class="tabBtn" data-t="ntf">📢 اعلان‌ها</button>
+    <button class="tabBtn" data-t="usr">👥 کاربران</button>
+    <button class="tabBtn" data-t="ctl">🔒 کنترل برنامه</button>
+    <button class="tabBtn" data-t="set">⚙️ تنظیمات</button>
+  </div>
 
-  <main>
-    <!-- ---------- داشبورد ---------- -->
-    <section class="pane on" id="pane-dash">
-      <div class="card">
-        <h3><span class="dot"></span> نمای کلی</h3>
-        <div class="rowflex" style="margin-bottom:12px;">
-          <span>وضعیت برنامه:</span>
-          <span id="dashGate" class="badge open">…</span>
-          <button class="btn sm" onclick="loadOverview()">🔄 به‌روزرسانی</button>
-        </div>
-        <div class="grid" id="dashGrid"></div>
-      </div>
-      <div class="card">
-        <h3><span class="dot"></span> مصرف ترافیک کاربران</h3>
-        <div class="grid" id="dashTraffic"></div>
-      </div>
-    </section>
-
-    <!-- ---------- وضعیت برنامه ---------- -->
-    <section class="pane" id="pane-gate">
-      <div class="card">
-        <h3><span class="dot"></span> قفل / باز کردن برنامه برای همه‌ی کاربران</h3>
-        <div class="rowflex">
-          <span>وضعیت فعلی:</span><span id="gateBadge" class="badge open">…</span>
-        </div>
-        <div class="rowflex" style="margin-top:16px;">
-          <button class="btn green" onclick="setGate('open')">🔓 باز کردن برنامه</button>
-          <button class="btn red" onclick="setGate('closed', 'The admin has closed the app for now. Please try again later.')">🔒 بستن (پیام پیش‌فرض)</button>
-          <button class="btn red" onclick="setGate('closed', 'We&#39;re updating the app. Please try again later.')">🛠 بستن (در حال بروزرسانی)</button>
-          <button class="btn red" onclick="setGate('closed', 'A technical problem occurred. Please try again later.')">⚠️ بستن (مشکل فنی)</button>
-        </div>
-        <label class="lbl">پیام سفارشی هنگام بستن (انگلیسی — دقیقاً روی صفحه‌ی کاربر نمایش داده می‌شود):</label>
-        <input id="closeReason" class="inp" placeholder="App access closed. Please try again later." />
-        <button class="btn red" style="margin-top:10px;" onclick="setGate('closed', document.getElementById('closeReason').value)">🔒 بستن با پیام سفارشی</button>
-        <div class="reasonBox" id="curReason"></div>
-        <div class="hint">وقتی برنامه بسته است، کاربران هنگام ورود این پیام را می‌بینند و تونل کاربرانِ متصل فوراً قطع می‌شود. با «باز کردن» همه‌چیز برمی‌گردد.</div>
-      </div>
-    </section>
-
-    <!-- ---------- سرورهای رایگان ---------- -->
-    <section class="pane" id="pane-srv">
-      <div class="card">
-        <h3><span class="dot"></span> افزودن سرور رایگان</h3>
-        <textarea id="srvText" class="area" placeholder="هر خط یک کانفیگ:&#10;vless://… vmess://… trojan://… ss://… wg://…&#10;با پیشوند: 🇩🇪 ویژه | vless://…&#10;فایل کامل WireGuard (‎[Interface]…[Peer]‎) هم قابل پیست است"></textarea>
-        <div class="rowflex" style="margin-top:10px;">
-          <button class="btn gold" onclick="addServers()">➕ افزودن</button>
-          <button class="btn" onclick="syncSnap()">🔄 همگام‌سازی اسنپ‌شات گیت‌هاب</button>
-        </div>
-        <div class="hint">سرورها تا حداکثر ۱ دقیقه بعد، در تب «سرورهای رایگان» برنامه‌ی همه‌ی کاربران ظاهر می‌شوند (فقط‌خواندنی برای کاربر).</div>
-      </div>
-      <div class="card">
-        <h3><span class="dot"></span> سرورهای ثبت‌شده <span id="srvCount" style="color:var(--muted);font-weight:400;font-size:12px;"></span></h3>
-        <div class="tblWrap">
-          <table>
-            <thead><tr><th>#</th><th>نام</th><th>پیشوند</th><th>پروتکل</th><th>وضعیت</th><th>تاریخ</th><th>عملیات</th></tr></thead>
-            <tbody id="srvBody"></tbody>
-          </table>
-        </div>
-        <div class="rowflex" style="margin-top:12px;">
-          <button class="btn red sm" onclick="delAllServers()">🗑 حذف همه‌ی سرورها</button>
-          <button class="btn sm" onclick="loadServers()">🔄 به‌روزرسانی لیست</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- اعلان‌ها ---------- -->
-    <section class="pane" id="pane-ntf">
-      <div class="card">
-        <h3><span class="dot"></span> ارسال اعلان همگانی</h3>
-        <label class="lbl">عنوان (حداکثر ۸۰ نویسه):</label>
-        <input id="ntfTitle" class="inp" placeholder="خبر مهم Vex" />
-        <label class="lbl">متن اعلان (اختیاری — حداکثر ۴۰۰ نویسه):</label>
-        <textarea id="ntfBody" class="area" style="min-height:80px;" placeholder="توضیحات اعلان…"></textarea>
-        <button class="btn gold" style="margin-top:10px;" onclick="sendNotif()">📢 ارسال به همه‌ی کاربران</button>
-        <div class="hint">اعلان تا حداکثر ۶۰ ثانیه بعد، به‌صورت نوتیفیکیشن سیستم روی گوشی کاربران آنلاین ظاهر می‌شود (کاربرانی که دسترسی اعلان داده باشند).</div>
-      </div>
-      <div class="card">
-        <h3><span class="dot"></span> اعلان‌های قبلی</h3>
-        <div class="tblWrap">
-          <table>
-            <thead><tr><th>#</th><th>عنوان</th><th>متن</th><th>زمان</th></tr></thead>
-            <tbody id="ntfBody2"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- کاربران ---------- -->
-    <section class="pane" id="pane-usr">
-      <div class="card">
-        <h3><span class="dot"></span> آخرین کاربران (۱۰۰ نفر)</h3>
-        <div class="rowflex" style="margin-bottom:8px;">
-          <button class="btn sm" onclick="loadUsers()">🔄 به‌روزرسانی</button>
-        </div>
-        <div class="tblWrap">
-          <table>
-            <thead><tr><th>IP</th><th>کشور</th><th>گوشی</th><th>اندروید</th><th>نسخه</th><th>ورود</th><th>مصرف</th><th>آخرین بازدید</th></tr></thead>
-            <tbody id="usrBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- گیت‌هاب ---------- -->
-    <section class="pane" id="pane-gh">
-      <div class="card">
-        <h3><span class="dot"></span> آمار نصب از گیت‌هاب</h3>
-        <div class="grid" id="ghGrid"></div>
-        <div style="margin-top:16px;" id="ghRows"></div>
-        <div class="hint">هر دانلود APK از صفحه‌ی Releases گیت‌هاب = یک نصب. لینک Latest همیشه آخرین نسخه را می‌دهد: <a href="https://demonvpn.shop/apk" target="_blank">demonvpn.shop/apk</a></div>
-      </div>
-    </section>
-  </main>
+  <div id="view"></div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
 "use strict";
-// ============================================================ حالت
-var KEY = localStorage.getItem("vex_admin_key") || "";
-var BASE = localStorage.getItem("vex_admin_base") || "";
-var BASES = ["https://demonvpn.shop", "https://vex-gate.pages.dev"];
+/* ================= اتصال به بک‌اند (worker) ================= */
+const HOSTS = [];
+function initHosts(){
+  const h = location.hostname;
+  if (h === "demonvpn.shop" || h.endsWith(".demonvpn.shop")) HOSTS.push(location.origin);
+  for (const x of ["https://demonvpn.shop", "https://vex-gate.pages.dev"])
+    if (!HOSTS.includes(x)) HOSTS.push(x);
+}
+initHosts();
+let HOST = localStorage.getItem("vex_admin_host") || HOSTS[0];
 
-function $(id){ return document.getElementById(id); }
+function adminKey(){ return localStorage.getItem("vex_admin_key") || ""; }
 
-function toast(msg, cls){
-  var t = $("toast");
-  t.textContent = msg;
-  t.className = "toast show " + (cls || "");
-  clearTimeout(t._h);
-  t._h = setTimeout(function(){ t.className = "toast " + (cls || ""); }, 2600);
+async function api(path, opts = {}, rawBody = null){
+  const key = adminKey();
+  let lastErr = null;
+  for (let i = 0; i < HOSTS.length; i++){
+    const h = (i === 0) ? HOST : HOSTS[i];
+    try {
+      const r = await fetch(h + path, {
+        method: opts.method || "GET",
+        headers: { "X-Admin-Key": key, "Content-Type": "application/json" },
+        body: rawBody ? JSON.stringify(rawBody) : undefined
+      });
+      if (r.status === 401) throw new Error("auth");
+      if (!r.ok) { lastErr = new Error("http " + r.status); continue; }
+      const j = await r.json();
+      if (h !== HOST){ HOST = h; localStorage.setItem("vex_admin_host", h); }
+      return j;
+    } catch (e){
+      if (e.message === "auth") throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("net");
 }
 
-function fmtB(n){
-  n = Number(n) || 0;
-  var u = ["B","KB","MB","GB","TB"], i = 0, v = n;
-  while (v >= 1024 && i < u.length-1){ v /= 1024; i++; }
-  return (i ? v.toFixed(2) : String(v)) + " " + u[i];
+/* ================= ابزار UI ================= */
+let toastTimer = null;
+function toast(msg, isErr){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = "toast" + (isErr ? " err" : ""), 2600);
 }
 function esc(s){
   return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
-function flagOf(cc){
-  if (!cc || cc.length !== 2) return "🌐";
-  var out = "";
-  for (var i = 0; i < 2; i++){
-    var c = cc.toUpperCase().charCodeAt(i);
-    if (c < 65 || c > 90) return "🌐";
-    out += String.fromCodePoint(0x1F1E6 + c - 65);
-  }
-  return out;
+function fmtB(n){
+  n = Number(n) || 0;
+  const u = ["B","KB","MB","GB","TB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1){ v /= 1024; i++; }
+  return (i ? v.toFixed(2) : String(v)) + " " + u[i];
 }
-function tstr(ms){
+function flagEmoji(cc){
+  if (!cc || cc.length !== 2) return "";
+  return String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+function dt(ms){
   if (!ms) return "—";
-  try { return new Date(ms).toISOString().slice(0,16).replace("T"," ") + " UTC"; } catch(e){ return "—"; }
+  const d = new Date(Number(ms));
+  return d.toISOString().slice(0,10) + " " + d.toISOString().slice(11,16);
+}
+function ago(ms){
+  const s = Math.max(0, (Date.now() - Number(ms)) / 1000);
+  if (s < 90) return Math.round(s) + " ثانیه پیش";
+  if (s < 5400) return Math.round(s/60) + " دقیقه پیش";
+  if (s < 172800) return Math.round(s/3600) + " ساعت پیش";
+  return Math.round(s/86400) + " روز پیش";
 }
 
-// ============================================================ API
-function api(path, opts, cb, tried){
-  opts = opts || {};
-  opts.headers = Object.assign({ "X-Admin-Key": KEY }, opts.headers || {});
-  if (opts.body && typeof opts.body !== "string"){
-    opts.headers["Content-Type"] = "application/json";
-    opts.body = JSON.stringify(opts.body);
+/* ================= ورود / خروج ================= */
+async function doLogin(){
+  const inp = document.getElementById("keyInput");
+  const err = document.getElementById("loginErr");
+  const k = inp.value.trim();
+  if (!k){ err.textContent = "کلید را وارد کن"; return; }
+  localStorage.setItem("vex_admin_key", k);
+  err.textContent = "در حال بررسی…";
+  let ok = false, authFail = false;
+  for (const h of HOSTS){
+    try {
+      const r = await fetch(h + "/admin/login", { method: "POST", headers: { "X-Admin-Key": k } });
+      if (r.ok){ ok = true; HOST = h; localStorage.setItem("vex_admin_host", h); break; }
+      if (r.status === 401) authFail = true;
+    } catch (e){}
   }
-  var bases = BASE ? [BASE] : BASES;
-  var i = tried || 0;
-  if (i >= bases.length){ cb(new Error("هیچ‌کدام از سرورهای API جواب ندادند"), null); return; }
-  fetch(bases[i] + path, opts).then(function(r){
-    if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
-      var e = new Error(j.error || ("HTTP " + r.status)); e.status = r.status; throw e;
-    });
-    return r.json();
-  }).then(function(j){
-    if (!BASE){ BASE = bases[i]; localStorage.setItem("vex_admin_base", BASE); $("apiHost").textContent = BASE; }
-    cb(null, j);
-  }).catch(function(e){
-    if (e && e.status === 401){ logout(true); cb(e, null); return; }
-    if (!BASE && i + 1 < bases.length){ api(path, opts, cb, i + 1); return; }
-    cb(e, null);
-  });
+  if (ok){ err.textContent = ""; enterApp(); }
+  else { err.textContent = authFail ? "❌ کلید اشتباه است" : "❌ به سرور دسترسی نبود — دوباره تلاش کن"; }
 }
-
-// ============================================================ ورود / خروج
-function login(){
-  var k = $("keyInp").value.trim();
-  if (!k){ $("loginErr").textContent = "کلید ادمین را وارد کن"; return; }
-  KEY = k;
-  $("loginErr").textContent = "در حال بررسی…";
-  BASE = "";
-  api("/admin/login", { method: "POST" }, function(err, j){
-    if (err || !j || !j.ok){
-      $("loginErr").textContent = "کلید اشتباه است یا سرور در دسترس نیست";
-      return;
-    }
-    localStorage.setItem("vex_admin_key", KEY);
-    $("loginErr").textContent = "";
-    enterPanel();
-  });
-}
-function logout(silent){
+function logout(){
   localStorage.removeItem("vex_admin_key");
-  localStorage.removeItem("vex_admin_base");
-  KEY = ""; BASE = "";
-  $("app").style.display = "none";
-  $("loginWrap").style.display = "flex";
-  if (!silent) toast("از پنل خارج شدی", "ok");
+  location.reload();
 }
-function enterPanel(){
-  $("loginWrap").style.display = "none";
-  $("app").style.display = "block";
-  $("apiHost").textContent = BASE || "…";
-  loadOverview();
+function enterApp(){
+  document.getElementById("loginWrap").classList.add("hidden");
+  document.getElementById("appWrap").classList.remove("hidden");
+  refreshAll(true);
 }
 
-// ============================================================ تب‌ها
-var tabs = document.querySelectorAll("#tabs button");
-for (var ti = 0; ti < tabs.length; ti++){
-  (function(btn){
-    btn.addEventListener("click", function(){
-      for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove("on");
-      btn.classList.add("on");
-      var panes = document.querySelectorAll("section.pane");
-      for (var j = 0; j < panes.length; j++) panes[j].classList.remove("on");
-      $("pane-" + btn.getAttribute("data-pane")).classList.add("on");
-      var p = btn.getAttribute("data-pane");
-      if (p === "srv") loadServers();
-      if (p === "ntf") loadNotifs();
-      if (p === "usr") loadUsers();
-      if (p === "gh") loadGh();
-      if (p === "gate") refreshGatePane();
-    });
-  })(tabs[ti]);
-}
+/* ================= داده‌های مشترک ================= */
+let OV = null, SET = null, autoTimer = null, curTab = "ov";
 
-// ============================================================ داشبورد
-function loadOverview(){
-  api("/admin/overview", { method: "GET" }, function(err, j){
-    if (err || !j || !j.ok){ toast("دریافت آمار ناموفق بود", "err"); return; }
-    renderOverview(j);
-  });
-}
-function renderOverview(j){
-  var gb = $("dashGate");
-  gb.textContent = j.gate === "closed" ? "🔒 بسته" : "🔓 باز";
-  gb.className = "badge " + j.gate;
-  var cards = [
-    ["👥 کل کاربران", j.users],
-    ["🆕 نصب ۲۴ ساعت", j.todayInstalls],
-    ["🟢 فعال ۲۴ ساعت", j.active24h],
-    ["🔁 مجموع ورودها", j.opens],
-    ["🖥 سرور رایگان فعال", j.freeServers],
-    ["📢 تعداد اعلان‌ها", j.notifications],
-    ["📥 دانلود گیت‌هاب", (j.github && j.github.ok) ? j.github.total : "—"]
-  ];
-  var h = "";
-  for (var i = 0; i < cards.length; i++){
-    h += '<div class="stat"><div class="t">' + cards[i][0] + '</div><div class="v">' + cards[i][1] + "</div></div>";
+async function refreshAll(manual){
+  try {
+    const [ov, st] = await Promise.all([api("/admin/overview"), api("/admin/settings")]);
+    OV = ov; SET = st;
+    renderGatePill();
+    render(curTab);
+    if (manual) toast("✅ به‌روزرسانی شد");
+  } catch (e){
+    if (e.message === "auth"){ logout(); return; }
+    if (manual) toast("❌ ارتباط با سرور برقرار نشد", true);
   }
-  $("dashGrid").innerHTML = h;
-  var tt = j.traffic || { free: 0, priv: 0 };
-  var tot = (tt.free || 0) + (tt.priv || 0);
-  var t2 = [
-    ["🆓 سرورهای رایگان", fmtB(tt.free)],
-    ["🔑 سرورهای شخصی", fmtB(tt.priv)],
-    ["🧮 مصرف کل", fmtB(tot)]
-  ];
-  var h2 = "";
-  for (var i = 0; i < t2.length; i++){
-    h2 += '<div class="stat"><div class="t">' + t2[i][0] + '</div><div class="v" style="font-size:17px;">' + t2[i][1] + "</div></div>";
-  }
-  $("dashTraffic").innerHTML = h2;
-  // پنل وضعیت
-  var g2 = $("gateBadge");
-  g2.textContent = j.gate === "closed" ? "🔒 بسته" : "🔓 باز";
-  g2.className = "badge " + j.gate;
-  $("curReason").innerHTML = j.gate === "closed"
-    ? "📝 پیامی که کاربران می‌بینند: <b style='color:var(--text)'>" + esc(j.reason || "—") + "</b>"
-    : "برنامه برای همه باز است.";
 }
-function refreshGatePane(){ loadOverview(); }
-
-function setGate(gate, reason){
-  if (gate === "closed" && !confirm("برنامه برای همه‌ی کاربران بسته شود؟")) return;
-  api("/admin/gate", { method: "POST", body: { gate: gate, reason: reason || "" } }, function(err, j){
-    if (err || !j || !j.ok){ toast("انجام نشد", "err"); return; }
-    toast(j.gate === "closed" ? "🔒 برنامه بسته شد" : "🔓 برنامه باز شد", "ok");
-    loadOverview();
-  });
+function renderGatePill(){
+  const p = document.getElementById("gatePill");
+  if (!OV) return;
+  if (OV.gate === "closed"){ p.className = "pill closed"; p.textContent = "🔒 بسته"; }
+  else { p.className = "pill open"; p.textContent = "🟢 باز"; }
 }
 
-// ============================================================ سرورها
-function loadServers(){
-  api("/admin/servers", { method: "GET" }, function(err, j){
-    if (err || !j || !j.ok){ toast("دریافت سرورها ناموفق بود", "err"); return; }
-    var list = j.servers || [];
-    $("srvCount").textContent = "(" + list.length + " سرور)";
-    if (!list.length){ $("srvBody").innerHTML = '<tr><td colspan="7"><div class="empty">هنوز سروری ثبت نشده — از فرم بالا اولین سرور را اضافه کن</div></td></tr>'; return; }
-    var h = "";
-    for (var i = 0; i < list.length; i++){
-      var s = list[i];
-      h += "<tr>"
-        + "<td>" + s.id + "</td>"
-        + "<td style='max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>" + esc(s.name || "—") + "</td>"
-        + "<td>" + esc(s.label || "—") + "</td>"
-        + '<td><span class="tagP">' + esc((s.proto || "?").toUpperCase()) + "</span></td>"
-        + '<td><span class="on-off ' + (s.enabled ? "on" : "off") + '">' + (s.enabled ? "فعال" : "خاموش") + "</span></td>"
-        + "<td>" + tstr(s.added_at).slice(0, 10) + "</td>"
-        + "<td><div class='rowflex'>"
-        + '<button class="btn sm" onclick="editLabel(' + s.id + ", '" + esc(String(s.label || "").replace(/'/g, "\\'")) + "')\">🏷 پیشوند</button>"
-        + '<button class="btn sm" onclick="toggleServer(' + s.id + "," + (s.enabled ? "0" : "1") + ')">' + (s.enabled ? "⏸ خاموش" : "▶️ فعال") + "</button>"
-        + '<button class="btn red sm" onclick="delServer(' + s.id + ')">🗑</button>'
-        + "</div></td></tr>";
+/* ================= تب‌ها ================= */
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const b = e.target.closest(".tabBtn");
+  if (!b) return;
+  document.querySelectorAll(".tabBtn").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  curTab = b.dataset.t;
+  render(curTab);
+});
+
+function render(tab){
+  const v = document.getElementById("view");
+  if (tab === "ov") renderOverview(v);
+  else if (tab === "srv") renderServers(v);
+  else if (tab === "ntf") renderNotifs(v);
+  else if (tab === "usr") renderUsers(v);
+  else if (tab === "ctl") renderControl(v);
+  else renderSettings(v);
+}
+
+/* ================= ۱) نمای کلی ================= */
+function statCard(t, v, s, accent){
+  return '<div class="stat' + (accent ? ' accent' : '') + '">' +
+    '<div class="t">' + t + '</div><div class="v">' + v + '</div>' +
+    (s ? '<div class="s">' + s + '</div>' : '') + '</div>';
+}
+function renderOverview(v){
+  if (!OV){ v.innerHTML = '<div class="card desc">در حال دریافت…</div>'; return; }
+  const gh = OV.github || {};
+  let ghHtml = "";
+  if (gh.ok && (gh.rows || []).length){
+    const max = Math.max(1, ...gh.rows.map(r => r.ver + r.lat));
+    ghHtml = '<div class="card"><h2>📥 نصب به تفکیک نسخه (از گیت‌هاب)</h2>' +
+      '<div class="desc">هر دانلود APK از صفحه‌ی Releases = یک نصب · کل: <b style="color:var(--gold)">' + gh.total + '</b></div>';
+    for (const r of gh.rows.slice(0, 10)){
+      const w = Math.max(3, Math.round((r.ver + r.lat) / max * 100));
+      ghHtml += '<div class="ghbar"><div class="t"><span>' + esc(r.tag) + '</span><span>' + (r.ver + r.lat) + ' نصب</span></div>' +
+        '<div class="bar"><div class="fill" style="width:' + w + '%"></div></div></div>';
     }
-    $("srvBody").innerHTML = h;
-  });
+    ghHtml += '</div>';
+  }
+  const tf = (OV.traffic && OV.traffic.free) || 0, tp = (OV.traffic && OV.traffic.private) || 0;
+  v.innerHTML =
+    '<div class="grid">' +
+      statCard("👥 کل کاربران", OV.users, "نصب‌های یکتا", true) +
+      statCard("🆕 نصب ۲۴ ساعت", OV.todayInstalls, "روزانه") +
+      statCard("🟢 فعال ۲۴ ساعت", OV.active24h, "برنامه را باز کرده‌اند") +
+      statCard("🔁 مجموع ورودها", OV.opens, "همه‌ی بازشدن‌ها") +
+      statCard("🖥 سرورهای رایگان", OV.freeServers, "فعال در برنامه‌ی کاربران") +
+      statCard("📢 اعلان‌ها", OV.notifications, "ارسال‌شده تا امروز") +
+      statCard("🆓 مصرف رایگان", fmtB(tf), "کل کاربران") +
+      statCard("🔑 مصرف شخصی", fmtB(tp), "سرور خود کاربران") +
+      statCard("📥 دانلود APK", (gh.ok ? gh.total : "—"), gh.ok ? esc(gh.repo || "") : "گیت‌هاب در دسترس نبود") +
+    '</div>' + ghHtml;
 }
-function addServers(){
-  var t = $("srvText").value.trim();
-  if (!t){ toast("متن کانفیگ خالی است", "err"); return; }
-  api("/admin/servers", { method: "POST", body: { text: t } }, function(err, j){
-    if (err || !j || !j.ok){ toast(err && err.message ? err.message : "افزودن ناموفق بود", "err"); return; }
-    $("srvText").value = "";
-    toast("✅ " + j.added + " سرور اضافه شد" + (j.dup ? " · " + j.dup + " تکرار" : "") + (j.bad ? " · " + j.bad + " نامعتبر" : ""), "ok");
+
+/* ================= ۲) سرورها ================= */
+async function renderServers(v){
+  v.innerHTML =
+    '<div class="card"><h2>➕ افزودن سرور رایگان</h2>' +
+    '<div class="desc">هر خط یک کانفیگ: <code>vless:// · vmess:// · trojan:// · ss:// · wg://</code><br>' +
+    'پیشوند (نشان کنار نام در برنامه): <code>🇩🇪 ویژه | vless://…</code> — فایل کامل وایرگارد هم قابل پیست است.</div>' +
+    '<textarea class="inp" id="fsText" placeholder="کانفیگ‌ها را اینجا پیست کن…"></textarea>' +
+    '<div class="row" style="margin-top:10px;"><button class="btn" onclick="addServers()">افزودن به برنامه‌ی همه‌ی کاربران</button>' +
+    '<button class="btn ghost" onclick="render(curTab)">پاک‌کردن</button></div></div>' +
+    '<div class="card"><h2>🖥 سرورهای فعلی</h2>' +
+    '<div class="row"><button class="btn ghost small" onclick="loadServers()">🔄 تازه‌سازی لیست</button>' +
+    '<button class="btn danger small" onclick="delAllServers()">🗑 حذف همه</button></div>' +
+    '<div class="slist" id="fsList"><div class="desc">در حال دریافت…</div></div></div>';
+  loadServers();
+}
+async function loadServers(){
+  const box = document.getElementById("fsList");
+  if (!box) return;
+  try {
+    const j = await api("/admin/servers");
+    const list = j.servers || [];
+    if (!list.length){ box.innerHTML = '<div class="desc">لیست خالی است — اولین کانفیگ را از کادر بالا اضافه کن.</div>'; return; }
+    box.innerHTML = list.map(s =>
+      '<div class="srow">' +
+        '<span class="proto">' + esc((s.proto || "?").toUpperCase()) + '</span>' +
+        '<div style="flex:1;min-width:150px;">' +
+          '<div class="name">' + (s.label ? '<span class="lblTag">' + esc(s.label) + '</span> ' : '') + esc(s.name || "—") + '</div>' +
+          '<div class="meta">#' + s.id + ' · ' + (s.raw_len || 0) + ' بایت · ' + dt(s.added_at) + '</div>' +
+        '</div>' +
+        (s.enabled ? '' : '<span class="offTag">خاموش</span>') +
+        '<button class="btn ghost small" onclick="editLabel(' + s.id + ')">🏷 پیشوند</button>' +
+        '<button class="btn ghost small" onclick="toggleFs(' + s.id + ',' + (s.enabled ? 0 : 1) + ')">' + (s.enabled ? "⏸ خاموش" : "▶️ روشن") + '</button>' +
+        '<button class="btn danger small" onclick="delServer(' + s.id + ')">🗑</button>' +
+      '</div>').join("");
+  } catch (e){
+    box.innerHTML = '<div class="desc">❌ دریافت لیست ناموفق بود</div>';
+  }
+}
+async function addServers(){
+  const el = document.getElementById("fsText");
+  if (!el || !el.value.trim()){ toast("اول کانفیگ را وارد کن", true); return; }
+  try {
+    const j = await api("/admin/servers", { method: "POST" }, { text: el.value });
+    toast("✅ " + j.added + " اضافه شد" + (j.dup ? " · " + j.dup + " تکرار" : "") + (j.bad ? " · " + j.bad + " نامعتبر" : ""));
+    el.value = "";
     loadServers();
-  });
+  } catch (e){ toast(e.message === "auth" ? "کلید اشتباه است" : "افزودن ناموفق بود", true); }
 }
-function toggleServer(id, en){
-  api("/admin/servers/update", { method: "POST", body: { id: id, enabled: !!en } }, function(err, j){
-    if (err || !j || !j.ok){ toast("انجام نشد", "err"); return; }
-    toast(en ? "سرور فعال شد" : "سرور خاموش شد (کاربران دیگر نمی‌بینند)", "ok");
-    loadServers();
-  });
-}
-function delServer(id){
-  if (!confirm("سرور #" + id + " حذف شود؟")) return;
-  api("/admin/servers/delete", { method: "POST", body: { id: id } }, function(err, j){
-    if (err || !j || !j.ok){ toast("حذف ناموفق بود", "err"); return; }
-    toast("سرور حذف شد", "ok");
-    loadServers();
-  });
-}
-function delAllServers(){
-  if (!confirm("⚠️ همه‌ی سرورهای رایگان حذف شوند؟ این کار برگشت‌پذیر نیست.")) return;
-  api("/admin/servers/delete", { method: "POST", body: { all: true } }, function(err, j){
-    if (err || !j || !j.ok){ toast("حذف ناموفق بود", "err"); return; }
-    toast("همه‌ی سرورها حذف شدند", "ok");
-    loadServers();
-  });
-}
-function editLabel(id, cur){
-  var v = prompt("پیشوند سرور (ایموجی/برچسب — کنار نام در برنامه). برای پاک کردن خالی بگذار:", cur);
+async function editLabel(id){
+  const v = prompt("پیشوند (ایموجی/متن)؟ — خالی یا «-» یعنی حذف پیشوند");
   if (v === null) return;
-  api("/admin/servers/update", { method: "POST", body: { id: id, label: v } }, function(err, j){
-    if (err || !j || !j.ok){ toast("ثبت پیشوند ناموفق بود", "err"); return; }
-    toast("پیشوند ثبت شد", "ok");
-    loadServers();
-  });
+  await api("/admin/servers/update", { method: "POST" }, { id, label: v });
+  toast("🏷 پیشوند ثبت شد"); loadServers();
 }
-function syncSnap(){
-  api("/admin/syncsnap", { method: "POST" }, function(err, j){
-    if (err || !j || !j.ok){ toast("همگام‌سازی ناموفق بود", "err"); return; }
-    toast("اسنپ‌شات‌های گیت‌هاب به‌روز شدند (" + j.servers + " سرور)", "ok");
-  });
+async function toggleFs(id, en){
+  await api("/admin/servers/update", { method: "POST" }, { id, enabled: !!en });
+  toast(en ? "▶️ سرور روشن شد" : "⏸ سرور خاموش شد"); loadServers();
+}
+async function delServer(id){
+  await api("/admin/servers/delete", { method: "POST" }, { id });
+  toast("🗑 حذف شد"); loadServers();
+}
+async function delAllServers(){
+  if (!confirm("⚠️ همه‌ی سرورهای رایگان حذف شوند؟ این کار برگشت‌پذیر نیست.")) return;
+  await api("/admin/servers/delete", { method: "POST" }, { all: true });
+  toast("🗑 همه حذف شدند"); loadServers();
 }
 
-// ============================================================ اعلان‌ها
-function sendNotif(){
-  var t = $("ntfTitle").value.trim();
-  var b = $("ntfBody").value.trim();
-  if (!t){ toast("عنوان اعلان را بنویس", "err"); return; }
-  if (!confirm("اعلان برای همه‌ی کاربران ارسال شود؟")) return;
-  api("/admin/notifications", { method: "POST", body: { title: t, body: b } }, function(err, j){
-    if (err || !j || !j.ok){ toast("ارسال ناموفق بود", "err"); return; }
-    $("ntfTitle").value = ""; $("ntfBody").value = "";
-    toast("📢 اعلان #" + (j.id || "") + " ثبت شد — تا ۶۰ ثانیه دیگر روی گوشی کاربران آنلاین می‌آید", "ok");
+/* ================= ۳) اعلان‌ها ================= */
+async function renderNotifs(v){
+  v.innerHTML =
+    '<div class="card"><h2>📢 ارسال اعلان همگانی</h2>' +
+    '<div class="desc">اعلان به‌صورت نوتیفیکیشن واقعی سیستم بالای صفحه‌ی کاربران می‌آید.<br>' +
+    'کاربران آنلاین تا ~۶۰ ثانیه — کاربرانی که برنامه‌شان بسته است حداکثر ~۱۵ دقیقه (ضربان پس‌زمینه‌ی اندروید).</div>' +
+    '<input class="inp" id="ntTitle" maxlength="80" placeholder="عنوان اعلان (مثلاً: سرور جدید اضافه شد 🎉)" />' +
+    '<textarea class="inp" id="ntBody" maxlength="400" placeholder="متن اعلان (اختیاری)" style="min-height:70px"></textarea>' +
+    '<button class="btn" onclick="sendNotif()">ارسال به همه‌ی کاربران</button></div>' +
+    '<div class="card"><h2>📜 اعلان‌های اخیر</h2>' +
+    '<div id="ntList" class="desc">در حال دریافت…</div></div>';
+  loadNotifs();
+}
+async function loadNotifs(){
+  const box = document.getElementById("ntList");
+  if (!box) return;
+  try {
+    const j = await api("/admin/notifications");
+    const list = (j.list || []).slice().reverse();
+    if (!list.length){ box.innerHTML = "هنوز اعلانی ثبت نشده است."; return; }
+    box.innerHTML = list.map(n =>
+      '<div class="nrow">' +
+        '<div class="nt">#' + n.id + ' · ' + esc(n.title) + '</div>' +
+        (n.body ? '<div class="nb">' + esc(n.body) + '</div>' : '') +
+        '<div class="nd">' + dt(n.created_at) + '</div>' +
+        '<div style="margin-top:8px;"><button class="btn danger small" onclick="delNotif(' + n.id + ')">🗑 حذف</button></div>' +
+      '</div>').join("");
+  } catch (e){ box.innerHTML = "❌ دریافت ناموفق بود"; }
+}
+async function sendNotif(){
+  const t = document.getElementById("ntTitle").value.trim();
+  const b = document.getElementById("ntBody").value.trim();
+  if (!t){ toast("عنوان را وارد کن", true); return; }
+  try {
+    const j = await api("/admin/notifications", { method: "POST" }, { title: t, body: b });
+    toast("📢 اعلان #" + (j.id || "?") + " ارسال شد");
+    document.getElementById("ntTitle").value = "";
+    document.getElementById("ntBody").value = "";
     loadNotifs();
-  });
+  } catch (e){ toast("ارسال ناموفق بود", true); }
 }
-function loadNotifs(){
-  api("/admin/notifications", { method: "GET" }, function(err, j){
-    if (err || !j || !j.ok){ toast("دریافت اعلان‌ها ناموفق بود", "err"); return; }
-    var list = j.list || [];
-    if (!list.length){ $("ntfBody2").innerHTML = '<tr><td colspan="4"><div class="empty">هنوز اعلانی ارسال نشده</div></td></tr>'; return; }
-    var h = "";
-    for (var i = 0; i < list.length; i++){
-      var n = list[i];
-      h += "<tr><td>" + n.id + "</td><td><b>" + esc(n.title) + "</b></td><td style='max-width:300px;'>" + esc(n.body || "—") + "</td><td style='white-space:nowrap;'>" + tstr(n.created_at) + "</td></tr>";
-    }
-    $("ntfBody2").innerHTML = h;
-  });
+async function delNotif(id){
+  await api("/admin/notifications/delete", { method: "POST" }, { id });
+  toast("🗑 حذف شد"); loadNotifs();
 }
 
-// ============================================================ کاربران
-function loadUsers(){
-  api("/admin/users", { method: "GET" }, function(err, j){
-    if (err || !j || !j.ok){ toast("دریافت کاربران ناموفق بود", "err"); return; }
-    var list = j.users || [];
-    if (!list.length){ $("usrBody").innerHTML = '<tr><td colspan="8"><div class="empty">هنوز کاربری ثبت نشده</div></td></tr>'; return; }
-    var h = "";
-    for (var i = 0; i < list.length; i++){
-      var u = list[i];
-      h += "<tr>"
-        + '<td class="mono">' + esc(u.ip || "?") + "</td>"
-        + "<td>" + flagOf(u.country) + " " + esc(u.country || "—") + "</td>"
-        + "<td>" + esc(u.model || "?") + "</td>"
-        + "<td>" + esc(u.android || "?") + "</td>"
-        + "<td>" + esc(u.ver || "?") + "</td>"
-        + "<td>" + (u.opens || 1) + "</td>"
-        + "<td>" + fmtB(u.bytes) + "</td>"
-        + "<td style='white-space:nowrap;'>" + tstr(u.last_seen) + "</td></tr>";
-    }
-    $("usrBody").innerHTML = h;
-  });
+/* ================= ۴) کاربران ================= */
+async function renderUsers(v){
+  v.innerHTML =
+    '<div class="card"><h2>👥 کاربران (۱۰۰ مورد آخر)</h2>' +
+    '<div class="row"><input class="inp" id="uSearch" placeholder="🔍 جستجو: نام گوشی، IP، کشور، نسخه…" style="max-width:330px" oninput="filterUsers()" />' +
+    '<button class="btn ghost small" onclick="loadUsers()">🔄 تازه‌سازی</button></div>' +
+    '<div style="overflow-x:auto; margin-top:10px;"><table id="uTable"><thead><tr>' +
+    '<th>کاربر</th><th>IP</th><th>نسخه</th><th>اندروید</th><th>ورودها</th><th>مصرف</th><th>آخرین بازدید</th>' +
+    '</tr></thead><tbody id="uBody"><tr><td colspan="7">در حال دریافت…</td></tr></tbody></table></div></div>';
+  loadUsers();
+}
+let USERS = [];
+async function loadUsers(){
+  const body = document.getElementById("uBody");
+  if (!body) return;
+  try {
+    const j = await api("/admin/users");
+    USERS = j.users || [];
+    filterUsers();
+  } catch (e){ body.innerHTML = '<tr><td colspan="7">❌ دریافت ناموفق بود</td></tr>'; }
+}
+function filterUsers(){
+  const body = document.getElementById("uBody");
+  if (!body) return;
+  const q = (document.getElementById("uSearch")?.value || "").toLowerCase().trim();
+  const rows = USERS.filter(u =>
+    !q || [u.model, u.ip, u.country, u.ver, u.android, u.lang].some(x => String(x || "").toLowerCase().includes(q)));
+  if (!rows.length){ body.innerHTML = '<tr><td colspan="7">چیزی پیدا نشد</td></tr>'; return; }
+  body.innerHTML = rows.map(u =>
+    '<tr>' +
+      '<td><b>' + (u.country ? flagEmoji(u.country) + " " : "") + esc(u.model || "?") + '</b></td>' +
+      '<td class="ltdir">' + esc(u.ip || "?") + '</td>' +
+      '<td>v' + esc(u.ver || "?") + '</td>' +
+      '<td class="ltdir">' + esc(u.android || "?") + '</td>' +
+      '<td>' + (u.opens || 1) + '</td>' +
+      '<td>' + fmtB(u.bytes) + '</td>' +
+      '<td>' + ago(u.last_seen) + '</td>' +
+    '</tr>').join("");
 }
 
-// ============================================================ گیت‌هاب
-function loadGh(){
-  api("/admin/overview", { method: "GET" }, function(err, j){
-    if (err || !j || !j.ok || !j.github){ toast("دریافت آمار گیت‌هاب ناموفق بود", "err"); return; }
-    var g = j.github;
-    if (!g.ok){ $("ghGrid").innerHTML = ""; $("ghRows").innerHTML = '<div class="empty">گرفتن آمار از گیت‌هاب ممکن نشد — دوباره تلاش کن</div>'; return; }
-    $("ghGrid").innerHTML =
-      '<div class="stat"><div class="t">📦 کل دانلودهای APK</div><div class="v">' + g.total + "</div></div>" +
-      '<div class="stat"><div class="t">🔗 دانلود از لینک Latest</div><div class="v">' + g.latest + "</div></div>";
-    var max = 1;
-    for (var i = 0; i < g.rows.length; i++) if (g.rows[i].ver > max) max = g.rows[i].ver;
-    var h = "";
-    for (var i = 0; i < g.rows.length; i++){
-      var r = g.rows[i];
-      h += '<div class="verRow"><span><b>' + esc(r.tag) + "</b> <span style='color:var(--muted)'>" + (r.date || "") + "</span></span>"
-        + "<span>" + r.ver + " نصب</span></div>"
-        + '<div class="bar"><i style="width:' + Math.max(3, Math.round(r.ver * 100 / max)) + '%"></i></div>';
-    }
-    $("ghRows").innerHTML = h;
-  });
+/* ================= ۵) کنترل برنامه ================= */
+const CLOSE_REASONS = [
+  ["🛠 Updating the app. Please try again later.", "در حال به‌روزرسانی"],
+  ["⚠️ A technical problem occurred. Please try again later.", "مشکل فنی"],
+  ["🔒 The admin has closed the app for now. Please try again later.", "بستن توسط مدیر"]
+];
+async function renderControl(v){
+  const gate = OV ? OV.gate : "open";
+  const reason = (OV && OV.reason) || "";
+  const mv = SET ? (SET.min_ver || 0) : 0;
+  v.innerHTML =
+    '<div class="card"><h2>🔒 خاموش/روشن کل برنامه (Kill Switch)</h2>' +
+    '<div class="desc">وقتی بسته است، کاربران موقع ورود صفحه‌ی «App Access Closed» با دلیل انتخابی می‌بینند و تونل قطع می‌شود.<br>' +
+    'وضعیت فعلی: <b style="color:' + (gate === "closed" ? "var(--bad)" : "var(--good)") + '">' + (gate === "closed" ? "بسته 🔒" : "باز 🟢") + '</b>' +
+    (gate === "closed" ? ' · پیام فعلی: <code>' + esc(reason) + '</code>' : '') + '</div>' +
+    '<div class="row"><button class="btn good" onclick="setGate(\'open\')">🔓 بازکردن برنامه برای همه</button></div>' +
+    '<div class="reasons" id="reasons">' +
+      CLOSE_REASONS.map((r, i) => '<button onclick="setGate(\'closed\',' + i + ')">🔒 بستن — ' + r[1] + ' <span style="color:var(--muted);font-size:11px;">' + esc(r[0]) + '</span></button>').join("") +
+      '<button onclick="customClose()">✍️ بستن با پیام سفارشی…</button>' +
+    '</div></div>' +
+    '<div class="card"><h2>🔄 حداقل نسخه‌ی مجاز (به‌روزرسانی اجباری نرم)</h2>' +
+    '<div class="desc">اگر versionCode کاربر کمتر از این عدد باشد، موقع ورود بنر «🔔 نسخه‌ی جدید منتشر شده» با دکمه‌ی دانلود می‌بیند.<br>' +
+    'نسخه‌ی فعلی برنامه: versionCode <b style="color:var(--gold)">30</b> (v3.23.0) — فعلاً: <b>' + (mv || "خاموش") + '</b></div>' +
+    '<div class="row"><input class="inp" id="mvInput" type="number" min="0" style="max-width:150px" placeholder="مثلاً 31" value="' + (mv || "") + '" />' +
+    '<button class="btn" onclick="saveMinVer()">ثبت</button>' +
+    '<button class="btn ghost" onclick="saveMinVer(0)">خاموش‌کردن</button></div></div>';
+}
+async function setGate(g, idx){
+  const body = { gate: g };
+  if (g === "closed" && idx !== undefined) body.reason = CLOSE_REASONS[idx][0];
+  const j = await api("/admin/gate", { method: "POST" }, body);
+  if (OV){ OV.gate = j.gate; OV.reason = j.reason; }
+  renderGatePill(); render(curTab);
+  toast(g === "closed" ? "🔒 برنامه بسته شد" : "🔓 برنامه باز شد");
+}
+async function customClose(){
+  const r = prompt("پیام انگلیسی که کاربران ببینند:\n(مثلاً: App access closed. We are updating. Please try again later.)");
+  if (r === null) return;
+  const j = await api("/admin/gate", { method: "POST" }, { gate: "closed", reason: r });
+  if (OV){ OV.gate = j.gate; OV.reason = j.reason; }
+  renderGatePill(); render(curTab);
+  toast("🔒 برنامه بسته شد (پیام سفارشی)");
+}
+async function saveMinVer(zero){
+  const el = document.getElementById("mvInput");
+  const n = zero === 0 ? 0 : Math.max(0, Math.round(Number(el.value) || 0));
+  const j = await api("/admin/settings", { method: "POST" }, { min_ver: n });
+  if (SET) SET.min_ver = j.min_ver;
+  toast(n ? "🔄 حداقل نسخه: " + n : "🔄 حداقل نسخه خاموش شد");
+  render(curTab);
 }
 
-// ============================================================ شروع
-$("keyInp").addEventListener("keydown", function(e){ if (e.key === "Enter") login(); });
-if (KEY){
-  BASE = "";
-  api("/admin/login", { method: "POST" }, function(err, j){
-    if (!err && j && j.ok) enterPanel();
-  });
+/* ================= ۶) تنظیمات ================= */
+async function renderSettings(v){
+  v.innerHTML =
+    '<div class="card"><h2>⚙️ وضعیت سرویس</h2>' +
+    '<div class="kv"><span class="k">نسخه‌ی بک‌اند (worker)</span><span class="v">v' + (SET ? SET.service_v : "?") + '</span></div>' +
+    '<div class="kv"><span class="k">chat_id مدیر (ربات)</span><span class="v">' + esc((SET && SET.owner) || "—") + '</span></div>' +
+    '<div class="kv"><span class="k">پنل (دامنه‌ی اصلی)</span><span class="v ltdir">panel.demonvpn.shop</span></div>' +
+    '<div class="kv"><span class="k">پنل (پشتیبان)</span><span class="v ltdir">vex-panel.pages.dev</span></div>' +
+    '<div class="kv"><span class="k">دروازه‌ی برنامه</span><span class="v ltdir">demonvpn.shop · vex-gate.pages.dev</span></div>' +
+    '<div class="kv"><span class="k">دانلود مستقیم APK</span><span class="v ltdir"><a href="https://demonvpn.shop/apk" target="_blank">demonvpn.shop/apk</a></span></div>' +
+    '<div class="kv"><span class="k">کانال تلگرام</span><span class="v ltdir"><a href="https://t.me/vex_vpnfree" target="_blank">t.me/vex_vpnfree</a></span></div>' +
+    '</div>' +
+    '<div class="card"><h2>📝 پیام پیش‌فرض بسته‌بودن</h2>' +
+    '<div class="desc">این متن انگلیسی وقتی نشان داده می‌شود که برنامه بسته شده و دلیل خاصی انتخاب نشده باشد.</div>' +
+    '<textarea class="inp" id="crInput" style="min-height:64px">' + esc((SET && SET.close_reason) || "") + '</textarea>' +
+    '<button class="btn" style="margin-top:9px" onclick="saveCloseReason()">ذخیره پیام</button></div>' +
+    '<div class="card"><h2>🔄 همگام‌سازی پشتیبان گیت‌هاب</h2>' +
+    '<div class="desc">وضعیت/سرورها/اعلان‌ها به‌صورت JSON در ریپوی گیت‌هاب نوشته می‌شوند تا کاربرانِ بدون فیلترشکن (وقتی pages.dev فیلتر است) هم همه‌چیز را بگیرند. بعد از هر تغییر خودکار همگام می‌شود؛ این دکمه برای اطمینان دستی است.</div>' +
+    '<button class="btn ghost" onclick="syncSnaps()">🔄 همگام‌سازی الان</button></div>';
 }
+async function saveCloseReason(){
+  const cr = document.getElementById("crInput").value.trim();
+  if (!cr){ toast("متن خالی است", true); return; }
+  await api("/admin/settings", { method: "POST" }, { close_reason: cr });
+  if (SET) SET.close_reason = cr;
+  toast("📝 پیام ذخیره شد");
+}
+async function syncSnaps(){
+  try {
+    const j = await api("/admin/syncsnap", { method: "POST" });
+    toast("🔄 همگام شد (" + j.servers + " سرور · " + j.notifs + " اعلان · دروازه: " + (j.gate === "closed" ? "بسته" : "باز") + ")");
+  } catch (e){ toast("همگام‌سازی ناموفق بود", true); }
+}
+
+/* ================= شروع ================= */
+document.getElementById("keyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+(async function boot(){
+  if (adminKey()){
+    try {
+      const [ov, st] = await Promise.all([api("/admin/overview"), api("/admin/settings")]);
+      OV = ov; SET = st;
+      enterApp();
+    } catch (e){
+      if (e.message === "auth") localStorage.removeItem("vex_admin_key");
+    }
+  }
+})();
+/* تازه‌سازی خودکار هر ۳۰ ثانیه */
+setInterval(() => {
+  if (!document.getElementById("appWrap").classList.contains("hidden") &&
+      !document.hidden && curTab === "ov") refreshAll(false);
+}, 30000);
 </script>
 </body>
 </html>

@@ -19,12 +19,14 @@ import android.view.animation.OvershootInterpolator
 import kotlin.math.min
 
 /**
- * دکمه‌ی پاور VEX — ساده و توخالی:
- *  یک حلقه‌ی سفید با گلیف پاور در مرکز؛ داخل دکمه خالی است و فقط یک «موج آب» دارد:
+ * دکمه‌ی پاور VEX — یک حلقه‌ی سفید با گلیف پاور در مرکز و «موج آبِ» چندلایه:
  *  خاموش  → موج خوابیده و خاکستری در ته دکمه (تقریباً خالی)؛
- *  اتصال  → موج مثل آب تا وسط بالا می‌آید و نارنجی می‌شود؛
- *  متصل   → موج سبز می‌شود و کل حباب را پر می‌کند (فقط کمی سرِ حباب خالی می‌ماند)؛
+ *  اتصال  → موج مثل آب تا وسط بالا می‌آید و نارنجی می‌شود — سه لایه + نفس کشیدن؛
+ *  متصل   → موج سبز می‌شود و کل حباب را پر می‌کند (فقط یک ذره سرِ حباب خالی می‌ماند)؛
  *  خاموشی → موج دوباره می‌خوابد و خاکستری می‌شود.
+ *
+ *  v3.23: موج‌ها بیشتر و واقعی‌تر شدند — سه لایه‌ی آب با فاصله‌ی فاز/فرکانس متفاوت،
+ *  نفس عمودیِ سطح آب (bob)، دو خط کف و هاله‌ی رنگی وقتی حباب پر است.
  */
 class PowerButtonView(context: Context) : View(context) {
 
@@ -102,10 +104,10 @@ class PowerButtonView(context: Context) : View(context) {
 
     /** اهداف هر حالت: level / ampDp / رنگ / آلفا */
     private fun targets(m: String): FloatArray = when (m) {
-        "busy" -> floatArrayOf(0.5f, 5.0f, 0.96f, 0f)
-        // متصل: موج کل حباب را می‌گیرد — فقط سرِ حباب یک ذره خالی می‌ماند
-        "on" -> floatArrayOf(0.9f, 3.0f, 0.96f, 1f)
-        else -> floatArrayOf(0.08f, 1.4f, 0.55f, 2f)
+        "busy" -> floatArrayOf(0.5f, 6.5f, 0.96f, 0f)
+        // متصل: موج کل حباب را می‌گیرد — فقط یک ذره سرِ حباب خالی می‌ماند
+        "on" -> floatArrayOf(0.93f, 4.4f, 0.96f, 1f)
+        else -> floatArrayOf(0.08f, 1.9f, 0.55f, 2f)
     }
 
     private fun colorOf(m: String): Int = when (m) {
@@ -146,7 +148,7 @@ class PowerButtonView(context: Context) : View(context) {
     private fun startFlow() {
         if (flow?.isRunning == true) return
         flow = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 2600
+            duration = 2200
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
             addUpdateListener {
@@ -190,20 +192,38 @@ class PowerButtonView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy + dp(8f), rMain * 1.22f, paint)
         paint.shader = null
 
-        // ---------- موج آب داخل دکمه ----------
+        // ---------- موج آب داخل دکمه (سه لایه + نفس عمودی) ----------
         if (level > 0.004f && innerR > 0) {
             val save = canvas.save()
             clip.reset()
             clip.addCircle(cx, cy, innerR - dp(1f), Path.Direction.CW)
             canvas.clipPath(clip)
-            val surfaceY = (cy + innerR) - level * (2f * innerR)
-            // لایه‌ی پشتی (کم‌رنگ‌تر، فاز برعکس) برای حس آب واقعی
+            // سطح آب: ارتفاع هدف + نفسِ آرام عمودی (bob) تا آب واقعی‌تر به‌نظر برسد
+            val bob = Math.sin(phase * 0.5).toFloat() * amp * 0.38f
+            val surfaceY = (cy + innerR) - level * (2f * innerR) + bob
+            // هاله‌ی رنگی وقتی حباب پر است — نور از ته آب
+            if (level > 0.55f) {
+                paint.shader = RadialGradient(
+                    cx, cy + innerR * 0.45f, innerR * 1.25f,
+                    UI.alpha(waterColor, 0.30f * (level - 0.55f) / 0.45f),
+                    Color.TRANSPARENT, Shader.TileMode.CLAMP
+                )
+                canvas.drawCircle(cx, cy, innerR, paint)
+                paint.shader = null
+            }
+            // لایه‌ی پشتی — کم‌رنگ، فاز برعکس، موج بلندتر
             drawWater(canvas, cx, cy, innerR, surfaceY,
-                amp * 0.65f, phase + 2.4f, waterColor, waterAlpha * 0.4f)
-            // لایه‌ی اصلی
-            drawWater(canvas, cx, cy, innerR, surfaceY, amp, phase, waterColor, waterAlpha)
-            // خط کفِ موج — نور ملایم روی سطح آب برای جلوه‌ی واقعی‌تر
-            drawFoam(canvas, cx, innerR, surfaceY, amp, phase)
+                amp * 0.75f, phase + 2.4f, waterColor, waterAlpha * 0.38f, 1.0f)
+            // لایه‌ی اصلی — امضای موج
+            drawWater(canvas, cx, cy, innerR, surfaceY,
+                amp, phase, waterColor, waterAlpha, 1.15f)
+            // لایه‌ی جلو — موج‌های ریز سطحی با فرکانس بالاتر (موج‌های بیشتر)
+            drawWater(canvas, cx, cy, innerR, surfaceY + dp(2f),
+                amp * 0.42f, phase * 1.7f + 1.1f, waterColor, waterAlpha * 0.32f, 2.2f)
+            // خط کفِ موج — نور روی سطح آب + کفِ محو لایه‌ی جلو
+            drawFoam(canvas, cx, innerR, surfaceY, amp, phase, 1.15f, 0.42f, dp(1.8f))
+            drawFoam(canvas, cx, innerR, surfaceY + dp(2f), amp * 0.42f,
+                phase * 1.7f + 1.1f, 2.2f, 0.20f, dp(1.1f))
             canvas.restoreToCount(save)
         }
 
@@ -225,9 +245,10 @@ class PowerButtonView(context: Context) : View(context) {
         drawGlyph(canvas, cx, cy, gr)
     }
 
-    /** یک لایه‌ی موج: سطح آب در surfaceY با دامنه‌ی ampPx و فاز ph */
+    /** یک لایه‌ی موج: سطح آب در surfaceY با دامنه‌ی ampPx، فاز ph و فرکانس freq */
     private fun drawWater(canvas: Canvas, cx: Float, cy: Float, r: Float,
-                          surfaceY: Float, ampPx: Float, ph: Float, color: Int, alpha: Float) {
+                          surfaceY: Float, ampPx: Float, ph: Float, color: Int, alpha: Float,
+                          freq: Float) {
         waterP.color = UI.alpha(color, alpha)
         val path = Path()
         val left = cx - r - dp(4f)
@@ -239,7 +260,7 @@ class PowerButtonView(context: Context) : View(context) {
         while (x <= right) {
             val t = (x - left) / (right - left)          // 0..1 روی قطر
             val y = surfaceY + ampPx *
-                    Math.sin(t * 2.0 * Math.PI + ph).toFloat()
+                    Math.sin(t * 2.0 * Math.PI * freq + ph).toFloat()
             path.lineTo(x, y)
             x += step
         }
@@ -249,9 +270,10 @@ class PowerButtonView(context: Context) : View(context) {
     }
 
     /** خط باریک روشن روی سطح آب — «کفِ» موج */
-    private fun drawFoam(canvas: Canvas, cx: Float, r: Float, surfaceY: Float, ampPx: Float, ph: Float) {
-        foamP.color = UI.alpha(0xFFFFFFFF.toInt(), 0.30f)
-        foamP.strokeWidth = dp(1.6f)
+    private fun drawFoam(canvas: Canvas, cx: Float, r: Float, surfaceY: Float,
+                         ampPx: Float, ph: Float, freq: Float, alpha: Float, w: Float) {
+        foamP.color = UI.alpha(0xFFFFFFFF.toInt(), alpha)
+        foamP.strokeWidth = w
         val path = Path()
         val left = cx - r - dp(4f)
         val right = cx + r + dp(4f)
@@ -260,7 +282,7 @@ class PowerButtonView(context: Context) : View(context) {
         var first = true
         while (x <= right) {
             val t = (x - left) / (right - left)
-            val y = surfaceY + ampPx * Math.sin(t * 2.0 * Math.PI + ph).toFloat()
+            val y = surfaceY + ampPx * Math.sin(t * 2.0 * Math.PI * freq + ph).toFloat()
             if (first) { path.moveTo(x, y); first = false } else path.lineTo(x, y)
             x += step
         }

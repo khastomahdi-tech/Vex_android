@@ -64,6 +64,12 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var exitIp: TextView
     private var exitInfo: ExitInfo? = null
 
+    // ---- بنر «نسخه‌ی جدید منتشر شده» (مدیر از پنل/ربات min_ver را بالا برده باشد) ----
+    private lateinit var updateWrap: LinearLayout
+    private lateinit var updateCard: LinearLayout
+    private lateinit var updateText: TextView
+    private var updateShownVer = 0
+
     private var p: Palette = Themes.royal()
 
     /** تیک هر ثانیه برای به‌روزرسانی تایمر مدت اتصال */
@@ -87,6 +93,7 @@ class HomeUi(private val act: MainActivity) {
         val col = UI.col(ctx)
         col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 2), UI.dp(ctx, 14), UI.dp(ctx, 24))
 
+        col.addView(buildUpdateBanner(), 0)
         col.addView(buildPowerZone())
         col.addView(buildConnectionStatus())
         col.addView(buildStatsRow())
@@ -102,6 +109,74 @@ class HomeUi(private val act: MainActivity) {
 
         applyTheme(p)
         return root
+    }
+
+    // ---------------------------------------------------------- بنر نسخه‌ی جدید
+
+    /** بنر «نسخه‌ی جدید» — بالای صفحه‌ی اصلی، با دکمه‌ی دانلود و بستن */
+    private fun buildUpdateBanner(): View {
+        val ctx = act
+        updateCard = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(UI.dp(ctx, 13), UI.dp(ctx, 10), UI.dp(ctx, 13), UI.dp(ctx, 10))
+        }
+        val txtCol = UI.col(ctx)
+        updateText = UI.label(ctx, "🔔 نسخه‌ی جدید Vex منتشر شده است", 13.5f, p.text, bold = true).apply {
+            maxLines = 2
+        }
+        txtCol.addView(updateText)
+        updateCard.addView(txtCol, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val dl = UI.softButton(ctx, "دانلود", p)
+        dl.setOnClickListener { act.openApkDownload() }
+        updateCard.addView(dl, LinearLayout.LayoutParams(
+            UI.dp(ctx, 86), UI.dp(ctx, 40)).apply { marginStart = UI.dp(ctx, 8) })
+
+        val x = TextView(ctx).apply {
+            text = "✕"
+            textSize = 13f
+            typeface = Fonts.bold(ctx)
+            gravity = Gravity.CENTER
+            setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
+            setOnClickListener { hideUpdateBanner() }
+        }
+        updateCard.addView(x, LinearLayout.LayoutParams(
+            UI.dp(ctx, 32), UI.dp(ctx, 32)))
+
+        updateWrap = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, UI.dp(ctx, 6), 0, 0)
+            }
+        }
+        updateWrap.addView(updateCard, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        return updateWrap
+    }
+
+    /** نمایش بنر — اگر کاربر قبلاً همین نسخه را بسته باشد، دیگر نمی‌آید */
+    fun showUpdateBanner(ver: Int) {
+        try {
+            val dismissed = act.getSharedPreferences("vex_gate", Context.MODE_PRIVATE)
+                .getInt("upd_dismissed", 0)
+            if (dismissed >= ver) return
+            updateShownVer = ver
+            updateText.text = "🔔 نسخه‌ی جدید Vex منتشر شده است — برای تجربه‌ی بهتر به‌روز کن"
+            updateWrap.visibility = View.VISIBLE
+        } catch (_: Throwable) {}
+    }
+
+    /** بستن بنر — تا نسخه‌ی بعدی دیگر نمی‌آید */
+    fun hideUpdateBanner() {
+        updateWrap.visibility = View.GONE
+        try {
+            if (updateShownVer > 0) act.getSharedPreferences("vex_gate", Context.MODE_PRIVATE)
+                .edit().putInt("upd_dismissed", updateShownVer).apply()
+        } catch (_: Throwable) {}
     }
 
     // ---------------------------------------------------------- ناحیه‌ی پاور
@@ -453,6 +528,14 @@ class HomeUi(private val act: MainActivity) {
     fun applyTheme(np: Palette) {
         p = np
         val ctx = act
+
+        // بنر نسخه‌ی جدید — کارت اکسنت ملایم
+        updateCard.background = GradientDrawable().apply {
+            cornerRadius = UI.dp(ctx, 18).toFloat()
+            setColor(UI.alpha(p.accent, 0.12f))
+            setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.5f))
+        }
+        updateText.setTextColor(p.text)
 
         // دکمه پاور
         power.palette = p
