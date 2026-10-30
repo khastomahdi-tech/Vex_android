@@ -46,6 +46,12 @@ class MainActivity : ComponentActivity() {
         /** لینک کانال تلگرام — دکمه‌ی تلگرام بالای صفحه به همین کانال می‌رود */
         const val TELEGRAM_CHANNEL_URL = "https://t.me/vex_vpnfree"
 
+        /**
+         * اکسترا «اتصال فوری» — از کاشی VPN در Quick Settings و اعلان «برنامه بسته شد»
+         * می‌آید؛ برنامه بعد از گذر از دروازه، خودش به آخرین/پیش‌فرض سرور وصل می‌شود.
+         */
+        const val EXTRA_AUTO_CONNECT = "auto_connect"
+
         /** فاصله‌ی بازبینی دوره‌ای وضعیت ربات (۵ دقیقه) */
         private const val GATE_WATCH_INTERVAL_MS = 5 * 60_000L
     }
@@ -90,6 +96,9 @@ class MainActivity : ComponentActivity() {
 
     /** سرور اتصال فعلی رایگان است یا شخصی؟ (برای تفکیک آمار مصرف) */
     private var sessionIsFree = false
+
+    /** اتصال خودکار پس از ورود با کاشی VPN یا اعلان «برنامه بسته شد» */
+    private var pendingAutoConnect = false
 
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
@@ -174,6 +183,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // دزدهای امنیتی: اگر APK دستکاری شده باشد (امضای متفاوت) اصلاً وارد نمی‌شود
+        pendingAutoConnect = intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) ?: false
         setContentView(buildGateView())
         if (!IntegrityGate.isOfficial(this)) {
             setGateUi("tampered")
@@ -181,6 +191,15 @@ class MainActivity : ComponentActivity() {
         }
         setGateUi("checking")
         runGate()
+    }
+
+    /** لمس کاشی VPN وقتی برنامه از قبل باز است */
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) == true) {
+            pendingAutoConnect = true
+            if (::root.isInitialized) maybeAutoConnect()
+        }
     }
 
     /**
@@ -324,6 +343,9 @@ class MainActivity : ComponentActivity() {
             // دسترسی اعلان — بار اول می‌پرسد؛ اگر رد شد دفعه‌های بعدی ورود دوباره می‌پرسد
             askNotifPermissionOnce()
 
+            // پیش‌فرض اولین ورود — بهترین پینگ بین سرورهای رایگان (اگر چیزی انتخاب نباشد)
+            ensureDefaultServer()
+
             // اتصال خودکار
             if (store.settings.autoConnect && connectionState == "stopped") {
                 store.selected()?.let { s ->
@@ -340,11 +362,13 @@ class MainActivity : ComponentActivity() {
                 applyThemeAll()
                 renderAll()
                 homeUi.restoreStats()
+                maybeAutoConnect()
             }
             return
         }
         setContentView(root)
         applyThemeAll()
+        maybeAutoConnect()
     }
 
     override fun onDestroy() {
@@ -352,6 +376,12 @@ class MainActivity : ComponentActivity() {
         VexVpnService.stateListener = null
         VexVpnService.statsListener = null
         VexVpnService.netListener = null
+        // وقتی کاربر برنامه را می‌بندد، اعلان دوستانه در شید می‌ماند تا یادش نرود
+        if (isFinishing && !isChangingConfigurations && ::root.isInitialized) {
+            val vpnActive = connectionState == "connected" || connectionState == "connecting" ||
+                    VexVpnService.uiState == "connected" || VexVpnService.uiState == "connecting"
+            Notifier.showAppClosed(this, vpnActive)
+        }
         super.onDestroy()
     }
 
@@ -693,7 +723,14 @@ class MainActivity : ComponentActivity() {
         exitIpThread = Thread {
             // درخواست از inbound محلی هسته رد می‌شود تا واقعاً از تونل خارج شود؛
             // در نتیجه آی‌پی برگشتی همان خروجی سروری است که به آن وصل شده‌ایم.
-            val info = try { NetUtil.fetchExitInfo(throughTunnel = true) } catch (_: Throwable) { null }
+            // چند دور تلاش — inbound هسته گاهی چند ثانیه بعد از اتصال آماده می‌شود.
+            var info: ExitInfo? = null
+            for (round in 1..3) {
+                if (Thread.currentThread().isInterrupted) return@Thread
+                info = try { NetUtil.fetchExitInfo(throughTunnel = true) } catch (_: Throwable) { null }
+                if (info != null || connectionState != "connected") break
+                if (round < 3) try { Thread.sleep(3500) } catch (_: InterruptedException) { return@Thread }
+            }
             if (Thread.currentThread().isInterrupted) return@Thread
             main.post {
                 if (connectionState == "connected") homeUi.setExitIp(info)
@@ -730,13 +767,51 @@ class MainActivity : ComponentActivity() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
             else -> {
-                val s = store.selected()
+                // هیچ سروری انتخاب نشده → بهترین سرور رایگان (پیش‌فرض) خودکار انتخاب می‌شود
+                val s = store.selected() ?: ensureDefaultServer()
                 if (s == null) {
                     UI.toast(this, "اول یک سرور انتخاب کن")
                     switchTab(1)
                 } else requestStart(s)
             }
         }
+    }
+
+    /**
+     * اتصال خودکارِ درخواستی از کاشی VPN / اعلان «برنامه بسته شد»:
+     * به آخرین سرورِ انتخاب‌شده وصل می‌شود؛ اگر هیچ انتخابی نبود،
+     * پیش‌فرضِ بهترین‌پینگ بین سرورهای رایگان ساخته می‌شود.
+     */
+    private fun maybeAutoConnect() {
+        if (!pendingAutoConnect) return
+        pendingAutoConnect = false
+        if (!::root.isInitialized || connectionState != "stopped") return
+        val s = store.selected() ?: ensureDefaultServer() ?: return
+        main.postDelayed({
+            if (connectionState == "stopped") requestStart(s)
+        }, 350)
+    }
+
+    /**
+     * پیش‌فرض اولین ورود: بهترین سرور رایگان (کم‌ترین پینگ پاسخ‌گو) انتخاب و ذخیره
+     * می‌شود تا کاربر تازه‌وارد بدون هیچ تنظیمی فقط پاور را بزند و وصل شود.
+     * اگر کاربر بعداً سرور دیگری انتخاب کند، انتخابش محترم است.
+     */
+    private fun ensureDefaultServer(): Server? {
+        if (!::store.isInitialized) return null
+        if (store.selected() != null) return store.selected()
+        val alive = store.freeServers.filter { it.ping >= 0 }
+        val pool = alive.ifEmpty { store.freeServers }
+        val best = pool.minByOrNull { if (it.ping >= 0) it.ping else Int.MAX_VALUE } ?: return null
+        store.select(best.id)
+        main.post {
+            if (::homeUi.isInitialized) {
+                homeUi.renderServerCard()
+                serversUi.render()
+            }
+        }
+        UI.toast(this, "سرور پیش‌فرض فعال شد: «${best.name}»")
+        return best
     }
 
     fun requestStart(s: Server) {
@@ -1020,6 +1095,9 @@ class MainActivity : ComponentActivity() {
                 serversUi.freeNetFail = !fetchOk // به بخش رایگان بگو سرور مدیریت در دسترس بود یا نه
                 if (fetchOk) {
                     store.replaceFreeServers(alive)
+                    // اولین انتخاب پیش‌فرض: اگر کاربر هنوز هیچ سروری انتخاب نکرده باشد،
+                    // بهترین پینگ بین سرورهای تازه‌ی رایگان خودکار فعال می‌شود
+                    ensureDefaultServer()
                     // اگر به سرور رایگانی وصل بودیم که از پنل حذف شده → قطع فوری اتصال
                     if (connectionState == "connected" && sessionIsFree) {
                         val cur = store.selected()

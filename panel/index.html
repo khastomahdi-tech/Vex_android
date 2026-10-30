@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VEX — پنل مدیریت</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230B1226'/><text x='16' y='23' font-size='19' font-weight='bold' text-anchor='middle' fill='%23E8C15A' font-family='Arial'>V</text></svg>" />
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0B1226; --bg2:#0E1730; --card:#121C38; --card2:#16234A;
+    --line:#24335C; --line2:#2E4070;
+    --gold:#E8C15A; --gold2:#F5D889;
+    --text:#F2F5FB; --muted:#8E9BB8;
+    --good:#27BE6D; --bad:#E5484D; --warn:#FB8A34; --blue:#4C8DFF;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:'Vazirmatn',Tahoma,sans-serif;
+    background:radial-gradient(1100px 500px at 50% -8%, #17244A 0%, var(--bg) 55%);
+    color:var(--text); min-height:100vh;
+  }
+  a{color:var(--gold); text-decoration:none;}
+  ::placeholder{color:#5F6E92;}
+  button{font-family:inherit; cursor:pointer; border:none;}
+  input,textarea,select{font-family:inherit;}
+
+  /* ---------- ورود ---------- */
+  #loginWrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;}
+  .loginBox{
+    width:100%; max-width:420px; background:linear-gradient(180deg,var(--card2),var(--card));
+    border:1px solid var(--line); border-radius:22px; padding:34px 30px;
+    box-shadow:0 24px 60px rgba(0,0,0,.45);
+  }
+  .logoV{
+    width:64px; height:64px; border-radius:18px; margin:0 auto 14px;
+    background:linear-gradient(160deg,#1B2A55,#101A38); border:1px solid var(--line2);
+    display:flex; align-items:center; justify-content:center;
+    font-size:34px; font-weight:800; color:var(--gold);
+    font-family:Arial,sans-serif;
+  }
+  .loginBox h1{font-size:20px; text-align:center; margin-bottom:4px;}
+  .loginBox h1 b{color:var(--gold);}
+  .loginBox .sub{color:var(--muted); font-size:12.5px; text-align:center; margin-bottom:22px;}
+  .field{
+    width:100%; background:#0D1631; border:1px solid var(--line); border-radius:13px;
+    color:var(--text); padding:13px 15px; font-size:14px; outline:none; direction:ltr; text-align:left;
+  }
+  .field:focus{border-color:var(--gold);}
+  .btnMain{
+    width:100%; margin-top:14px; padding:13px; border-radius:13px;
+    background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1A1503;
+    font-weight:800; font-size:15px;
+  }
+  .loginErr{color:var(--bad); font-size:12.5px; text-align:center; margin-top:12px; min-height:16px;}
+
+  /* ---------- چیدمان پنل ---------- */
+  #app{display:none; min-height:100vh;}
+  header.top{
+    position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:12px;
+    padding:12px 20px; background:rgba(11,18,38,.88); backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  header.top .brand{display:flex; align-items:center; gap:10px; font-weight:800;}
+  header.top .brand .v{
+    width:34px; height:34px; border-radius:10px; background:#101A38; border:1px solid var(--line2);
+    display:flex; align-items:center; justify-content:center; color:var(--gold); font-weight:800; font-family:Arial,sans-serif;
+  }
+  header.top .who{margin-inline-start:auto; color:var(--muted); font-size:12px; display:flex; align-items:center; gap:10px;}
+  .btnGhost{
+    background:#101A38; color:var(--muted); border:1px solid var(--line);
+    padding:7px 14px; border-radius:10px; font-size:12.5px;
+  }
+  .btnGhost:hover{color:var(--text); border-color:var(--line2);}
+
+  nav.tabs{
+    display:flex; gap:6px; padding:10px 16px 0; overflow-x:auto; scrollbar-width:none;
+  }
+  nav.tabs::-webkit-scrollbar{display:none;}
+  nav.tabs button{
+    background:transparent; color:var(--muted); font-size:13.5px; font-weight:600;
+    padding:10px 16px; border-radius:13px 13px 0 0; border-bottom:2px solid transparent; white-space:nowrap;
+  }
+  nav.tabs button.on{color:var(--gold); border-bottom-color:var(--gold); background:rgba(232,193,90,.06);}
+
+  main{max-width:1120px; margin:0 auto; padding:18px 16px 60px;}
+  section.pane{display:none;}
+  section.pane.on{display:block;}
+
+  .card{
+    background:linear-gradient(180deg,var(--card2),var(--card)); border:1px solid var(--line);
+    border-radius:18px; padding:18px; margin-bottom:14px;
+  }
+  .card h3{font-size:15px; margin-bottom:12px; display:flex; align-items:center; gap:8px;}
+  .card h3 .dot{width:8px; height:8px; border-radius:50%; background:var(--gold);}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:10px;}
+  .stat{
+    background:#0F1936; border:1px solid var(--line); border-radius:15px; padding:14px;
+  }
+  .stat .t{color:var(--muted); font-size:12px; margin-bottom:7px;}
+  .stat .v{font-size:21px; font-weight:800; direction:ltr; text-align:right;}
+  .stat .v small{font-size:12px; color:var(--muted); font-weight:400;}
+
+  .rowflex{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+  .badge{
+    display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:99px;
+    font-size:12.5px; font-weight:700; border:1px solid;
+  }
+  .badge.open{color:var(--good); border-color:rgba(39,190,109,.45); background:rgba(39,190,109,.1);}
+  .badge.closed{color:var(--bad); border-color:rgba(229,72,77,.45); background:rgba(229,72,77,.1);}
+
+  .btn{
+    padding:10px 18px; border-radius:12px; font-weight:700; font-size:13.5px;
+    background:#182550; color:var(--text); border:1px solid var(--line2);
+  }
+  .btn:hover{border-color:var(--gold);}
+  .btn.gold{background:linear-gradient(180deg,var(--gold2),var(--gold)); color:#1A1503; border:none;}
+  .btn.green{background:rgba(39,190,109,.14); color:var(--good); border:1px solid rgba(39,190,109,.5);}
+  .btn.red{background:rgba(229,72,77,.12); color:var(--bad); border:1px solid rgba(229,72,77,.5);}
+  .btn.sm{padding:6px 11px; font-size:12px; border-radius:9px;}
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th{
+    color:var(--muted); font-weight:600; text-align:right; padding:9px 10px;
+    border-bottom:1px solid var(--line); white-space:nowrap; font-size:12px;
+  }
+  td{padding:10px; border-bottom:1px solid rgba(36,51,92,.55); vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  .tblWrap{overflow-x:auto;}
+  .mono{direction:ltr; text-align:left; font-family:monospace; font-size:12.5px;}
+  .tagP{
+    display:inline-block; padding:2px 8px; border-radius:7px; font-size:11px; font-weight:700;
+    background:rgba(196,58,50,.18); color:#FF8A80; border:1px solid rgba(196,58,50,.4);
+  }
+  .on-off{font-weight:800;}
+  .on-off.on{color:var(--good);} .on-off.off{color:var(--muted);}
+
+  textarea.area{
+    width:100%; min-height:110px; background:#0D1631; border:1px solid var(--line); border-radius:13px;
+    color:var(--text); padding:12px 14px; font-size:13px; outline:none; resize:vertical;
+    direction:ltr; text-align:left; line-height:1.8;
+  }
+  textarea.area:focus{border-color:var(--gold);}
+  input.inp{
+    width:100%; background:#0D1631; border:1px solid var(--line); border-radius:12px;
+    color:var(--text); padding:11px 14px; font-size:13.5px; outline:none;
+  }
+  input.inp:focus{border-color:var(--gold);}
+  label.lbl{display:block; color:var(--muted); font-size:12.5px; margin:10px 0 6px;}
+  .hint{color:var(--muted); font-size:12px; line-height:2; margin-top:8px;}
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(80px);
+    background:#182550; border:1px solid var(--line2); color:var(--text);
+    padding:11px 20px; border-radius:13px; font-size:13.5px; z-index:99;
+    transition:transform .25s; box-shadow:0 12px 30px rgba(0,0,0,.5); max-width:88vw;
+  }
+  .toast.show{transform:translateX(-50%) translateY(0);}
+  .toast.err{border-color:rgba(229,72,77,.6);} .toast.ok{border-color:rgba(39,190,109,.6);}
+
+  .empty{color:var(--muted); text-align:center; padding:26px 0; font-size:13px;}
+  .reasonBox{
+    background:#0D1631; border:1px dashed var(--line2); border-radius:12px; padding:12px 14px;
+    color:var(--muted); font-size:13px; line-height:1.9; margin-top:10px;
+  }
+  .verRow{display:flex; justify-content:space-between; gap:10px; padding:9px 4px; border-bottom:1px solid rgba(36,51,92,.55); font-size:13px;}
+  .verRow:last-child{border-bottom:none;}
+  .bar{height:6px; border-radius:6px; background:#0D1631; overflow:hidden; margin-top:6px;}
+  .bar i{display:block; height:100%; background:linear-gradient(90deg,var(--gold),var(--gold2));}
+  @media (max-width:640px){
+    header.top{padding:10px 12px;}
+    .stat .v{font-size:18px;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= ورود ================= -->
+<div id="loginWrap">
+  <div class="loginBox">
+    <div class="logoV">V</div>
+    <h1>پنل مدیریت <b>VEX</b></h1>
+    <div class="sub">کنترل کامل برنامه — سرورها، وضعیت، اعلان‌ها و آمار</div>
+    <input id="keyInp" class="field" type="password" placeholder="Admin Key (vexa_…)" autocomplete="off" />
+    <button class="btnMain" onclick="login()">ورود به پنل</button>
+    <div class="loginErr" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- ================= پنل ================= -->
+<div id="app">
+  <header class="top">
+    <div class="brand"><span class="v">V</span> پنل مدیریت VEX</div>
+    <div class="who">
+      <span id="apiHost" class="mono" style="font-size:11px;"></span>
+      <button class="btnGhost" onclick="logout()">خروج</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="on" data-pane="dash">📊 داشبورد</button>
+    <button data-pane="gate">🔒 وضعیت برنامه</button>
+    <button data-pane="srv">🖥 سرورهای رایگان</button>
+    <button data-pane="ntf">📢 اعلان‌ها</button>
+    <button data-pane="usr">👥 کاربران</button>
+    <button data-pane="gh">📥 گیت‌هاب</button>
+  </nav>
+
+  <main>
+    <!-- ---------- داشبورد ---------- -->
+    <section class="pane on" id="pane-dash">
+      <div class="card">
+        <h3><span class="dot"></span> نمای کلی</h3>
+        <div class="rowflex" style="margin-bottom:12px;">
+          <span>وضعیت برنامه:</span>
+          <span id="dashGate" class="badge open">…</span>
+          <button class="btn sm" onclick="loadOverview()">🔄 به‌روزرسانی</button>
+        </div>
+        <div class="grid" id="dashGrid"></div>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span> مصرف ترافیک کاربران</h3>
+        <div class="grid" id="dashTraffic"></div>
+      </div>
+    </section>
+
+    <!-- ---------- وضعیت برنامه ---------- -->
+    <section class="pane" id="pane-gate">
+      <div class="card">
+        <h3><span class="dot"></span> قفل / باز کردن برنامه برای همه‌ی کاربران</h3>
+        <div class="rowflex">
+          <span>وضعیت فعلی:</span><span id="gateBadge" class="badge open">…</span>
+        </div>
+        <div class="rowflex" style="margin-top:16px;">
+          <button class="btn green" onclick="setGate('open')">🔓 باز کردن برنامه</button>
+          <button class="btn red" onclick="setGate('closed', 'The admin has closed the app for now. Please try again later.')">🔒 بستن (پیام پیش‌فرض)</button>
+          <button class="btn red" onclick="setGate('closed', 'We&#39;re updating the app. Please try again later.')">🛠 بستن (در حال بروزرسانی)</button>
+          <button class="btn red" onclick="setGate('closed', 'A technical problem occurred. Please try again later.')">⚠️ بستن (مشکل فنی)</button>
+        </div>
+        <label class="lbl">پیام سفارشی هنگام بستن (انگلیسی — دقیقاً روی صفحه‌ی کاربر نمایش داده می‌شود):</label>
+        <input id="closeReason" class="inp" placeholder="App access closed. Please try again later." />
+        <button class="btn red" style="margin-top:10px;" onclick="setGate('closed', document.getElementById('closeReason').value)">🔒 بستن با پیام سفارشی</button>
+        <div class="reasonBox" id="curReason"></div>
+        <div class="hint">وقتی برنامه بسته است، کاربران هنگام ورود این پیام را می‌بینند و تونل کاربرانِ متصل فوراً قطع می‌شود. با «باز کردن» همه‌چیز برمی‌گردد.</div>
+      </div>
+    </section>
+
+    <!-- ---------- سرورهای رایگان ---------- -->
+    <section class="pane" id="pane-srv">
+      <div class="card">
+        <h3><span class="dot"></span> افزودن سرور رایگان</h3>
+        <textarea id="srvText" class="area" placeholder="هر خط یک کانفیگ:&#10;vless://… vmess://… trojan://… ss://… wg://…&#10;با پیشوند: 🇩🇪 ویژه | vless://…&#10;فایل کامل WireGuard (‎[Interface]…[Peer]‎) هم قابل پیست است"></textarea>
+        <div class="rowflex" style="margin-top:10px;">
+          <button class="btn gold" onclick="addServers()">➕ افزودن</button>
+          <button class="btn" onclick="syncSnap()">🔄 همگام‌سازی اسنپ‌شات گیت‌هاب</button>
+        </div>
+        <div class="hint">سرورها تا حداکثر ۱ دقیقه بعد، در تب «سرورهای رایگان» برنامه‌ی همه‌ی کاربران ظاهر می‌شوند (فقط‌خواندنی برای کاربر).</div>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span> سرورهای ثبت‌شده <span id="srvCount" style="color:var(--muted);font-weight:400;font-size:12px;"></span></h3>
+        <div class="tblWrap">
+          <table>
+            <thead><tr><th>#</th><th>نام</th><th>پیشوند</th><th>پروتکل</th><th>وضعیت</th><th>تاریخ</th><th>عملیات</th></tr></thead>
+            <tbody id="srvBody"></tbody>
+          </table>
+        </div>
+        <div class="rowflex" style="margin-top:12px;">
+          <button class="btn red sm" onclick="delAllServers()">🗑 حذف همه‌ی سرورها</button>
+          <button class="btn sm" onclick="loadServers()">🔄 به‌روزرسانی لیست</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- اعلان‌ها ---------- -->
+    <section class="pane" id="pane-ntf">
+      <div class="card">
+        <h3><span class="dot"></span> ارسال اعلان همگانی</h3>
+        <label class="lbl">عنوان (حداکثر ۸۰ نویسه):</label>
+        <input id="ntfTitle" class="inp" placeholder="خبر مهم Vex" />
+        <label class="lbl">متن اعلان (اختیاری — حداکثر ۴۰۰ نویسه):</label>
+        <textarea id="ntfBody" class="area" style="min-height:80px;" placeholder="توضیحات اعلان…"></textarea>
+        <button class="btn gold" style="margin-top:10px;" onclick="sendNotif()">📢 ارسال به همه‌ی کاربران</button>
+        <div class="hint">اعلان تا حداکثر ۶۰ ثانیه بعد، به‌صورت نوتیفیکیشن سیستم روی گوشی کاربران آنلاین ظاهر می‌شود (کاربرانی که دسترسی اعلان داده باشند).</div>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span> اعلان‌های قبلی</h3>
+        <div class="tblWrap">
+          <table>
+            <thead><tr><th>#</th><th>عنوان</th><th>متن</th><th>زمان</th></tr></thead>
+            <tbody id="ntfBody2"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- کاربران ---------- -->
+    <section class="pane" id="pane-usr">
+      <div class="card">
+        <h3><span class="dot"></span> آخرین کاربران (۱۰۰ نفر)</h3>
+        <div class="rowflex" style="margin-bottom:8px;">
+          <button class="btn sm" onclick="loadUsers()">🔄 به‌روزرسانی</button>
+        </div>
+        <div class="tblWrap">
+          <table>
+            <thead><tr><th>IP</th><th>کشور</th><th>گوشی</th><th>اندروید</th><th>نسخه</th><th>ورود</th><th>مصرف</th><th>آخرین بازدید</th></tr></thead>
+            <tbody id="usrBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- گیت‌هاب ---------- -->
+    <section class="pane" id="pane-gh">
+      <div class="card">
+        <h3><span class="dot"></span> آمار نصب از گیت‌هاب</h3>
+        <div class="grid" id="ghGrid"></div>
+        <div style="margin-top:16px;" id="ghRows"></div>
+        <div class="hint">هر دانلود APK از صفحه‌ی Releases گیت‌هاب = یک نصب. لینک Latest همیشه آخرین نسخه را می‌دهد: <a href="https://demonvpn.shop/apk" target="_blank">demonvpn.shop/apk</a></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+// ============================================================ حالت
+var KEY = localStorage.getItem("vex_admin_key") || "";
+var BASE = localStorage.getItem("vex_admin_base") || "";
+var BASES = ["https://demonvpn.shop", "https://vex-gate.pages.dev"];
+
+function $(id){ return document.getElementById(id); }
+
+function toast(msg, cls){
+  var t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show " + (cls || "");
+  clearTimeout(t._h);
+  t._h = setTimeout(function(){ t.className = "toast " + (cls || ""); }, 2600);
+}
+
+function fmtB(n){
+  n = Number(n) || 0;
+  var u = ["B","KB","MB","GB","TB"], i = 0, v = n;
+  while (v >= 1024 && i < u.length-1){ v /= 1024; i++; }
+  return (i ? v.toFixed(2) : String(v)) + " " + u[i];
+}
+function esc(s){
+  return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function flagOf(cc){
+  if (!cc || cc.length !== 2) return "🌐";
+  var out = "";
+  for (var i = 0; i < 2; i++){
+    var c = cc.toUpperCase().charCodeAt(i);
+    if (c < 65 || c > 90) return "🌐";
+    out += String.fromCodePoint(0x1F1E6 + c - 65);
+  }
+  return out;
+}
+function tstr(ms){
+  if (!ms) return "—";
+  try { return new Date(ms).toISOString().slice(0,16).replace("T"," ") + " UTC"; } catch(e){ return "—"; }
+}
+
+// ============================================================ API
+function api(path, opts, cb, tried){
+  opts = opts || {};
+  opts.headers = Object.assign({ "X-Admin-Key": KEY }, opts.headers || {});
+  if (opts.body && typeof opts.body !== "string"){
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(opts.body);
+  }
+  var bases = BASE ? [BASE] : BASES;
+  var i = tried || 0;
+  if (i >= bases.length){ cb(new Error("هیچ‌کدام از سرورهای API جواب ندادند"), null); return; }
+  fetch(bases[i] + path, opts).then(function(r){
+    if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
+      var e = new Error(j.error || ("HTTP " + r.status)); e.status = r.status; throw e;
+    });
+    return r.json();
+  }).then(function(j){
+    if (!BASE){ BASE = bases[i]; localStorage.setItem("vex_admin_base", BASE); $("apiHost").textContent = BASE; }
+    cb(null, j);
+  }).catch(function(e){
+    if (e && e.status === 401){ logout(true); cb(e, null); return; }
+    if (!BASE && i + 1 < bases.length){ api(path, opts, cb, i + 1); return; }
+    cb(e, null);
+  });
+}
+
+// ============================================================ ورود / خروج
+function login(){
+  var k = $("keyInp").value.trim();
+  if (!k){ $("loginErr").textContent = "کلید ادمین را وارد کن"; return; }
+  KEY = k;
+  $("loginErr").textContent = "در حال بررسی…";
+  BASE = "";
+  api("/admin/login", { method: "POST" }, function(err, j){
+    if (err || !j || !j.ok){
+      $("loginErr").textContent = "کلید اشتباه است یا سرور در دسترس نیست";
+      return;
+    }
+    localStorage.setItem("vex_admin_key", KEY);
+    $("loginErr").textContent = "";
+    enterPanel();
+  });
+}
+function logout(silent){
+  localStorage.removeItem("vex_admin_key");
+  localStorage.removeItem("vex_admin_base");
+  KEY = ""; BASE = "";
+  $("app").style.display = "none";
+  $("loginWrap").style.display = "flex";
+  if (!silent) toast("از پنل خارج شدی", "ok");
+}
+function enterPanel(){
+  $("loginWrap").style.display = "none";
+  $("app").style.display = "block";
+  $("apiHost").textContent = BASE || "…";
+  loadOverview();
+}
+
+// ============================================================ تب‌ها
+var tabs = document.querySelectorAll("#tabs button");
+for (var ti = 0; ti < tabs.length; ti++){
+  (function(btn){
+    btn.addEventListener("click", function(){
+      for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove("on");
+      btn.classList.add("on");
+      var panes = document.querySelectorAll("section.pane");
+      for (var j = 0; j < panes.length; j++) panes[j].classList.remove("on");
+      $("pane-" + btn.getAttribute("data-pane")).classList.add("on");
+      var p = btn.getAttribute("data-pane");
+      if (p === "srv") loadServers();
+      if (p === "ntf") loadNotifs();
+      if (p === "usr") loadUsers();
+      if (p === "gh") loadGh();
+      if (p === "gate") refreshGatePane();
+    });
+  })(tabs[ti]);
+}
+
+// ============================================================ داشبورد
+function loadOverview(){
+  api("/admin/overview", { method: "GET" }, function(err, j){
+    if (err || !j || !j.ok){ toast("دریافت آمار ناموفق بود", "err"); return; }
+    renderOverview(j);
+  });
+}
+function renderOverview(j){
+  var gb = $("dashGate");
+  gb.textContent = j.gate === "closed" ? "🔒 بسته" : "🔓 باز";
+  gb.className = "badge " + j.gate;
+  var cards = [
+    ["👥 کل کاربران", j.users],
+    ["🆕 نصب ۲۴ ساعت", j.todayInstalls],
+    ["🟢 فعال ۲۴ ساعت", j.active24h],
+    ["🔁 مجموع ورودها", j.opens],
+    ["🖥 سرور رایگان فعال", j.freeServers],
+    ["📢 تعداد اعلان‌ها", j.notifications],
+    ["📥 دانلود گیت‌هاب", (j.github && j.github.ok) ? j.github.total : "—"]
+  ];
+  var h = "";
+  for (var i = 0; i < cards.length; i++){
+    h += '<div class="stat"><div class="t">' + cards[i][0] + '</div><div class="v">' + cards[i][1] + "</div></div>";
+  }
+  $("dashGrid").innerHTML = h;
+  var tt = j.traffic || { free: 0, priv: 0 };
+  var tot = (tt.free || 0) + (tt.priv || 0);
+  var t2 = [
+    ["🆓 سرورهای رایگان", fmtB(tt.free)],
+    ["🔑 سرورهای شخصی", fmtB(tt.priv)],
+    ["🧮 مصرف کل", fmtB(tot)]
+  ];
+  var h2 = "";
+  for (var i = 0; i < t2.length; i++){
+    h2 += '<div class="stat"><div class="t">' + t2[i][0] + '</div><div class="v" style="font-size:17px;">' + t2[i][1] + "</div></div>";
+  }
+  $("dashTraffic").innerHTML = h2;
+  // پنل وضعیت
+  var g2 = $("gateBadge");
+  g2.textContent = j.gate === "closed" ? "🔒 بسته" : "🔓 باز";
+  g2.className = "badge " + j.gate;
+  $("curReason").innerHTML = j.gate === "closed"
+    ? "📝 پیامی که کاربران می‌بینند: <b style='color:var(--text)'>" + esc(j.reason || "—") + "</b>"
+    : "برنامه برای همه باز است.";
+}
+function refreshGatePane(){ loadOverview(); }
+
+function setGate(gate, reason){
+  if (gate === "closed" && !confirm("برنامه برای همه‌ی کاربران بسته شود؟")) return;
+  api("/admin/gate", { method: "POST", body: { gate: gate, reason: reason || "" } }, function(err, j){
+    if (err || !j || !j.ok){ toast("انجام نشد", "err"); return; }
+    toast(j.gate === "closed" ? "🔒 برنامه بسته شد" : "🔓 برنامه باز شد", "ok");
+    loadOverview();
+  });
+}
+
+// ============================================================ سرورها
+function loadServers(){
+  api("/admin/servers", { method: "GET" }, function(err, j){
+    if (err || !j || !j.ok){ toast("دریافت سرورها ناموفق بود", "err"); return; }
+    var list = j.servers || [];
+    $("srvCount").textContent = "(" + list.length + " سرور)";
+    if (!list.length){ $("srvBody").innerHTML = '<tr><td colspan="7"><div class="empty">هنوز سروری ثبت نشده — از فرم بالا اولین سرور را اضافه کن</div></td></tr>'; return; }
+    var h = "";
+    for (var i = 0; i < list.length; i++){
+      var s = list[i];
+      h += "<tr>"
+        + "<td>" + s.id + "</td>"
+        + "<td style='max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>" + esc(s.name || "—") + "</td>"
+        + "<td>" + esc(s.label || "—") + "</td>"
+        + '<td><span class="tagP">' + esc((s.proto || "?").toUpperCase()) + "</span></td>"
+        + '<td><span class="on-off ' + (s.enabled ? "on" : "off") + '">' + (s.enabled ? "فعال" : "خاموش") + "</span></td>"
+        + "<td>" + tstr(s.added_at).slice(0, 10) + "</td>"
+        + "<td><div class='rowflex'>"
+        + '<button class="btn sm" onclick="editLabel(' + s.id + ", '" + esc(String(s.label || "").replace(/'/g, "\\'")) + "')\">🏷 پیشوند</button>"
+        + '<button class="btn sm" onclick="toggleServer(' + s.id + "," + (s.enabled ? "0" : "1") + ')">' + (s.enabled ? "⏸ خاموش" : "▶️ فعال") + "</button>"
+        + '<button class="btn red sm" onclick="delServer(' + s.id + ')">🗑</button>'
+        + "</div></td></tr>";
+    }
+    $("srvBody").innerHTML = h;
+  });
+}
+function addServers(){
+  var t = $("srvText").value.trim();
+  if (!t){ toast("متن کانفیگ خالی است", "err"); return; }
+  api("/admin/servers", { method: "POST", body: { text: t } }, function(err, j){
+    if (err || !j || !j.ok){ toast(err && err.message ? err.message : "افزودن ناموفق بود", "err"); return; }
+    $("srvText").value = "";
+    toast("✅ " + j.added + " سرور اضافه شد" + (j.dup ? " · " + j.dup + " تکرار" : "") + (j.bad ? " · " + j.bad + " نامعتبر" : ""), "ok");
+    loadServers();
+  });
+}
+function toggleServer(id, en){
+  api("/admin/servers/update", { method: "POST", body: { id: id, enabled: !!en } }, function(err, j){
+    if (err || !j || !j.ok){ toast("انجام نشد", "err"); return; }
+    toast(en ? "سرور فعال شد" : "سرور خاموش شد (کاربران دیگر نمی‌بینند)", "ok");
+    loadServers();
+  });
+}
+function delServer(id){
+  if (!confirm("سرور #" + id + " حذف شود؟")) return;
+  api("/admin/servers/delete", { method: "POST", body: { id: id } }, function(err, j){
+    if (err || !j || !j.ok){ toast("حذف ناموفق بود", "err"); return; }
+    toast("سرور حذف شد", "ok");
+    loadServers();
+  });
+}
+function delAllServers(){
+  if (!confirm("⚠️ همه‌ی سرورهای رایگان حذف شوند؟ این کار برگشت‌پذیر نیست.")) return;
+  api("/admin/servers/delete", { method: "POST", body: { all: true } }, function(err, j){
+    if (err || !j || !j.ok){ toast("حذف ناموفق بود", "err"); return; }
+    toast("همه‌ی سرورها حذف شدند", "ok");
+    loadServers();
+  });
+}
+function editLabel(id, cur){
+  var v = prompt("پیشوند سرور (ایموجی/برچسب — کنار نام در برنامه). برای پاک کردن خالی بگذار:", cur);
+  if (v === null) return;
+  api("/admin/servers/update", { method: "POST", body: { id: id, label: v } }, function(err, j){
+    if (err || !j || !j.ok){ toast("ثبت پیشوند ناموفق بود", "err"); return; }
+    toast("پیشوند ثبت شد", "ok");
+    loadServers();
+  });
+}
+function syncSnap(){
+  api("/admin/syncsnap", { method: "POST" }, function(err, j){
+    if (err || !j || !j.ok){ toast("همگام‌سازی ناموفق بود", "err"); return; }
+    toast("اسنپ‌شات‌های گیت‌هاب به‌روز شدند (" + j.servers + " سرور)", "ok");
+  });
+}
+
+// ============================================================ اعلان‌ها
+function sendNotif(){
+  var t = $("ntfTitle").value.trim();
+  var b = $("ntfBody").value.trim();
+  if (!t){ toast("عنوان اعلان را بنویس", "err"); return; }
+  if (!confirm("اعلان برای همه‌ی کاربران ارسال شود؟")) return;
+  api("/admin/notifications", { method: "POST", body: { title: t, body: b } }, function(err, j){
+    if (err || !j || !j.ok){ toast("ارسال ناموفق بود", "err"); return; }
+    $("ntfTitle").value = ""; $("ntfBody").value = "";
+    toast("📢 اعلان #" + (j.id || "") + " ثبت شد — تا ۶۰ ثانیه دیگر روی گوشی کاربران آنلاین می‌آید", "ok");
+    loadNotifs();
+  });
+}
+function loadNotifs(){
+  api("/admin/notifications", { method: "GET" }, function(err, j){
+    if (err || !j || !j.ok){ toast("دریافت اعلان‌ها ناموفق بود", "err"); return; }
+    var list = j.list || [];
+    if (!list.length){ $("ntfBody2").innerHTML = '<tr><td colspan="4"><div class="empty">هنوز اعلانی ارسال نشده</div></td></tr>'; return; }
+    var h = "";
+    for (var i = 0; i < list.length; i++){
+      var n = list[i];
+      h += "<tr><td>" + n.id + "</td><td><b>" + esc(n.title) + "</b></td><td style='max-width:300px;'>" + esc(n.body || "—") + "</td><td style='white-space:nowrap;'>" + tstr(n.created_at) + "</td></tr>";
+    }
+    $("ntfBody2").innerHTML = h;
+  });
+}
+
+// ============================================================ کاربران
+function loadUsers(){
+  api("/admin/users", { method: "GET" }, function(err, j){
+    if (err || !j || !j.ok){ toast("دریافت کاربران ناموفق بود", "err"); return; }
+    var list = j.users || [];
+    if (!list.length){ $("usrBody").innerHTML = '<tr><td colspan="8"><div class="empty">هنوز کاربری ثبت نشده</div></td></tr>'; return; }
+    var h = "";
+    for (var i = 0; i < list.length; i++){
+      var u = list[i];
+      h += "<tr>"
+        + '<td class="mono">' + esc(u.ip || "?") + "</td>"
+        + "<td>" + flagOf(u.country) + " " + esc(u.country || "—") + "</td>"
+        + "<td>" + esc(u.model || "?") + "</td>"
+        + "<td>" + esc(u.android || "?") + "</td>"
+        + "<td>" + esc(u.ver || "?") + "</td>"
+        + "<td>" + (u.opens || 1) + "</td>"
+        + "<td>" + fmtB(u.bytes) + "</td>"
+        + "<td style='white-space:nowrap;'>" + tstr(u.last_seen) + "</td></tr>";
+    }
+    $("usrBody").innerHTML = h;
+  });
+}
+
+// ============================================================ گیت‌هاب
+function loadGh(){
+  api("/admin/overview", { method: "GET" }, function(err, j){
+    if (err || !j || !j.ok || !j.github){ toast("دریافت آمار گیت‌هاب ناموفق بود", "err"); return; }
+    var g = j.github;
+    if (!g.ok){ $("ghGrid").innerHTML = ""; $("ghRows").innerHTML = '<div class="empty">گرفتن آمار از گیت‌هاب ممکن نشد — دوباره تلاش کن</div>'; return; }
+    $("ghGrid").innerHTML =
+      '<div class="stat"><div class="t">📦 کل دانلودهای APK</div><div class="v">' + g.total + "</div></div>" +
+      '<div class="stat"><div class="t">🔗 دانلود از لینک Latest</div><div class="v">' + g.latest + "</div></div>";
+    var max = 1;
+    for (var i = 0; i < g.rows.length; i++) if (g.rows[i].ver > max) max = g.rows[i].ver;
+    var h = "";
+    for (var i = 0; i < g.rows.length; i++){
+      var r = g.rows[i];
+      h += '<div class="verRow"><span><b>' + esc(r.tag) + "</b> <span style='color:var(--muted)'>" + (r.date || "") + "</span></span>"
+        + "<span>" + r.ver + " نصب</span></div>"
+        + '<div class="bar"><i style="width:' + Math.max(3, Math.round(r.ver * 100 / max)) + '%"></i></div>';
+    }
+    $("ghRows").innerHTML = h;
+  });
+}
+
+// ============================================================ شروع
+$("keyInp").addEventListener("keydown", function(e){ if (e.key === "Enter") login(); });
+if (KEY){
+  BASE = "";
+  api("/admin/login", { method: "POST" }, function(err, j){
+    if (!err && j && j.ok) enterPanel();
+  });
+}
+</script>
+</body>
+</html>

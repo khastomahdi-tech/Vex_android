@@ -23,7 +23,7 @@ import kotlin.math.min
  *  یک حلقه‌ی سفید با گلیف پاور در مرکز؛ داخل دکمه خالی است و فقط یک «موج آب» دارد:
  *  خاموش  → موج خوابیده و خاکستری در ته دکمه (تقریباً خالی)؛
  *  اتصال  → موج مثل آب تا وسط بالا می‌آید و نارنجی می‌شود؛
- *  متصل   → موج سبز می‌شود و آرام حرکت می‌کند؛
+ *  متصل   → موج سبز می‌شود و کل حباب را پر می‌کند (فقط کمی سرِ حباب خالی می‌ماند)؛
  *  خاموشی → موج دوباره می‌خوابد و خاکستری می‌شود.
  */
 class PowerButtonView(context: Context) : View(context) {
@@ -62,6 +62,10 @@ class PowerButtonView(context: Context) : View(context) {
         strokeCap = Paint.Cap.ROUND
     }
     private val waterP = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val foamP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
     private val clip = Path()
     private val rect = RectF()
 
@@ -99,7 +103,8 @@ class PowerButtonView(context: Context) : View(context) {
     /** اهداف هر حالت: level / ampDp / رنگ / آلفا */
     private fun targets(m: String): FloatArray = when (m) {
         "busy" -> floatArrayOf(0.5f, 5.0f, 0.96f, 0f)
-        "on" -> floatArrayOf(0.5f, 3.0f, 0.96f, 1f)
+        // متصل: موج کل حباب را می‌گیرد — فقط سرِ حباب یک ذره خالی می‌ماند
+        "on" -> floatArrayOf(0.9f, 3.0f, 0.96f, 1f)
         else -> floatArrayOf(0.08f, 1.4f, 0.55f, 2f)
     }
 
@@ -197,6 +202,8 @@ class PowerButtonView(context: Context) : View(context) {
                 amp * 0.65f, phase + 2.4f, waterColor, waterAlpha * 0.4f)
             // لایه‌ی اصلی
             drawWater(canvas, cx, cy, innerR, surfaceY, amp, phase, waterColor, waterAlpha)
+            // خط کفِ موج — نور ملایم روی سطح آب برای جلوه‌ی واقعی‌تر
+            drawFoam(canvas, cx, innerR, surfaceY, amp, phase)
             canvas.restoreToCount(save)
         }
 
@@ -239,6 +246,25 @@ class PowerButtonView(context: Context) : View(context) {
         path.lineTo(right, bottom)
         path.close()
         canvas.drawPath(path, waterP)
+    }
+
+    /** خط باریک روشن روی سطح آب — «کفِ» موج */
+    private fun drawFoam(canvas: Canvas, cx: Float, r: Float, surfaceY: Float, ampPx: Float, ph: Float) {
+        foamP.color = UI.alpha(0xFFFFFFFF.toInt(), 0.30f)
+        foamP.strokeWidth = dp(1.6f)
+        val path = Path()
+        val left = cx - r - dp(4f)
+        val right = cx + r + dp(4f)
+        val step = dp(3f)
+        var x = left
+        var first = true
+        while (x <= right) {
+            val t = (x - left) / (right - left)
+            val y = surfaceY + ampPx * Math.sin(t * 2.0 * Math.PI + ph).toFloat()
+            if (first) { path.moveTo(x, y); first = false } else path.lineTo(x, y)
+            x += step
+        }
+        canvas.drawPath(path, foamP)
     }
 
     private fun drawGlyph(canvas: Canvas, cx: Float, cy: Float, r: Float) {

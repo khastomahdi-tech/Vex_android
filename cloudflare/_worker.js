@@ -15,7 +15,13 @@
  *                               reliable in Iran where GitHub download links get truncated)
  *   GET  /                   → health
  *
+ *   /admin/*                 → web admin panel API (panel.demonvpn.shop) — X-Admin-Key header,
+ *                              key lives in D1 settings (admin_key). Full remote control:
+ *                              overview stats, gate open/close, free servers CRUD,
+ *                              broadcast notifications, users list, GitHub download stats.
+ *
  * /v1/* endpoints require header  X-Vex-Key: <APP_KEY>
+ * /admin/* endpoints require header  X-Admin-Key: <ADMIN_KEY from D1>
  *
  * GitHub FALLBACK channel: *.pages.dev is SNI-filtered in Iran, so users without a VPN
  * could never reach the gate (no free servers, no notifications, no lock screen). Every
@@ -36,7 +42,7 @@
  *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
  */
 
-const SERVICE_V = 7;
+const SERVICE_V = 8;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -159,9 +165,181 @@ export default {
       return json({ ok: false, error: "not found" }, 404);
     }
 
+    // ---------------- Admin panel API (X-Admin-Key protected) ----------------
+    // پنل مدیریت وب — روی panel.demonvpn.shop اجرا می‌شود و به همین API وصل است.
+    // کلید ادمین در D1 settings (admin_key) نگهداری می‌شود — نه در کد، نه در ریپوی عمومی.
+    if (path.startsWith("/admin/")) {
+      const ch = adminCors({ "content-type": "application/json; charset=utf-8" });
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: adminCors({}) });
+      if (!(await isAdminAuthed(env, request))) {
+        return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), { status: 401, headers: ch });
+      }
+      return handleAdmin(path, url, request, env);
+    }
+
     return json({ ok: false, error: "not found" }, 404);
   }
 };
+
+// ============================================================ admin panel API
+
+function adminCors(extra) {
+  const h = {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "X-Admin-Key, Content-Type",
+    "access-control-max-age": "86400"
+  };
+  if (extra) for (const k in extra) h[k] = extra[k];
+  return h;
+}
+
+let adminKeyCache = { v: null, at: 0 };
+
+async function isAdminAuthed(env, request) {
+  const key = request.headers.get("X-Admin-Key") || "";
+  if (!key) return false;
+  let real = null;
+  const now = Date.now();
+  if (adminKeyCache.v && now - adminKeyCache.at < 60000) real = adminKeyCache.v;
+  else {
+    real = await getSetting(env, "admin_key");
+    if (real) { adminKeyCache.v = real; adminKeyCache.at = now; }
+  }
+  return !!real && key === real;
+}
+
+async function handleAdmin(path, url, request, env) {
+  const J = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: adminCors({ "content-type": "application/json; charset=utf-8" })
+  });
+
+  if (path === "/admin/login" && request.method === "POST") {
+    return J({ ok: true, v: SERVICE_V });
+  }
+
+  if (path === "/admin/overview" && request.method === "GET") {
+    const gate = (await getSetting(env, "gate")) || "open";
+    const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
+    const t = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
+    const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE first_seen >= ?1").bind(Date.now() - 86400000).first();
+    const active = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE last_seen >= ?1").bind(Date.now() - 86400000).first();
+    const op = await env.DB.prepare("SELECT COALESCE(SUM(opens),0) AS n FROM users").first();
+    const fs = await countFs(env);
+    const tt = await trafficTotals(env);
+    const nc = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications").first();
+    const gh = await ghReleaseStats(env);
+    return J({
+      ok: true, gate, reason,
+      users: t ? t.n : 0,
+      todayInstalls: today ? today.n : 0,
+      active24h: active ? active.n : 0,
+      opens: op ? op.n : 0,
+      freeServers: fs,
+      traffic: { free: tt.freeB, private: tt.privB },
+      notifications: nc ? nc.n : 0,
+      github: gh
+    });
+  }
+
+  if (path === "/admin/gate" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const gate = b.gate === "closed" ? "closed" : "open";
+    await setSetting(env, "gate", gate);
+    if (gate === "closed") {
+      const reason = String(b.reason || "").trim().slice(0, 400) || DEFAULT_CLOSE_REASON;
+      await setSetting(env, "close_reason", reason);
+    }
+    await ghSync(env, "state.json", await stateSnapshot(env));
+    return J({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null });
+  }
+
+  if (path === "/admin/servers" && request.method === "GET") {
+    const rs = await env.DB.prepare(
+      "SELECT id, name, label, proto, added_at, enabled, LENGTH(raw) AS raw_len FROM free_servers ORDER BY id DESC LIMIT 200"
+    ).all();
+    return J({ ok: true, servers: rs.results || [] });
+  }
+
+  if (path === "/admin/servers" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const text = String(b.text || "");
+    if (!text.trim()) return J({ ok: false, error: "text required" }, 400);
+    const res = await addServersCore(text, env);
+    if (res.added) await ghSync(env, "freeservers.json", await fsSnapshot(env));
+    res.total = await countFs(env);
+    return J(Object.assign({ ok: true }, res));
+  }
+
+  if (path === "/admin/servers/update" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const id = parseInt(b.id, 10);
+    if (!id) return J({ ok: false, error: "id required" }, 400);
+    if (b.label !== undefined) {
+      const label = String(b.label || "").trim().slice(0, 40);
+      const v = (!label || label === "-" || label === "clear") ? "" : label;
+      await env.DB.prepare("UPDATE free_servers SET label = ?2 WHERE id = ?1").bind(id, v).run();
+    }
+    if (b.enabled !== undefined) {
+      await env.DB.prepare("UPDATE free_servers SET enabled = ?2 WHERE id = ?1").bind(id, b.enabled ? 1 : 0).run();
+    }
+    await ghSync(env, "freeservers.json", await fsSnapshot(env));
+    return J({ ok: true });
+  }
+
+  if (path === "/admin/servers/delete" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    if (b.all) {
+      await env.DB.prepare("DELETE FROM free_servers").run();
+    } else {
+      const id = parseInt(b.id, 10);
+      if (!id) return J({ ok: false, error: "id required" }, 400);
+      await env.DB.prepare("DELETE FROM free_servers WHERE id = ?1").bind(id).run();
+    }
+    await ghSync(env, "freeservers.json", await fsSnapshot(env));
+    return J({ ok: true, total: await countFs(env) });
+  }
+
+  if (path === "/admin/notifications" && request.method === "GET") {
+    const rs = await env.DB.prepare(
+      "SELECT id, title, body, created_at FROM notifications ORDER BY id DESC LIMIT 50"
+    ).all();
+    return J({ ok: true, list: rs.results || [] });
+  }
+
+  if (path === "/admin/notifications" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const title = String(b.title || "").trim().slice(0, 80);
+    const body = String(b.body || "").trim().slice(0, 400);
+    if (!title) return J({ ok: false, error: "title required" }, 400);
+    const r = await env.DB.prepare(
+      "INSERT INTO notifications (title, body, created_at) VALUES (?1,?2,?3)"
+    ).bind(title, body, Date.now()).run();
+    await ghSync(env, "notifications.json", await notifSnapshot(env));
+    return J({ ok: true, id: (r && r.meta && r.meta.last_row_id) || null });
+  }
+
+  if (path === "/admin/users" && request.method === "GET") {
+    const rs = await env.DB.prepare(
+      "SELECT u.did, u.model, u.android, u.ver, u.lang, u.country, u.ip, u.opens, u.first_seen, u.last_seen, " +
+      "COALESCE((SELECT SUM(t.up + t.down) FROM traffic t WHERE t.did = u.did), 0) AS bytes " +
+      "FROM users u ORDER BY u.last_seen DESC LIMIT 100"
+    ).all();
+    return J({ ok: true, users: rs.results || [] });
+  }
+
+  if (path === "/admin/syncsnap" && request.method === "POST") {
+    const st = await stateSnapshot(env);
+    const fs = await fsSnapshot(env);
+    const nt = await notifSnapshot(env);
+    await ghSync(env, "state.json", st);
+    await ghSync(env, "freeservers.json", fs);
+    await ghSync(env, "notifications.json", nt);
+    return J({ ok: true, servers: (fs.servers || []).length, notifs: (nt.list || []).length, gate: st.gate });
+  }
+
+  return J({ ok: false, error: "not found" }, 404);
+}
 
 // ============================================================ app API
 
@@ -489,11 +667,10 @@ async function sendStats(chatId, env) {
 }
 
 /**
- * آمار نصب از گیت‌هاب — تعداد دانلودهای APK از Releases گیت‌هاب:
- * کل نصب‌ها + نصب هر نسخه (asset نسخه‌دار هر Release) + دانلودهای لینک Latest.
+ * جمع‌آوری آمار دانلود از گیت‌هاب — هم برای ربات (/ghstats) هم برای پنل ادمین.
  * توکن/ریپو از D1 settings (gh_token / gh_repo) — بدون توکن هم کار می‌کند.
  */
-async function sendGhStats(chatId, env) {
+async function ghReleaseStats(env) {
   let repo = env.GH_REPO || (await getSetting(env, "gh_repo")) || DEFAULT_REPO;
   repo = String(repo).replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
   const token = env.GH_TOKEN || (await getSetting(env, "gh_token"));
@@ -507,10 +684,7 @@ async function sendGhStats(chatId, env) {
       if (Array.isArray(j)) rels = j;
     }
   } catch (e) {}
-  if (!rels) {
-    await tgSend(env, chatId, "⚠️ گرفتن آمار از گیت‌هاب ممکن نشد — چند لحظه بعد دوباره امتحان کن.", mainMenu());
-    return;
-  }
+  if (!rels) return { ok: false, repo };
   const rows = [];
   let total = 0, latestDl = 0;
   for (const r of rels) {
@@ -524,6 +698,19 @@ async function sendGhStats(chatId, env) {
     latestDl += latDl;
     rows.push({ tag: String(r.tag_name || r.name || "?"), ver: verDl, lat: latDl, date: String(r.published_at || "").slice(0, 10) });
   }
+  return { ok: true, repo, total, latest: latestDl, rows };
+}
+
+/** آمار نصب از گیت‌هاب برای ربات */
+async function sendGhStats(chatId, env) {
+  const s = await ghReleaseStats(env);
+  if (!s.ok) {
+    await tgSend(env, chatId, "⚠️ گرفتن آمار از گیت‌هاب ممکن نشد — چند لحظه بعد دوباره امتحان کن.", mainMenu());
+    return;
+  }
+  const rows = s.rows;
+  const total = s.total;
+  const latestDl = s.latest;
   let out = "📥 <b>آمار نصب از گیت‌هاب</b>\n\n" +
     "📦 کل دانلودهای APK: <b>" + total + "</b>\n" +
     "🔗 دانلود از لینک Latest: " + latestDl + "\n";
@@ -702,16 +889,20 @@ async function insertFs(env, raw, proto, name, label) {
   return name;
 }
 
-async function addFreeServers(text, chatId, env) {
-  let added = 0, dup = 0, bad = 0, names = "";
-  const show = (n, lb) => { if (names.length < 400) names += "\n• " + (lb ? lb + " | " : "") + n; };
+/**
+ * هسته‌ی افزودن سرورهای رایگان — هم ربات هم پنل ادمین استفاده می‌کنند.
+ * خروجی: { added, dup, bad, names[] } — ارسال پیام/همگام‌سازی با فراخوان است.
+ */
+async function addServersCore(text, env) {
+  let added = 0, dup = 0, bad = 0;
+  const names = [];
 
   // ۱) فایل کامل وایرگارد ([Interface] … [Peer]) — کل پیام یک کانفیگ است
   if (/\[interface\]/i.test(text) && /\[peer\]/i.test(text)) {
     const man = wgConfToManual(text);
     if (man) {
       const n = await insertFs(env, JSON.stringify(man), "wireguard", man.wgName, "");
-      if (n === null) dup++; else { added++; show(n, ""); }
+      if (n === null) dup++; else { added++; names.push(String(man.wgName || "WireGuard")); }
     } else bad++;
   } else {
     // ۲) خط‌به‌خط: «پیشوند | کانفیگ» یا فقط کانفیگ (چند کانفیگ در یک خط هم قبول است)
@@ -734,16 +925,23 @@ async function addFreeServers(text, chatId, env) {
         const raw = t.slice(0, 1200);
         const name = extractRemark(raw, p);
         const n = await insertFs(env, raw, p, name, label);
-        if (n === null) dup++; else { added++; show(n, label); }
+        if (n === null) dup++; else { added++; names.push((label ? label + " | " : "") + n); }
       }
     }
   }
+  return { added, dup, bad, names };
+}
+
+async function addFreeServers(text, chatId, env) {
+  const res = await addServersCore(text, env);
+  if (res.added) await ghSync(env, "freeservers.json", await fsSnapshot(env));
   const total = await countFs(env);
-  if (added) await ghSync(env, "freeservers.json", await fsSnapshot(env));
+  let names = "";
+  for (const n of res.names) { if (names.length < 400) names += "\n• " + n; }
   await tgSend(env, chatId,
-    "✅ " + added + " سرور اضافه شد" +
-    (dup ? "\n♻️ " + dup + " تکرار رد شد" : "") +
-    (bad ? "\n❌ " + bad + " نامعتبر بود" : "") +
+    "✅ " + res.added + " سرور اضافه شد" +
+    (res.dup ? "\n♻️ " + res.dup + " تکرار رد شد" : "") +
+    (res.bad ? "\n❌ " + res.bad + " نامعتبر بود" : "") +
     (names ? "\n" + names : "") +
     "\n\n🖥 مجموع سرورهای رایگان فعال: <b>" + total + "</b>\nلیست داخل برنامه‌ی همه‌ی کاربران هر ۱ دقیقه خودکار به‌روزرسانی می‌شود — بدون نیاز به دکمه و بدون امکان ویرایش/حذف از سمت آن‌ها.", fsMenuKb());
 }

@@ -50,6 +50,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         @Volatile var stateListener: ((String, String) -> Unit)? = null
         @Volatile var statsListener: ((Long, Long, Long, Long) -> Unit)? = null
         @Volatile var netListener: ((Boolean, Int, String) -> Unit)? = null // ok, ms, پیام
+        /** کاشی Quick Settings — با هر تغییر وضعیت، آیکون کاشی تازه می‌شود */
+        @Volatile var tileListener: ((String) -> Unit)? = null
 
         // ---- وضعیت فعلی برای بازگردانی UI (وقتی اکتیویتی دوباره باز می‌شود) ----
         @Volatile var uiState: String = "stopped"   // stopped | connecting | connected
@@ -151,6 +153,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
         startForeground(NOTIF_ID, notif("در حال اتصال...", "راه‌اندازی هسته..."))
         uiState = "connecting"
+        tileListener?.invoke("connecting")
         netState = 0; netMsg = ""; netMs = -1
         lastPayload = config
         clearCoreLogs()
@@ -187,6 +190,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 verified = false
                 uiState = "connected"
                 connectedAtMs = System.currentTimeMillis()
+                tileListener?.invoke("connected")
                 startForeground(NOTIF_ID, notif("متصل است", "در حال تست اینترنت..."))
                 stateListener?.invoke("connected", "")
                 if (autoNetTest) startNetTestLoop(gen)
@@ -308,10 +312,19 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         else -> null
     }
 
+    /** کاربر برنامه را از Recents کشید → اعلان دوستانه در شید می‌ماند */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            Notifier.showAppClosed(applicationContext, uiState == "connected" || uiState == "connecting")
+        } catch (_: Throwable) {}
+    }
+
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
         uiState = "stopped"
         connectedAtMs = 0
+        tileListener?.invoke("stopped")
         // آمار لحظه‌ای و مجموع جلسه صفر می‌شود — طبق درخواست: با خاموش‌کردن پاور، همه‌چیز صفر
         snapDn = 0; snapUp = 0; snapTDn = 0; snapTUp = 0
         lastRx = -1L; lastTx = -1L; totalRx = 0L; totalTx = 0L
