@@ -107,11 +107,12 @@ jobs:
           SRC=app/build/outputs/apk/debug/app-debug.apk
           NAME="Vex-Client-${TAG}.apk"
           cp "$SRC" "$NAME"
+          cp "$SRC" "Vex-Client-latest.apk"
           SHA=$(sha256sum "$NAME" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$NAME")
           MB=$(( (SIZE + 1048575) / 1048576 ))
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" "$NAME" \
+          gh release create "$TAG" "$NAME" "Vex-Client-latest.apk" \
             --title "VEX CLIENT $TAG" \
             --notes "دانلود مستقیم APK — هسته‌ی واقعی sing-box v1.11.15 ✅ امضای verified
           ➖➖➖➖➖➖➖➖➖➖➖➖➖➖
@@ -120,7 +121,29 @@ jobs:
           2. اگر نسخه‌ی قبلی Vex روی گوشی است، اول آن را **حذف کن** بعد نصب کن
           3. حجم فایل دانلودی باید دقیقاً **${SIZE} بایت (≈ ${MB} مگابایت)** باشد — اگر کمتر بود، دانلود ناقص است؛ دوباره دانلود کن (این مهم‌ترین دلیل خطای «بسته معتبر نیست» است)
           4. اجازه‌ی «نصب برنامه‌های ناشناس» را به مرورگر/فایل‌منیجر بده
+          5. اگر دانلود از گیت‌هاب ناقص شد، لینک جایگزین (کلادفلر): **https://vex-gate.pages.dev/apk**
 
           **SHA-256 (برای اطمینان):** ${SHA}
 
           پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
+
+      - name: Refresh APK mirror on Cloudflare Pages (vex-gate /apk)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TAG="v${{ steps.ver.outputs.v }}"
+          SRC=app/build/outputs/apk/debug/app-debug.apk
+          NAME="Vex-Client-${TAG}.apk"
+          rm -rf /tmp/vex-cf
+          mkdir -p /tmp/vex-cf/parts
+          cp cloudflare/_worker.js /tmp/vex-cf/_worker.js
+          cp "$SRC" /tmp/vex-cf/parts/vex.apk
+          cd /tmp/vex-cf/parts
+          split -b 20m -d vex.apk vex.part-
+          SIZE=$(stat -c%s vex.apk)
+          PARTS=$(ls vex.part-* | wc -l)
+          rm vex.apk
+          printf '{"name":"%s","size":%s,"parts":%s}' "$NAME" "$SIZE" "$PARTS" > manifest.json
+          cd /tmp
+          npx --yes wrangler@3 pages deploy /tmp/vex-cf --project-name vex-gate --branch main --commit-dirty=true

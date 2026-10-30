@@ -9,6 +9,8 @@
  *   POST /v1/ack             → device ack lock/unlock → owner notified
  *   POST /v1/traffic         → traffic delta report {did, type: free|private, up, down}
  *   GET  /v1/freeservers     → free servers managed from the bot → {"ok":true,"servers":[...]}
+ *   GET  /apk                → public APK download mirror (streams latest GitHub release asset;
+ *                               reliable in Iran where GitHub download links get truncated)
  *   GET  /                   → health
  *
  * /v1/* endpoints require header  X-Vex-Key: <APP_KEY>
@@ -33,7 +35,42 @@ export default {
     const path = url.pathname;
 
     if (request.method === "GET" && (path === "/" || path === "")) {
-      return json({ ok: true, service: "vex-gate", v: 2, time: new Date().toISOString() });
+      return json({ ok: true, service: "vex-gate", v: 3, time: new Date().toISOString() });
+    }
+
+    // ---------------- Public APK download mirror ----------------
+    // GitHub blocks release downloads from Cloudflare egress IPs (404/403), so the
+    // APK is stored here as static asset parts (<25MiB each) + manifest.json, and
+    // this route reassembles and streams it. CI refreshes the parts on every release.
+    if (path === "/apk" && request.method === "GET") {
+      try {
+        const mfRes = await env.ASSETS.fetch(new URL("/parts/manifest.json", request.url));
+        if (!mfRes.ok) return json({ ok: false, error: "mirror not ready" }, 503);
+        const mf = await mfRes.json();
+        const bufs = [];
+        let total = 0;
+        for (let i = 0; i < mf.parts; i++) {
+          const n = String(i).padStart(2, "0");
+          const r = await env.ASSETS.fetch(new URL(`/parts/vex.part-${n}`, request.url));
+          if (!r.ok) return json({ ok: false, error: "mirror part missing", part: i }, 503);
+          const b = await r.arrayBuffer();
+          bufs.push(b);
+          total += b.byteLength;
+        }
+        const body = new Uint8Array(total);
+        let o = 0;
+        for (const b of bufs) { body.set(new Uint8Array(b), o); o += b.byteLength; }
+        return new Response(body, {
+          headers: {
+            "Content-Type": "application/vnd.android.package-archive",
+            "Content-Disposition": `attachment; filename="${mf.name}"`,
+            "Content-Length": String(total),
+            "Cache-Control": "public, max-age=120",
+          },
+        });
+      } catch (e) {
+        return json({ ok: false, error: "mirror error: " + (e && e.message) }, 502);
+      }
     }
 
     // ---------------- Telegram webhook ----------------
