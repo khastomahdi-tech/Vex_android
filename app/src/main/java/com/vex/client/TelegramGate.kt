@@ -36,8 +36,9 @@ object TelegramGate {
     /**
      * کانال پشتیبان گیت‌هاب — چون pages.dev در ایران فیلتر است، کاربرِ بدون فیلترشکن
      * به دروازه‌ی مستقیم نمی‌رسد و سرورهای رایگان/اعلان‌ها/وضعیت قفل هیچ‌کدام نمی‌آیند.
-     * سرور با هر تغییر در ربات، اسنپ‌شات JSON را در ریپو می‌نویسد (gate/*.json) و اینجا
-     * وقتی مستقیم نشد از raw.githubusercontent.com (و بعد api.github.com) می‌خوانیم —
+     * سرور با هر تغییر در ربات، اسنپ‌شات JSON را در پوشه‌ی gate ریپو می‌نویسد
+     * (state، freeservers، notifications) و اینجا وقتی مستقیم نشد از
+     * raw.githubusercontent.com (و بعد api.github.com) می‌خوانیم —
      * گیت‌هاب از ایران در دسترس است.
      */
     private const val GH_RAW = "https://raw.githubusercontent.com/khastomahdi-tech/Vex_android/main/gate"
