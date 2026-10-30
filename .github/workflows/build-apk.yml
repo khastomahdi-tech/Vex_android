@@ -71,6 +71,29 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon
 
+      - name: Verify APK (signature + integrity) — fail build if invalid
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          echo "build-tools: $BT"
+          "$BT/apksigner" verify --print-certs "$APK"
+          "$BT/apksigner" verify --verbose "$APK"
+          python3 - <<'PY'
+          import zipfile, struct, sys
+          p = 'app/build/outputs/apk/debug/app-debug.apk'
+          z = zipfile.ZipFile(p)
+          assert z.testzip() is None, 'zip corrupt'
+          assert 'AndroidManifest.xml' in z.namelist(), 'no manifest'
+          assert any(n.endswith('.dex') for n in z.namelist()), 'no dex'
+          arsc = z.getinfo('resources.arsc')
+          assert arsc.compress_type == 0, 'resources.arsc must be STORED'
+          data = open(p,'rb').read()
+          eocd = data.rfind(b'PK\x05\x06')
+          cd = struct.unpack('<I', data[eocd+16:eocd+20])[0]
+          assert data[cd-16:cd] == b'APK Sig Block 42', 'no v2 signing block'
+          print('APK structure OK:', len(z.namelist()), 'entries')
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: vex-client-apk
@@ -81,11 +104,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.ver.outputs.v }}"
+          SRC=app/build/outputs/apk/debug/app-debug.apk
+          NAME="Vex-Client-${TAG}.apk"
+          cp "$SRC" "$NAME"
+          SHA=$(sha256sum "$NAME" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "$NAME")
+          MB=$(( (SIZE + 1048575) / 1048576 ))
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" app/build/outputs/apk/debug/app-debug.apk \
+          gh release create "$TAG" "$NAME" \
             --title "VEX CLIENT $TAG" \
-            --notes "دانلود مستقیم APK — نسخه‌ی نیتیو (بدون HTML) با هسته‌ی واقعی sing-box v1.11.15
+            --notes "دانلود مستقیم APK — هسته‌ی واقعی sing-box v1.11.15 ✅ امضای verified
+> ➖➖➖➖➖➖➖➖➖➖➖➖➖
+**راهنمای نصب (مهم):**
+1. فقط همین فایل **${NAME}** را از پایین همین صفحه دانلود کن (فایل ZIP اکشن‌های گیت‌هاب را نصب نکن)
+2. اگر نسخه‌ی قبلی Vex روی گوشی است، اول آن را **حذف کن** بعد نصب کن
+3. حجم فایل دانلودی باید دقیقاً **${SIZE} بایت (≈ ${MB} مگابایت)** باشد — اگر کمتر بود، دانلود ناقص است؛ دوباره دانلود کن (این مهم‌ترین دلیل خطای «بسته معتبر نیست» است)
+4. اجازه‌ی «نصب برنامه‌های ناشناس» را به مرورگر/فایل‌منیجر بده
 
-            نصب: فایل app-debug.apk را دانلود و نصب کنید (اجازه‌ی نصب از منابع ناشناس لازم است).
+**SHA-256 (برای اطمینان):** ${SHA}
 
-            پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
+پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
