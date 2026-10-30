@@ -101,7 +101,7 @@ class QrScanActivity : ComponentActivity() {
             text = "QR کد را داخل قاب نگه دار"
             setTextColor(Color.WHITE)
             textSize = 15f
-            typeface = Fonts.bold(this)
+            typeface = Fonts.bold(this@QrScanActivity)
             gravity = Gravity.CENTER
             setPadding(dp(16), dp(10), dp(16), dp(10))
             background = GradientDrawable().apply {
@@ -187,7 +187,7 @@ class QrScanActivity : ComponentActivity() {
     private fun chipButton(label: String): Button = Button(this).apply {
         text = label
         textSize = 14f
-        typeface = Fonts.bold(this)
+        typeface = Fonts.bold(this@QrScanActivity)
         setTextColor(Color.WHITE)
         setAllCaps(false)
         setPadding(dp(20), dp(8), dp(20), dp(8))
