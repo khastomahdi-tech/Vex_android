@@ -234,6 +234,8 @@ class MainActivity : ComponentActivity() {
         if (!::root.isInitialized) {
             store = ServersStore(this)
             dialogs = DialogsHelper(this)
+            // شمارنده‌ی مصرف باید قبل از هر statsListener آماده باشد وگرنه دلتاها می‌افتند
+            TrafficStore.init(this)
 
             root = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -288,8 +290,7 @@ class MainActivity : ComponentActivity() {
             renderAll()
             homeUi.restoreStats()
 
-            // شمارنده‌ی مصرف کل + به‌روزرسانی خودکار سرورهای رایگان
-            TrafficStore.init(this)
+            // به‌روزرسانی خودکار سرورهای رایگان
             scheduleFreeAutoRefresh()
             Thread { refreshFreeServers(silent = true) }.start()
 
@@ -923,9 +924,15 @@ class MainActivity : ComponentActivity() {
 
     /**
      * دریافت سرورهای رایگان از بک‌اند ربات (فقط مدیر از ربات اضافه/حذف می‌کند):
-     * دریافت موازی → پارس → پینگ موازی → فقط سرورهای سالم در لیست می‌نشینند.
-     *  • silent = true → بی‌صدا و بدون پیام؛ برای به‌روزرسانی خودکار هر دقیقه.
-     *  • silent = false → با پیام پیشرفت و toast (دعوت دستی از تنظیمات/اول تب).
+     * دریافت → پارس → پینگ برای مرتب‌سازی → جایگزینی کامل لیست.
+     *
+     * v3.15:
+     *  • شبکه نبود (null) → لیست فعلی دست‌نخورده می‌ماند (هیچ‌وقت پاک نمی‌شود)؛
+     *  • سرورِ اتصال‌فعلی حذف شده باشد → اتصال فوراً قطع می‌شود؛
+     *  • پینگ نشدن یک سرور دیگر آن را از لیست حذف نمی‌کند (ته لیست می‌نشیند).
+     *
+     *  silent = true → بی‌صدا و بدون پیام؛ برای به‌روزرسانی خودکار هر دقیقه.
+     *  silent = false → با پیام پیشرفت و toast.
      */
     fun refreshFreeServers(silent: Boolean = false) {
         if (FreeServers.fetching) { if (!silent) UI.toast(this, "دریافت سرورهای رایگان در حال اجراست"); return }
@@ -937,30 +944,42 @@ class MainActivity : ComponentActivity() {
             if (serversUi.tab == 1) serversUi.render()
         }
         Thread {
-            val dtos = TelegramGate.fetchFreeServers()
+            val dtos = TelegramGate.fetchFreeServers() // null = شبکه/سرور در دسترس نبود
             var alive: List<Server> = emptyList()
-            if (dtos.isEmpty()) {
-                if (!silent) main.post {
-                    serversUi.freeProgressMsg = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است"
-                    if (serversUi.tab == 1) serversUi.render()
-                }
-            } else {
-                alive = FreeServers.aliveFromBot(dtos) { msg ->
+            val fetchOk = dtos != null
+            val list = dtos ?: emptyList()
+            if (list.isNotEmpty()) {
+                alive = FreeServers.fromBot(list) { msg ->
                     if (!silent) main.post {
                         serversUi.freeProgressMsg = msg
                         if (serversUi.tab == 1) serversUi.render()
                     }
                 }
+            } else if (dtos != null && !silent) {
+                main.post {
+                    serversUi.freeProgressMsg = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است"
+                    if (serversUi.tab == 1) serversUi.render()
+                }
             }
             freeFetching = false
             main.post {
-                store.replaceFreeServers(alive)
-                if (!silent) {
-                    UI.toast(this, if (alive.isEmpty()) "سرور رایگان فعالی پیدا نشد" else "${alive.size} سرور رایگان آماده شد")
-                    serversUi.render()
-                } else if (serversUi.tab == 1) {
-                    serversUi.render()
+                if (fetchOk) {
+                    store.replaceFreeServers(alive)
+                    // اگر به سرور رایگانی وصل بودیم که از پنل حذف شده → قطع فوری اتصال
+                    if (connectionState == "connected" && sessionIsFree) {
+                        val cur = store.selected()
+                        if (cur != null && alive.none { it.raw == cur.raw }) {
+                            UI.toast(this, "این سرور رایگان حذف شد — اتصال قطع شد")
+                            requestStop()
+                        }
+                    }
+                    if (!silent) {
+                        UI.toast(this, if (alive.isEmpty()) "سرور رایگانی ثبت نشده است" else "${alive.size} سرور رایگان آماده شد")
+                    }
+                } else if (!silent) {
+                    UI.toast(this, "دسترسی به سرور مدیریت نبود — لیست فعلی حفظ شد")
                 }
+                if (!silent || serversUi.tab == 1) serversUi.render()
                 homeUi.renderServerCard()
                 applyKeepScreenOn()
             }

@@ -9,8 +9,13 @@ import android.content.SharedPreferences
  *
  *  • هر ثانیه با آمار سرویس تغذیه می‌شود (دلتای جلسه محاسبه می‌شود، نه شمارش دوباره)؛
  *  • روی SharedPreferences می‌ماند و بعد از بستن برنامه هم ادامه پیدا می‌کند؛
- *  • دلتاها به‌صورت دوره‌ای به بک‌اند ربات هم گزارش می‌شوند تا مدیر از تلگرام
- *    مصرف کل کاربران (رایگان / شخصی) را ببیند.
+ *  • دوره‌ای به بک‌اند ربات گزارش می‌شود تا مدیر از تلگرام مصرف کل کاربران
+ *    (رایگان / شخصی) را ببیند.
+ *
+ *  v3.15 — ارسال ضدخطا (واترمارک): به‌جای صف حافظه، «مصرف کل» و «مصرف گزارش‌شده»
+ *  هر دو روی دیسک می‌مانند؛ هر flush فقط تفاوت این دو را می‌فرستد و واترمارک فقط
+ *  بعد از پاسخ موفق جلو می‌رود. بنابراین قطع شبکه، بستن اپ یا کشته‌شدن پروسه
+ *  هیچ دلتایی را از دست نمی‌دهد — دفعه‌ی بعد همان مبلغ دوباره می‌رود.
  */
 object TrafficStore {
 
@@ -19,12 +24,6 @@ object TrafficStore {
     /** خط‌کش جلسه: آخرین مجموع دانلود/آپلود دیده‌شده از سرویس */
     @Volatile private var lastDn = 0L
     @Volatile private var lastUp = 0L
-
-    /** دلتای هنوز گزارش‌نشده به بک‌اند */
-    @Volatile private var pendFreeUp = 0L
-    @Volatile private var pendFreeDn = 0L
-    @Volatile private var pendPrivUp = 0L
-    @Volatile private var pendPrivDn = 0L
 
     fun init(ctx: Context) {
         if (::prefs.isInitialized) return
@@ -52,8 +51,6 @@ object TrafficStore {
             if (dDn <= 0 && dUp <= 0) return
             val key = if (isFree) "free" else "priv"
             prefs.edit().putLong(key, prefs.getLong(key, 0L) + dDn + dUp).apply()
-            if (isFree) { pendFreeUp += dUp; pendFreeDn += dDn }
-            else { pendPrivUp += dUp; pendPrivDn += dDn }
         }
     }
 
@@ -66,25 +63,35 @@ object TrafficStore {
     fun resetAll() {
         synchronized(this) {
             if (::prefs.isInitialized) prefs.edit().clear().apply()
-            pendFreeUp = 0; pendFreeDn = 0; pendPrivUp = 0; pendPrivDn = 0
             lastDn = 0; lastUp = 0
         }
     }
 
     /**
-     * ارسال دلتاهای جمع‌شده به بک‌اند ربات — در Thread جدا، بهترین تلاش.
-     * اگر شبکه نبود، دلتاها برای دفعه‌ی بعد می‌مانند (از دست نمی‌روند).
+     * ارسال مصرف جمع‌نشده به بک‌اند ربات — در Thread جدا، بهترین تلاش.
+     * دلتا = مصرف کل − مصرف گزارش‌شده؛ واترمارک فقط با پاسخ موفق جلو می‌رود،
+     * پس هیچ مصرفی دوباره شمرده نمی‌شود و هیچ مصرفی گم نمی‌شود.
      */
     fun flushAsync(ctx: Context) {
+        if (!::prefs.isInitialized) return
         Thread {
-            val fUp: Long; val fDn: Long; val pUp: Long; val pDn: Long
-            synchronized(this) {
-                fUp = pendFreeUp; fDn = pendFreeDn; pUp = pendPrivUp; pDn = pendPrivDn
-                pendFreeUp = 0; pendFreeDn = 0; pendPrivUp = 0; pendPrivDn = 0
-            }
-            if (fUp == 0L && fDn == 0L && pUp == 0L && pDn == 0L) return@Thread
             try {
-                TelegramGate.reportTraffic(TelegramGate.deviceId(ctx), fUp, fDn, pUp, pDn)
+                val f = prefs.getLong("free", 0L)
+                val p = prefs.getLong("priv", 0L)
+                val rf = prefs.getLong("rep_free", 0L)
+                val rp = prefs.getLong("rep_priv", 0L)
+                val fDelta = (f - rf).coerceAtLeast(0)
+                val pDelta = (p - rp).coerceAtLeast(0)
+                if (fDelta == 0L && pDelta == 0L) return@Thread
+                val did = TelegramGate.deviceId(ctx)
+                val okF = if (fDelta > 0) TelegramGate.reportTrafficType(did, "free", fDelta) else true
+                val okP = if (pDelta > 0) TelegramGate.reportTrafficType(did, "private", pDelta) else true
+                if (okF || okP) {
+                    prefs.edit()
+                        .putLong("rep_free", if (okF) f else rf)
+                        .putLong("rep_priv", if (okP) p else rp)
+                        .apply()
+                }
             } catch (_: Throwable) {}
         }.start()
     }

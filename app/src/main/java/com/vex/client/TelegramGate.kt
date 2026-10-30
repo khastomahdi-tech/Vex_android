@@ -127,24 +127,18 @@ object TelegramGate {
     }
 
     /**
-     * گزارش دلتای مصرف ترافیک به بک‌اند ربات (D1) — تفکیک سرور رایگان / شخصی.
-     * ربات مدیر مجموع مصرف همه‌ی کاربران را همین‌جا می‌بیند. بهترین تلاش؛ بی‌صدا.
+     * گزارش مصرف به بک‌اند ربات (D1) — یک دسته در هر درخواست.
+     * خروجی true فقط وقتی پاسخ موفق بود (برای واترمارک TrafficStore).
      */
-    fun reportTraffic(did: String, freeUp: Long, freeDn: Long, privUp: Long, privDn: Long) {
-        try {
-            if (freeUp > 0 || freeDn > 0) {
-                post("/v1/traffic", JSONObject().apply {
-                    put("did", did); put("type", "free")
-                    put("up", freeUp); put("down", freeDn)
-                })
-            }
-            if (privUp > 0 || privDn > 0) {
-                post("/v1/traffic", JSONObject().apply {
-                    put("did", did); put("type", "private")
-                    put("up", privUp); put("down", privDn)
-                })
-            }
-        } catch (_: Throwable) {}
+    fun reportTrafficType(did: String, type: String, bytes: Long): Boolean {
+        return try {
+            if (bytes <= 0) return true
+            val res = post("/v1/traffic", JSONObject().apply {
+                put("did", did); put("type", type)
+                put("up", 0); put("down", bytes)
+            })
+            res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
+        } catch (_: Throwable) { false }
     }
 
     // ------------------------------------------------ سرورهای رایگان ربات
@@ -152,9 +146,12 @@ object TelegramGate {
     /**
      * دریافت سرورهای رایگان از بک‌اند ربات (D1) — فقط مدیر از طریق ربات
      * می‌تواند سرور اضافه یا حذف کند؛ اینجا فقط فهرستِ فقط‌خواندنی می‌آید.
+     *
+     *  خروجی null → شبکه/سرور در دسترس نبود (لیست فعلی نباید پاک شود!)
+     *  خروجی خالی → سرور در دسترس بود ولی واقعاً هیچ سروری ثبت نشده
      */
-    fun fetchFreeServers(): List<FreeServerDto> {
-        val body = get("/v1/freeservers") ?: return emptyList()
+    fun fetchFreeServers(): List<FreeServerDto>? {
+        val body = get("/v1/freeservers") ?: return null
         return try {
             val o = JSONObject(body)
             if (!o.optBoolean("ok")) return emptyList()
@@ -173,7 +170,7 @@ object TelegramGate {
             }
             out
         } catch (_: Throwable) {
-            emptyList()
+            null
         }
     }
 

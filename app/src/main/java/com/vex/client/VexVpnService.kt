@@ -9,6 +9,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -177,7 +179,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 lastRx = -1L; lastTx = -1L; totalRx = 0; totalTx = 0; statSource = 0
                 verified = false
                 startStatsTimer()
-                startTrafficApi(gen) // آمار واقعی از Clash API هسته (مانند v2rayNG)
+                startTrafficApi(gen)
+                startFreeWatch(gen) // flush ترافیک + حذف سرور رایگان → قطع (مستقل از UI)
 
                 // ---- اتصال اعلام می‌شود (مانند v2rayNG)؛ تست اینترنت در پس‌زمینه ----
                 synchronized(stateLock) { if (gen != generation) return@thread }
@@ -315,6 +318,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         timer?.cancel(); timer = null
         testThread?.interrupt(); testThread = null
         trafficThread?.interrupt(); trafficThread = null
+        freeWatchThread?.interrupt(); freeWatchThread = null
+        // آخرین دلتای جلسه به بک‌اند ربات می‌رود — حتی اگر UI اصلاً باز نبوده باشد
+        try { TrafficStore.init(applicationContext) } catch (_: Throwable) {}
+        try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
         try { tun?.close() } catch (_: Exception) {}
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
@@ -330,6 +337,61 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             stateListener?.invoke("error", msg)
         }
         else stateListener?.invoke("stopped", "")
+    }
+
+    // ------------------------------------------------------------------ پایش اتصال
+
+    private var freeWatchThread: Thread? = null
+
+    /**
+     * پایش دوره‌ای حین اتصال (هر ۶۰ ثانیه) — مستقل از UI کار می‌کند، پس حتی وقتی
+     * اپ بسته یا از Recents حذف شده است هم فعال است:
+     *  ۱) دلتاهای مصرف به بک‌اند ربات گزارش می‌شود (ریشه‌ی «صفر کیلوبایت» در ربات)؛
+     *  ۲) اگر سرور رایگانی که به آن وصلیم از پنل ربات حذف شده باشد → اتصال فوراً قطع می‌شود.
+     */
+    private fun startFreeWatch(gen: Int) {
+        freeWatchThread?.interrupt()
+        freeWatchThread = thread(name = "vex-freewatch") {
+            while (true) {
+                // ۶۰ ثانیه انتظار — در قطعه‌های ۱ ثانیه‌ای تا قطع فوری در stopVpn
+                for (i in 0 until 60) {
+                    synchronized(stateLock) { if (gen != generation) return@thread }
+                    try { Thread.sleep(1000) } catch (_: InterruptedException) { return@thread }
+                }
+                synchronized(stateLock) { if (gen != generation) return@thread }
+                // ۱) گزارش دوره‌ای مصرف (واترمارک — فقط تازه‌ها می‌روند)
+                try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
+                // ۲) حذف سرور رایگان → قطع خودکار
+                try {
+                    val raw = lastPayload?.let {
+                        try { org.json.JSONObject(it).optString("raw", "") } catch (_: Throwable) { "" }
+                    } ?: ""
+                    if (raw.isNotEmpty()) {
+                        val st = ServersStore(applicationContext)
+                        val sel = st.selected()
+                        if (sel != null && st.isFree(sel)) {
+                            val dtos = TelegramGate.fetchFreeServers() // null = شبکه نبود → کاری نکن
+                            if (dtos != null && dtos.none { it.raw == raw }) {
+                                synchronized(stateLock) { if (gen != generation) return@thread }
+                                try {
+                                    Handler(Looper.getMainLooper()).post {
+                                        try {
+                                            android.widget.Toast.makeText(
+                                                applicationContext,
+                                                "این سرور رایگان حذف شد — اتصال قطع شد",
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        } catch (_: Throwable) {}
+                                    }
+                                } catch (_: Throwable) {}
+                                stopVpn()
+                                break
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
     }
 
     // ------------------------------------------------------------------ آمار
