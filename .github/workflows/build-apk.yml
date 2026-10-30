@@ -53,6 +53,8 @@ jobs:
           # (شاخه‌ی else)، برای همین مسیر سایفون با "go"+"jni" نوشته شده تا دست‌نخورده بماند.
           GMOD="$(go env GOMODCACHE)/github.com/sagernet/gomobile@v0.1.4/bind/java/Seq.java"
           ls -l "$GMOD"
+          # فایل‌های کش ماژول فقط‌خواندنی‌اند — اول اجازه‌ی نوشتن بده
+          chmod u+w "$GMOD"
           python3 - "$GMOD" <<'PY'
           import sys
           p = sys.argv[1]
