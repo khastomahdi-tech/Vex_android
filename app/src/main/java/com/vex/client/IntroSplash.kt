@@ -61,7 +61,7 @@ object IntroSplash {
         val title = TextView(ctx).apply {
             text = "VEX CLIENT"
             textSize = 25f
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
+            typeface = Fonts.bold(ctx)
             setTextColor(0xFFE8B923.toInt())
             letterSpacing = 0.14f
             gravity = Gravity.CENTER

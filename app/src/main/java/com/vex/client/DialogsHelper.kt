@@ -45,6 +45,7 @@ class DialogsHelper(private val act: MainActivity) {
         val e = EditText(ctx)
         e.hint = if (hint.isEmpty()) label else hint
         e.textSize = 14f
+        e.typeface = Fonts.bold(ctx)
         e.setSingleLine(true)
         if (ltr) e.textDirection = View.TEXT_DIRECTION_LTR
         if (number) e.inputType = InputType.TYPE_CLASS_NUMBER
@@ -123,6 +124,7 @@ class DialogsHelper(private val act: MainActivity) {
         val search = EditText(ctx).apply {
             hint = "جستجوی نام برنامه…"
             textSize = 14f
+            typeface = Fonts.bold(ctx)
             setSingleLine(true)
             setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 10))
             background = UI.card(ctx, p, 12, stroke = p.line, fillColor = p.card2)
@@ -559,6 +561,7 @@ class DialogsHelper(private val act: MainActivity) {
         val name = EditText(ctx).apply {
             setText(s.name)
             textSize = 14f
+            typeface = Fonts.bold(ctx)
             setSingleLine(true)
             setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 10))
             background = UI.card(ctx, p, 12, stroke = p.line, fillColor = p.card2)

@@ -361,7 +361,17 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 synchronized(stateLock) { if (gen != generation) return@thread }
                 // ۱) گزارش دوره‌ای مصرف (واترمارک — فقط تازه‌ها می‌روند)
                 try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
-                // ۲) حذف سرور رایگان → قطع خودکار
+                // ۲) اعلان‌های همگانی مدیر — حتی وقتی رابط برنامه بسته است،
+                //    تا اعلان ربات مثل پیام‌رسان‌ها بالای صفحه بیاید
+                try { Notifier.fetchAndShow(applicationContext) } catch (_: Throwable) {}
+                // ۳) اگر مدیر برنامه را بسته باشد → تونل هم فوراً قطع می‌شود
+                try {
+                    if (TelegramGate.gateInfo().gate == TelegramGate.CLOSED) {
+                        stopVpn()
+                        break
+                    }
+                } catch (_: Throwable) {}
+                // ۴) حذف سرور رایگان → قطع خودکار
                 try {
                     val raw = lastPayload?.let {
                         try { org.json.JSONObject(it).optString("raw", "") } catch (_: Throwable) { "" }

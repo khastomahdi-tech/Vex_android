@@ -180,7 +180,7 @@ object UI {
         TextView(context).apply {
             this.text = text
             textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = Fonts.bold(context)
             setTextColor(p.onAccent)
             gravity = Gravity.CENTER
             setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 12))
@@ -202,7 +202,7 @@ object UI {
         TextView(context).apply {
             this.text = text
             textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = Fonts.bold(context)
             setTextColor(p.text)
             gravity = Gravity.CENTER
             setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 12))

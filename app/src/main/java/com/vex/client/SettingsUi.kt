@@ -156,6 +156,7 @@ class SettingsUi(private val act: MainActivity) {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText(act.store.settings.mtu.toString())
             textSize = 14f
+            typeface = Fonts.bold(ctx)
             setSingleLine(true)
             textDirection = View.TEXT_DIRECTION_LTR
             setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))
@@ -172,6 +173,7 @@ class SettingsUi(private val act: MainActivity) {
             inputType = InputType.TYPE_CLASS_TEXT
             setText(act.store.settings.dns)
             textSize = 14f
+            typeface = Fonts.bold(ctx)
             setSingleLine(true)
             textDirection = View.TEXT_DIRECTION_LTR
             setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))

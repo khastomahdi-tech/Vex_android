@@ -120,17 +120,17 @@ class MainActivity : ComponentActivity() {
         if (cfg != null) continueStart(cfg)
     }
 
-    /** اجازه‌ی اعلان‌ها — فقط بار اول ورود (اندروید ۱۳+)؛ بعد از آن ربات می‌تواند اعلان بفرستد */
+    /** اجازه‌ی اعلان‌ها (اندروید ۱۳+) — تا سه بار در ورودهای مختلف پرسیده می‌شود */
     private fun askNotifPermissionOnce() {
         if (Build.VERSION.SDK_INT < 33) return
         try {
-            val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
-            if (prefs.getBoolean("notif_asked", false)) return
-            prefs.edit().putBoolean("notif_asked", true).apply()
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+                == PackageManager.PERMISSION_GRANTED) return
+            val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
+            val n = prefs.getInt("notif_ask_count", 0)
+            if (n >= 3) return
+            prefs.edit().putInt("notif_ask_count", n + 1).apply()
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } catch (_: Throwable) {}
     }
 
@@ -201,9 +201,8 @@ class MainActivity : ComponentActivity() {
                 main.post { if (!isFinishing) setGateUi("no-internet") }
                 return@Thread
             }
-            // اینترنت هست → برنامه بلافاصله باز می‌شود
-            main.post { if (!isFinishing) enterApp() }
-            // بررسی وضعیت ربات (کلادفلر) + ثبت نصب/ورود — پاسخ report هم وضعیت را می‌دهد
+            // اینترنت هست → اول وضعیت ربات (کلادفلر) چک می‌شود؛ اگر مدیر برنامه را
+            // بسته باشد کاربر اصلاً وارد نمی‌شود و همین‌جا پیام انگلیسی می‌بیند.
             val info = TelegramGate.notifyInstall(this) ?: TelegramGate.gateInfo()
             TelegramGate.ackIfChanged(info.gate, this)
             // مصرف جمع‌شده‌ی قبلی (اگر مانده) به بک‌اند ربات گزارش می‌شود
@@ -216,6 +215,8 @@ class MainActivity : ComponentActivity() {
                         setGateUi("closed")
                     }
                 }
+            } else {
+                main.post { if (!isFinishing) enterApp() }
             }
             startGateWatch()
         }.start()
@@ -314,8 +315,11 @@ class MainActivity : ComponentActivity() {
 
             // اعلان‌های تازه‌ی مدیر (اگر هنگام بسته‌بودن برنامه فرستاده شده باشند)
             Thread { Notifier.fetchAndShow(this) }.start()
+            // تیک مستقل اعلان‌ها — حتی اگر «به‌روزرسانی خودکار سرورها» خاموش باشد هم فعال است
+            main.removeCallbacks(notifTick)
+            main.post(notifTick)
 
-            // دسترسی اعلان — فقط بار اول ورود از کاربر پرسیده می‌شود (اندروید ۱۳+)
+            // دسترسی اعلان — بار اول می‌پرسد؛ اگر رد شد دفعه‌های بعدی ورود دوباره می‌پرسد
             askNotifPermissionOnce()
 
             // اتصال خودکار
@@ -345,6 +349,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(notifTick)
         VexVpnService.stateListener = null
         VexVpnService.statsListener = null
         VexVpnService.netListener = null
@@ -396,7 +401,7 @@ class MainActivity : ComponentActivity() {
         vexTv = TextView(ctx).apply {
             text = "Vex"
             textSize = 21f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            typeface = Fonts.bold(ctx)
             includeFontPadding = false
             letterSpacing = 0.02f
         }
@@ -1053,6 +1058,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** حلقه‌ی همگانی اعلان‌های مدیر — مستقل از تنظیم به‌روزرسانی سرورها، هر ۴۵ ثانیه */
+    private val notifTick = object : Runnable {
+        override fun run() {
+            Thread { Notifier.fetchAndShow(this@MainActivity) }.start()
+            main.postDelayed(this, 45_000L)
+        }
+    }
+
     private fun scheduleFreeAutoRefresh() {
         val sec = store.settings.freeRefreshSec
         if (sec <= 0) return // «فقط هنگام باز شدن»
@@ -1164,7 +1177,7 @@ class MainActivity : ComponentActivity() {
         nameRow.addView(TextView(ctx).apply {
             text = "Vex"
             textSize = 24f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            typeface = Fonts.bold(ctx)
             setTextColor(0xFFF5F7FF.toInt())
         })
         nameRow.addView(TextView(ctx).apply {
@@ -1185,7 +1198,7 @@ class MainActivity : ComponentActivity() {
             setPadding(0, UI.dp(ctx, 26), 0, 0)
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
-                "closed" -> { text = "دسترسی برنامه بسته شده است"; setTextColor(p.bad) }
+                "closed" -> { text = "App Access Closed"; setTextColor(p.bad) }
                 "tampered" -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
                 else -> { text = "در حال بررسی اتصال…"; setTextColor(p.text) }
             }
@@ -1200,7 +1213,7 @@ class MainActivity : ComponentActivity() {
             when (state) {
                 "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
-                        ?: "یا برنامه در حال به‌روزرسانی است یا مشکل فنی موقت پیش آمده است.\nلطفاً کمی بعد دوباره تلاش کن؛ خبرها در کانال تلگرام منتشر می‌شود."
+                        ?: "The admin has closed the app for now. Please try again later."
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک vex-gate.pages.dev/apk نصب کن."
                 else -> text = "چند لحظه صبر کن…"
             }
@@ -1222,13 +1235,13 @@ class MainActivity : ComponentActivity() {
         // دکمه‌ها
         val btns = UI.row(ctx).apply { gravity = Gravity.CENTER; setPadding(0, UI.dp(ctx, 26), 0, 0) }
         if (state == "no-internet" || state == "closed") {
-            val retry = UI.softButton(ctx, "تلاش دوباره", p)
+            val retry = UI.softButton(ctx, if (state == "closed") "Try Again" else "تلاش دوباره", p)
             retry.setOnClickListener { runGate() }
             btns.addView(retry, LinearLayout.LayoutParams(
                 UI.dp(ctx, 148), UI.dp(ctx, 46)).apply { marginEnd = UI.dp(ctx, 10) })
         }
         if (state == "closed" || state == "tampered") {
-            val tg = UI.softButton(ctx, "کانال تلگرام", p)
+            val tg = UI.softButton(ctx, if (state == "closed") "Telegram Channel" else "کانال تلگرام", p)
             tg.setOnClickListener { openTelegramChannel() }
             btns.addView(tg, LinearLayout.LayoutParams(
                 UI.dp(ctx, 148), UI.dp(ctx, 46)))

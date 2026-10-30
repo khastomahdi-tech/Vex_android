@@ -79,7 +79,8 @@ class StatsUi(private val act: MainActivity) {
             c.addView(l)
             return c
         }
-        dnSpeed = TextView(ctx); upSpeed = TextView(ctx)
+        dnSpeed = TextView(ctx).apply { typeface = Fonts.bold(ctx) }
+        upSpeed = TextView(ctx).apply { typeface = Fonts.bold(ctx) }
         speedRow.addView(speedCol("دانلود", dnSpeed, "down"),
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         speedRow.addView(speedCol("آپلود", upSpeed, "up"),
@@ -151,7 +152,8 @@ class StatsUi(private val act: MainActivity) {
             c.addView(l)
             return c
         }
-        dnTotal = TextView(ctx); upTotal = TextView(ctx)
+        dnTotal = TextView(ctx).apply { typeface = Fonts.bold(ctx) }
+        upTotal = TextView(ctx).apply { typeface = Fonts.bold(ctx) }
         totalRow.addView(totalCol("دانلود", dnTotal),
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         totalRow.addView(totalCol("آپلود", upTotal),

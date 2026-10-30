@@ -35,6 +35,12 @@ object Notifier {
     fun fetchAndShow(ctx: Context): Int {
         var shown = 0
         try {
+            // اگر کاربر دسترسی اعلان نداده، شناسه‌ی آخرین اعلان جلو نمی‌رود تا
+            // اعلان‌های ارسال‌شده در این فاصله بعد از دادن دسترسی گم نشوند.
+            if (Build.VERSION.SDK_INT >= 24) {
+                val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                if (nm != null && !nm.areNotificationsEnabled()) return 0
+            }
             val since = lastSeenId(ctx)
             val list = TelegramGate.fetchNotifications(since) ?: return 0
             for (n in list) {

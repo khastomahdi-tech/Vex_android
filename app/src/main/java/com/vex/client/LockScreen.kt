@@ -402,7 +402,7 @@ object LockScreen {
         nameRow.addView(TextView(ctx).apply {
             text = "Vex"
             textSize = 21f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            typeface = Fonts.bold(ctx)
             setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
         })
         nameRow.addView(TextView(ctx).apply {
@@ -431,6 +431,7 @@ object LockScreen {
         val stv = TextView(ctx).apply {
             text = subtitle
             textSize = 13f
+            typeface = Fonts.bold(ctx)
             setTextColor(p.muted)
             gravity = Gravity.CENTER
             setPadding(0, UI.dp(ctx, 6), 0, 0)

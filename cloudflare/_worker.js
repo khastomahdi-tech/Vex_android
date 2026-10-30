@@ -29,10 +29,11 @@
  *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
  */
 
-const SERVICE_V = 4;
+const SERVICE_V = 5;
 
-const DEFAULT_CLOSE_REASON =
-  "یا برنامه در حال به‌روزرسانی است یا مشکل فنی موقت پیش آمده است.\nلطفاً کمی بعد دوباره تلاش کن؛ خبرها در کانال تلگرام منتشر می‌شود.";
+const DEFAULT_CLOSE_REASON = "The admin has closed the app for now. Please try again later.";
+const CLOSE_REASON_UPDATE = "We're updating the app. Please try again later.";
+const CLOSE_REASON_TECH = "A technical problem occurred. Please try again later.";
 
 const PROTOCOLS = ["vless", "vmess", "trojan", "ss", "wg", "wireguard"];
 
@@ -335,10 +336,25 @@ async function handleCb(data, chatId, env) {
   } else if (data === "state") {
     await sendState(chatId, env);
   } else if (data === "close") {
-    await doClose(chatId, env, null);
+    await tgSend(env, chatId,
+      "🔒 <b>بستن برنامه</b>\n\n" +
+      "انتخاب کن کاربران موقع ورود چه پیامی ببینند " +
+      "(پیام به‌صورت انگلیسی روی صفحه‌ی کاربر نمایش داده می‌شود):\n\n" +
+      "🛠 <code>" + CLOSE_REASON_UPDATE + "</code>\n" +
+      "⚠️ <code>" + CLOSE_REASON_TECH + "</code>\n" +
+      "🔒 <code>" + DEFAULT_CLOSE_REASON + "</code>",
+      closeKb());
+  } else if (data === "close_u") {
+    await doClose(chatId, env, CLOSE_REASON_UPDATE);
+  } else if (data === "close_t") {
+    await doClose(chatId, env, CLOSE_REASON_TECH);
+  } else if (data === "close_a") {
+    await doClose(chatId, env, DEFAULT_CLOSE_REASON);
   } else if (data === "close_r") {
     await setSetting(env, "pend_" + chatId, "close_reason");
-    await tgSend(env, chatId, "✍️ دلیل بستن برنامه را بفرست (این متن به کاربران نشان داده می‌شود):\n\nبرای لغو /cancel");
+    await tgSend(env, chatId,
+      "✍️ پیام سفارشی را بفرست — دقیقاً همین متن روی صفحه‌ی کاربران (انگلیسی) نشان داده می‌شود:\n\n" +
+      "مثلاً: <code>App access closed. We are updating. Please try again later.</code>\n\nبرای لغو /cancel");
   } else if (data === "open") {
     await setSetting(env, "gate", "open");
     await tgSend(env, chatId, "🔓 برنامه باز شد و برای همه قابل استفاده است.", mainMenu());
@@ -381,6 +397,16 @@ function mainMenu() {
     [{ text: "📢 ارسال اعلان به کاربران", callback_data: "notify" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
     [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }]
+  ]);
+}
+
+function closeKb() {
+  return kb([
+    [{ text: "🛠 Updating the app", callback_data: "close_u" }],
+    [{ text: "⚠️ Technical problem", callback_data: "close_t" }],
+    [{ text: "🔒 Admin closed the app", callback_data: "close_a" }],
+    [{ text: "✍️ پیام سفارشی", callback_data: "close_r" }],
+    [{ text: "⬅️ منوی اصلی", callback_data: "menu" }]
   ]);
 }
 

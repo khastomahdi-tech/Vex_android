@@ -318,12 +318,12 @@ class PowerButtonView(context: Context) : View(context) {
             }
             canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, halo)
             rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
-            canvas.drawArc(rect, -55f, 270f, false, halo)
+            canvas.drawArc(rect, -45f, 270f, false, halo)
         }
         glyph.strokeWidth = dp(6.4f)
         canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, glyph)
         rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
-        canvas.drawArc(rect, -55f, 270f, false, glyph)
+        canvas.drawArc(rect, -45f, 270f, false, glyph)
         // نقطه‌ی درخشان سر خط پاور
         if (mode != "off") {
             fillP.color = UI.alpha(
