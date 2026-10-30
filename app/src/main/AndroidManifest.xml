@@ -49,6 +49,18 @@
                 android:value="vpn" />
         </service>
 
+        <!-- موتور سایفون — پروسه‌ی جدا «:psiphon» تا ران‌تایم‌های بومی gomobile (libbox و libgojni)
+             هرگز در یک پروسه تداخل نکنند؛ ارتباط فقط با فایل پورت SOCKS + loopback مشترک -->
+        <service
+            android:name=".PsiphonService"
+            android:process=":psiphon"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="psiphon-engine" />
+        </service>
+
         <!-- کاشی VPN در کشوی Quick Settings — لمس = اتصال به آخرین سرور -->
         <service
             android:name=".VexTileService"

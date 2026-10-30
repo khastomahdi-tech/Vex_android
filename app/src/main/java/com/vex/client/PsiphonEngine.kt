@@ -1,28 +1,42 @@
 package com.vex.client
 
-import android.content.Context
+import android.app.Notification
+import android.app.PendingIntent
+import android.content.Intent
 import android.util.Log
-import ca.psiphon.PsiphonTunnel
-import org.json.JSONObject
 import java.io.File
 
 /**
- * موتور «اتصال با سایفون» — کتابخانه‌ی رسمی Psiphon (tunnel-core) داخل خود برنامه.
+ * اجراکننده‌ی موتور سایفون — فقط داخل پروسه‌ی جدا «:psiphon».
  *
- * معماری:
- *  • سایفون در حالت «پروکسی محلی» اجرا می‌شود (بدون ساختن VPN مستقل) و یک SOCKS5
- *    روی 127.0.0.1 باز می‌کند — پورت واقعی از کالبک onListeningSocksProxyPort می‌آید.
- *  • بعد از آن هسته‌ی sing-box برنامه (همان تونل VPN همیشگی) با outbound نوع socks
- *    به همین پورت وصل می‌شود؛ یعنی کل ترافیک گوشی: tun → sing-box → سایفون → اینترنت.
- *  • مزیت: هیچ تداخلی با VpnService فعلی نیست و همه‌ی امکانات برنامه (تست اینترنت،
- *    آمار، اعلان، kill-switch) بدون تغییر کار می‌کند.
- *
- *  مقادیر کانفیگ، همان مقادیر استاندارد استفاده‌شده در پروژه‌های متن‌باز معتبر
- *  (Oblivion/Aether) است + لیست سرورهای رسمی سایفون (Remote Server List امضاشده).
+ * چرا پروسه‌ی جدا؟
+ *  هم libbox (هسته‌ی sing-box) و هم کتابخانه‌ی Psiphon با gomobile ساخته شده‌اند و هر دو
+ *  ران‌تایم بومی go.Seq را دارند. اگر در یک پروسه بارگذاری شوند، متدهای بومیِ go.Seq
+ *  بین دو کتابخانه‌ی بومی تداخل می‌کند. با جداکردن پروسه:
+ *   • پروسه‌ی اصلی → فقط libbox (VPN و هسته‌ی اصلی)
+ *   • پروسه‌ی :psiphon → فقط libgojni (تونل سایفون)
+ *  ارتباط بین دو پروسه از طریق فایل پورت SOCKS (filesDir/psiphon_port.txt) انجام می‌شود —
+ *  چون پروکسی سایفون روی 127.0.0.1 گوش می‌دهد، هسته‌ی sing-box پروسه‌ی اصلی می‌تواند
+ *  بدون هیچ واسطه‌ای به آن وصل شود (loopback بین پروسه‌های یک اپ مشترک است).
  */
 object PsiphonEngine : PsiphonTunnel.HostService {
 
     private const val TAG = "VexPsiphon"
+
+    /** فایل پورت — بین پروسه‌ها مشترک است */
+    fun portFile(ctx: android.content.Context): File = File(ctx.filesDir, "psiphon_port.txt")
+
+    fun readPort(ctx: android.content.Context): Int {
+        return try {
+            val t = portFile(ctx).readText().trim()
+            val p = t.toIntOrNull()?.coerceIn(0, 65535) ?: 0
+            if (p > 0 && t.toLong() in 1..65535) p else 0
+        } catch (_: Throwable) { 0 }
+    }
+
+    fun clearPort(ctx: android.content.Context) {
+        try { portFile(ctx).delete() } catch (_: Throwable) {}
+    }
 
     /** پورت SOCKS محلی سایفون — ۰ یعنی هنوز آماده نشده */
     @Volatile
@@ -38,70 +52,50 @@ object PsiphonEngine : PsiphonTunnel.HostService {
     private var tunnel: PsiphonTunnel? = null
 
     @Volatile
-    private var appCtx: Context? = null
+    private var appCtx: android.content.Context? = null
 
     /**
-     * راه‌اندازی (یا استفاده‌ی مجدد از) تونل سایفون و منتظر ماندن برای پورت SOCKS.
-     * روی Thread فراخوانده می‌شود (بلاک می‌کند) — خروجی ۰ یعنی موفق نشد.
+     * راه‌اندازی تونل سایفون (در پروسه‌ی :psiphon) — بلاک نمی‌کند؛
+     * پورت به‌محض آماده‌شدن در فایل و socksPort نوشته می‌شود.
      */
-    fun ensureStarted(ctx: Context, timeoutMs: Long = 90_000L): Int {
-        val app = ctx.applicationContext
+    fun start(ctx: android.content.Context) {
         synchronized(this) {
-            if (tunnel == null) {
-                socksPort = 0
-                state = "connecting"
-                appCtx = app
-                try {
-                    val t = PsiphonTunnel.newPsiphonTunnel(this)
-                    tunnel = t
-                    Thread {
-                        try {
-                            // فقط حالت پروکسی محلی — نه VPN مستقل (setVpnMode=false پیش‌فرض)
-                            t.startTunneling("")
-                        } catch (e: Throwable) {
-                            Log.e(TAG, "startTunneling failed: ${e.message}")
-                            state = "failed"
-                        }
-                    }.start()
-                } catch (e: Throwable) {
-                    Log.e(TAG, "newPsiphonTunnel failed: ${e.message}")
-                    state = "failed"
-                    return 0
-                }
+            if (tunnel != null) return
+            socksPort = 0
+            state = "connecting"
+            appCtx = ctx.applicationContext
+            clearPort(ctx)
+            try {
+                val t = PsiphonTunnel.newPsiphonTunnel(this)
+                tunnel = t
+                Thread {
+                    try {
+                        // فقط حالت پروکسی محلی — نه VPN مستقل (setVpnMode=false پیش‌فرض)
+                        t.startTunneling("")
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "startTunneling failed: ${e.message}")
+                        state = "failed"
+                    }
+                }.start()
+            } catch (e: Throwable) {
+                Log.e(TAG, "newPsiphonTunnel failed: ${e.message}")
+                state = "failed"
             }
         }
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            if (socksPort > 0) return socksPort
-            if (state == "failed" || state == "stopped") return 0
-            try { Thread.sleep(400) } catch (_: InterruptedException) { return 0 }
-        }
-        Log.w(TAG, "psiphon socks port timeout")
-        return 0
     }
 
-    /** آیا تونل سایفون به خروجی واقعی وصل شده؟ */
-    fun isConnected(): Boolean = state == "connected"
-
-    /** چند ثانیه فرصت می‌دهد تا سایفون به خروجی برسد (خروجی الزامی نیست — اتصال دیرتر هم خودش زنده می‌شود) */
-    fun awaitConnected(extraMs: Long) {
-        val deadline = System.currentTimeMillis() + extraMs
-        while (System.currentTimeMillis() < deadline) {
-            if (state == "connected") return
-            if (state == "failed" || state == "stopped") return
-            try { Thread.sleep(400) } catch (_: InterruptedException) { return }
-        }
-    }
-
-    fun stop() {
+    fun stop(ctx: android.content.Context?) {
         val t = tunnel ?: return
         tunnel = null
         socksPort = 0
         state = "stopped"
+        if (ctx != null) clearPort(ctx)
         Thread {
             try { t.stop() } catch (_: Throwable) {}
         }.start()
     }
+
+    fun isRunning(): Boolean = tunnel != null
 
     // ------------------------------------------------ کانفیگ سایفون
 
@@ -113,7 +107,7 @@ object PsiphonEngine : PsiphonTunnel.HostService {
             dataStore.mkdirs()
             tempStore.mkdirs()
         } catch (_: Throwable) {}
-        val o = JSONObject()
+        val o = org.json.JSONObject()
             .put("ClientVersion", "1")
             // مقادیر استاندارد متن‌باز (Oblivion/Aether) — برای شمارش نصب‌ها نزد Psiphon
             .put("PropagationChannelId", "FFFFFFFFFFFFFFFF")
@@ -139,12 +133,17 @@ object PsiphonEngine : PsiphonTunnel.HostService {
 
     // ------------------------------------------------ کالبک‌های HostService
 
-    override fun getContext(): Context = appCtx ?: throw IllegalStateException("PsiphonEngine not started")
+    override fun getContext(): android.content.Context = appCtx ?: throw IllegalStateException("PsiphonEngine not started")
 
     override fun onListeningSocksProxyPort(port: Int) {
         Log.i(TAG, "psiphon socks listening on $port")
         socksPort = port
         if (state != "connected") state = "connecting"
+        // پورت برای پروسه‌ی اصلی نوشته می‌شود
+        val ctx = appCtx
+        if (ctx != null && port > 0) {
+            try { portFile(ctx).writeText(port.toString()) } catch (_: Throwable) {}
+        }
     }
 
     override fun onConnecting() {
@@ -159,10 +158,29 @@ object PsiphonEngine : PsiphonTunnel.HostService {
     override fun onExiting() {
         Log.i(TAG, "psiphon exiting")
         socksPort = 0
+        val ctx = appCtx
+        if (ctx != null) clearPort(ctx)
         if (state != "idle" && state != "stopped") state = "stopped"
     }
 
     override fun onDiagnosticMessage(message: String) {
         Log.d(TAG, message)
+    }
+
+    /** اعلان ساوت پیش‌زمینه برای پروسه‌ی سایفون (تا سیستم وسط کار نکشدش) */
+    fun buildForegroundNotification(ctx: android.content.Context): Notification {
+        val open = PendingIntent.getActivity(
+            ctx, 0, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        return androidx.core.app.NotificationCompat.Builder(ctx, Notifier.STATUS_CHANNEL_ID)
+            .setContentTitle("VEX CLIENT — سایفون")
+            .setContentText("موتور سایفون فعال است")
+            .setSmallIcon(R.drawable.ic_stat_vex)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .build()
     }
 }

@@ -74,6 +74,7 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
     // دیکودر QR به‌صورت آفلاین (مدل داخل APK؛ بدون نیاز به گوگل‌پلی)
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    // موتور سایفون (Psiphon tunnel core) — اتصال با سایفون داخل خود برنامه
-    implementation("ca.psiphon:psiphontunnel:2.0.42")
+    // موتور سایفون (Psiphon tunnel core) — AAR در CI به app/libs/psiphon.aar ساخته می‌شود
+    // (ران‌تایم تکراری go.* از classes.jar آن حذف شده تا با libbox تداخل نکند؛
+    //  خود تونل در پروسه‌ی جدا «:psiphon» اجرا می‌شود) — fileTree بالا آن را شامل می‌شود.
 }

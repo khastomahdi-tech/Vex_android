@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: app/libs/libbox.aar
-          key: libbox-v1.11.15-aar2
+          key: libbox-v1.11.15-aar3
           save-always: true
 
       - name: Build sing-box core (libbox AAR)
@@ -45,6 +45,50 @@ jobs:
           export PATH="$PATH:$(go env GOPATH)/bin"
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.4
           go install github.com/sagernet/gomobile/cmd/gobind@v0.1.4
+          # ---- VEX PATCH: go.Seq process-aware library loading ----
+          # دو ران‌تایم Go در یک اپ داریم: libbox (پروسه‌ی اصلی) و libgojni (پروسه‌ی :psiphon).
+          # بلوک static کلاس go.Seq فقط یک کتابخانه را load می‌کند و native init فقط یک‌بار
+          # اجرا می‌شود؛ پس در پروسه‌ی :psiphon باید gojni و در پروسه‌ی اصلی box بارگذاری شود،
+          # وگرنه یکی از دو موتور کرش می‌کند. gobind بعداً «gojni» را با libname جایگزین می‌کند
+          # (شاخه‌ی else)، برای همین مسیر سایفون با "go"+"jni" نوشته شده تا دست‌نخورده بماند.
+          GMOD="$(go env GOMODCACHE)/github.com/sagernet/gomobile@v0.1.4/bind/java/Seq.java"
+          ls -l "$GMOD"
+          python3 - "$GMOD" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p, encoding='utf-8').read()
+          old = '\tstatic {\n\t\tSystem.loadLibrary("gojni");\n\t\tinit();\n\t\tUniverse.touch();\n\t}'
+          assert old in s, 'Seq.java static block not found'
+          new = (
+              '\tstatic {\n'
+              '\t\t// VEX PATCH: process-aware bridge library selection\n'
+              '\t\tString __vp = vexProcessName();\n'
+              '\t\tif (__vp != null && __vp.endsWith(":psiphon")) {\n'
+              '\t\t\tSystem.loadLibrary("go" + "jni");\n'
+              '\t\t} else {\n'
+              '\t\t\tSystem.loadLibrary("gojni");\n'
+              '\t\t}\n'
+              '\t\tinit();\n'
+              '\t\tUniverse.touch();\n'
+              '\t}\n'
+              '\n'
+              '\tprivate static String vexProcessName() {\n'
+              '\t\ttry {\n'
+              '\t\t\tjava.io.BufferedReader __r = new java.io.BufferedReader(new java.io.FileReader("/proc/self/cmdline"));\n'
+              '\t\t\tStringBuilder __sb = new StringBuilder();\n'
+              '\t\t\tint __c;\n'
+              '\t\t\twhile ((__c = __r.read()) > 0) { __sb.append((char) __c); }\n'
+              '\t\t\t__r.close();\n'
+              '\t\t\treturn __sb.toString();\n'
+              '\t\t} catch (Throwable __t) {\n'
+              '\t\t\treturn null;\n'
+              '\t\t}\n'
+              '\t}'
+          )
+          s = s.replace(old, new)
+          open(p, 'w', encoding='utf-8').write(s)
+          print('Seq.java patched for process-aware loading')
+          PY
           git clone --depth 1 --branch v1.11.15 https://github.com/SagerNet/sing-box.git /tmp/sing-box
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
           cd /tmp/sing-box
@@ -58,6 +102,38 @@ jobs:
             -tags "with_gvisor,with_quic,with_wireguard,with_ech,with_utls,with_clash_api" \
             -o "$GITHUB_WORKSPACE/app/libs/libbox.aar" \
             ./experimental/libbox
+          ls -lh "$GITHUB_WORKSPACE/app/libs/"
+
+      - name: Prepare Psiphon AAR (strip duplicate gomobile runtime go.*)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/app/libs"
+          curl -fsSL --retry 3 -o /tmp/psi.aar \
+            "https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/master/ca/psiphon/psiphontunnel/2.0.42/psiphontunnel-2.0.42.aar"
+          ls -lh /tmp/psi.aar
+          python3 - <<'PY'
+          import zipfile, io, os
+          src = '/tmp/psi.aar'
+          dst = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs', 'psiphon.aar')
+          zin = zipfile.ZipFile(src)
+          zout = zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED)
+          stripped = 0
+          for item in zin.infolist():
+              if item.filename == 'classes.jar':
+                  inner = zipfile.ZipFile(io.BytesIO(zin.read(item.filename)))
+                  buf = io.BytesIO()
+                  yo = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
+                  for it2 in inner.infolist():
+                      if it2.filename.startswith('go/'):
+                          stripped += 1
+                          continue
+                      yo.writestr(it2, inner.read(it2.filename))
+                  yo.close()
+                  zout.writestr(item, buf.getvalue())
+              else:
+                  zout.writestr(item, zin.read(item.filename))
+          zout.close()
+          print(f'psiphon.aar written: {os.path.getsize(dst)} bytes, {stripped} duplicate go.* classes stripped')
+          PY
           ls -lh "$GITHUB_WORKSPACE/app/libs/"
 
       - uses: gradle/actions/setup-gradle@v4

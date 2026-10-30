@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Notification as BoxNotification
 import io.nekohasekai.libbox.NetworkInterface as BoxNetworkInterface
@@ -174,11 +175,17 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     tempDir = cacheDir
                 )
                 val coreConfig = if (usePsiphon) {
-                    // موتور سایفون: تونل رسمی Psiphon به‌صورت پروکسی محلی بالا می‌آید
-                    // و هسته‌ی sing-box ترافیک را به آن می‌فرستد (tun → sing-box → سایفون)
-                    val port = PsiphonEngine.ensureStarted(applicationContext)
+                    // موتور سایفون در پروسه‌ی جدا «:psiphon» بالا می‌آید و پورت SOCKS محلی‌اش
+                    // را در فایل مشترک می‌نویسد؛ هسته‌ی sing-box ترافیک را به آن می‌فرستد
+                    // (tun → sing-box → سایفون). هیچ کتابخانه‌ی بومی مشترکی در این پروسه لود نمی‌شود.
+                    val ctx = applicationContext
+                    PsiphonEngine.clearPort(ctx)
+                    ContextCompat.startForegroundService(
+                        ctx,
+                        Intent(ctx, PsiphonService::class.java).setAction(PsiphonService.ACTION_START)
+                    )
+                    val port = awaitPsiphonPort(gen)
                     if (port == 0) throw Exception("اتصال سایفون برقرار نشد — دوباره امتحان کن")
-                    PsiphonEngine.awaitConnected(20_000L) // بهتر است تا اتصال واقعی صبر شود؛ الزامی نیست
                     ConfigBuilder.buildPsiphon(port, config)
                 } else {
                     ConfigBuilder.build(config)
@@ -336,6 +343,22 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * انتظار برای پورت SOCKS سایفون (فایل مشترک بین پروسه‌ها) — حداکثر ۹۰ ثانیه.
+     * اگر کاربر در این فاصله قطع کند (generation عوض شود)، ۰ برمی‌گردد.
+     */
+    private fun awaitPsiphonPort(gen: Int): Int {
+        val deadline = System.currentTimeMillis() + 90_000L
+        while (System.currentTimeMillis() < deadline) {
+            synchronized(stateLock) { if (gen != generation) return 0 }
+            val p = PsiphonEngine.readPort(applicationContext)
+            if (p > 0) return p
+            try { Thread.sleep(500) } catch (_: InterruptedException) { return 0 }
+        }
+        Log.w(TAG, "psiphon port timeout")
+        return 0
+    }
+
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
         uiState = "stopped"
@@ -355,10 +378,15 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
-        // اگر این جلسه با موتور سایفون بود، تونل سایفون هم بسته می‌شود
+        // اگر این جلسه با موتور سایفون بود، پروسه‌ی سایفون هم خاموش می‌شود
         if (lastEnginePsiphon) {
             lastEnginePsiphon = false
-            try { PsiphonEngine.stop() } catch (_: Throwable) {}
+            try {
+                applicationContext.startService(
+                    Intent(applicationContext, PsiphonService::class.java).setAction(PsiphonService.ACTION_STOP)
+                )
+            } catch (_: Throwable) {}
+            PsiphonEngine.clearPort(applicationContext)
         }
         tunIfaceName = null
         stopForeground(STOP_FOREGROUND_REMOVE)

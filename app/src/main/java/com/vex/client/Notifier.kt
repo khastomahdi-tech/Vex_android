@@ -20,6 +20,22 @@ object Notifier {
     const val CHANNEL_ID = "vex_broadcast"
     const val STATUS_CHANNEL_ID = "vex_status"
 
+    /** ساخت کانال‌ها — از چند جای برنامه (اعلان‌ها + سرویس سایفون) صدا زده می‌شود */
+    fun ensureChannels(ctx: Context) {
+        if (Build.VERSION.SDK_INT < 26) return
+        try {
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "اعلان‌های Vex", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "اعلان‌هایی که مدیر Vex می‌فرستد" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(STATUS_CHANNEL_ID, "وضعیت برنامه Vex", NotificationManager.IMPORTANCE_MIN)
+                    .apply { description = "وضعیت سرویس‌های پس‌زمینه" }
+            )
+        } catch (_: Throwable) {}
+    }
+
     /** شناسه‌ی آخرین اعلان نمایش‌داده‌شده — برای اینکه هر اعلان فقط یک‌بار بیاید */
     private const val PREF = "vex_notify"
     private const val KEY_LAST = "last_id"
