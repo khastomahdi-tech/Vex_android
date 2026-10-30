@@ -64,7 +64,8 @@ object FreeServers {
                     name = d.name,
                     protocol = d.proto.ifBlank { inf.protocol },
                     raw = d.raw,
-                    ping = ping
+                    ping = ping,
+                    label = d.label
                 ))
             }
             out.sortWith(compareBy(

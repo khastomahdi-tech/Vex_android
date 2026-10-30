@@ -120,6 +120,20 @@ class MainActivity : ComponentActivity() {
         if (cfg != null) continueStart(cfg)
     }
 
+    /** اجازه‌ی اعلان‌ها — فقط بار اول ورود (اندروید ۱۳+)؛ بعد از آن ربات می‌تواند اعلان بفرستد */
+    private fun askNotifPermissionOnce() {
+        if (Build.VERSION.SDK_INT < 33) return
+        try {
+            val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
+            if (prefs.getBoolean("notif_asked", false)) return
+            prefs.edit().putBoolean("notif_asked", true).apply()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } catch (_: Throwable) {}
+    }
+
     private val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val cfg = pendingPayload
         pendingPayload = null
@@ -157,8 +171,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // دروازه‌ی ورود: اول اینترنت (با تایم‌اوت) — بدون اینترنت وارد برنامه نمی‌شود
+        // دزدهای امنیتی: اگر APK دستکاری شده باشد (امضای متفاوت) اصلاً وارد نمی‌شود
         setContentView(buildGateView())
+        if (!IntegrityGate.isOfficial(this)) {
+            setGateUi("tampered")
+            return
+        }
         setGateUi("checking")
         runGate()
     }
@@ -294,6 +312,12 @@ class MainActivity : ComponentActivity() {
             scheduleFreeAutoRefresh()
             Thread { refreshFreeServers(silent = true) }.start()
 
+            // اعلان‌های تازه‌ی مدیر (اگر هنگام بسته‌بودن برنامه فرستاده شده باشند)
+            Thread { Notifier.fetchAndShow(this) }.start()
+
+            // دسترسی اعلان — فقط بار اول ورود از کاربر پرسیده می‌شود (اندروید ۱۳+)
+            askNotifPermissionOnce()
+
             // اتصال خودکار
             if (store.settings.autoConnect && connectionState == "stopped") {
                 store.selected()?.let { s ->
@@ -325,6 +349,37 @@ class MainActivity : ComponentActivity() {
         VexVpnService.statsListener = null
         VexVpnService.netListener = null
         super.onDestroy()
+    }
+
+    // ---------------- قفل دوباره پس از ترک برنامه ----------------
+
+    /** آخرین زمانی که برنامه از دید خارج شد (برای قفل دوباره) */
+    private var pausedAt = 0L
+
+    override fun onPause() {
+        super.onPause()
+        if (pinUnlocked) pausedAt = android.os.SystemClock.elapsedRealtime()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        try {
+            if (!::root.isInitialized || pausedAt == 0L) return
+            if (store.settings.pinHash.isEmpty() || !pinUnlocked || !store.settings.relockOnExit) return
+            if (LockScreen.isActive) return
+            val away = android.os.SystemClock.elapsedRealtime() - pausedAt
+            pausedAt = 0
+            // دیالوگ‌های سریع (اجازه‌ها) قفل دوباره نمی‌گیرند — فقط رفتن واقعی از برنامه
+            if (away <= 10_000L) return
+            pinUnlocked = false
+            LockScreen.showLock(this) {
+                pinUnlocked = true
+                setContentView(root)
+                applyThemeAll()
+                renderAll()
+                homeUi.restoreStats()
+            }
+        } catch (_: Throwable) {}
     }
 
     // ---------------- هدر / ناوبری ----------------
@@ -957,7 +1012,7 @@ class MainActivity : ComponentActivity() {
                 }
             } else if (dtos != null && !silent) {
                 main.post {
-                    serversUi.freeProgressMsg = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است"
+                    serversUi.freeProgressMsg = "سرور معتبری پیدا نشد"
                     if (serversUi.tab == 1) serversUi.render()
                 }
             }
@@ -989,7 +1044,11 @@ class MainActivity : ComponentActivity() {
     /** حلقه‌ی به‌روزرسانی خودکار سرورهای رایگان — کاربر نیازی به دکمه ندارد */
     private val freeRefreshTask = object : Runnable {
         override fun run() {
-            Thread { refreshFreeServers(silent = true) }.start()
+            Thread {
+                refreshFreeServers(silent = true)
+                // اعلان‌های تازه‌ی مدیر هم در همین تیک ۶۰ ثانیه‌ای بررسی می‌شود
+                Notifier.fetchAndShow(this@MainActivity)
+            }.start()
             scheduleFreeAutoRefresh()
         }
     }
@@ -1127,6 +1186,7 @@ class MainActivity : ComponentActivity() {
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
                 "closed" -> { text = "دسترسی برنامه بسته شده است"; setTextColor(p.bad) }
+                "tampered" -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
                 else -> { text = "در حال بررسی اتصال…"; setTextColor(p.text) }
             }
         }
@@ -1141,6 +1201,7 @@ class MainActivity : ComponentActivity() {
                 "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "یا برنامه در حال به‌روزرسانی است یا مشکل فنی موقت پیش آمده است.\nلطفاً کمی بعد دوباره تلاش کن؛ خبرها در کانال تلگرام منتشر می‌شود."
+                "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک vex-gate.pages.dev/apk نصب کن."
                 else -> text = "چند لحظه صبر کن…"
             }
         }
@@ -1166,7 +1227,7 @@ class MainActivity : ComponentActivity() {
             btns.addView(retry, LinearLayout.LayoutParams(
                 UI.dp(ctx, 148), UI.dp(ctx, 46)).apply { marginEnd = UI.dp(ctx, 10) })
         }
-        if (state == "closed") {
+        if (state == "closed" || state == "tampered") {
             val tg = UI.softButton(ctx, "کانال تلگرام", p)
             tg.setOnClickListener { openTelegramChannel() }
             btns.addView(tg, LinearLayout.LayoutParams(

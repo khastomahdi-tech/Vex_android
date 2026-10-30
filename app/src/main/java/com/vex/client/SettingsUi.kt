@@ -139,6 +139,13 @@ class SettingsUi(private val act: MainActivity) {
             }
         }
         secCard.addView(chPinBtn)
+        secCard.addView(divider())
+        secCard.addView(switchRow("قفل دوباره پس از ترک برنامه",
+            "اگر بیش از چند ثانیه از برنامه بیرون بروی، برگشتن دوباره رمز می‌خواهد",
+            act.store.settings.relockOnExit) { v ->
+            act.store.settings.relockOnExit = v
+            act.store.saveSettings()
+        })
         addCard(secCard)
 
         // ================= تونل =================

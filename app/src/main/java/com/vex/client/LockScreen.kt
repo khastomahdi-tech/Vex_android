@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -43,6 +44,30 @@ object LockScreen {
     private const val MIN_LEN = 4
     private const val MAX_LEN = 8
 
+    /** حداکثر تلاش اشتباه پیش از قفل موقت */
+    private const val MAX_TRIES = 5
+
+    /** قفل موقت بعد از تلاش‌های زیاد — ۳۰ ثانیه؛ تلاش‌های بیشتر = قفل طولانی‌تر */
+    private const val COOLDOWN_MS = 30_000L
+
+    /**
+     * محافظ ضد حدس‌زدن رمز: بعد از ۵ بار اشتباه، صفحه ۳۰ ثانیه قفل می‌شود؛
+     * هر ۳ بار اشتباه بعد از آن، ۳۰ ثانیه دیگر اضافه می‌شود.
+     */
+    private class Limiter {
+        var wrong = 0
+        var lockedUntil = 0L
+        fun remainMs(): Long = (lockedUntil - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        fun onWrong() {
+            wrong++
+            if (wrong >= MAX_TRIES) {
+                val extra = ((wrong - MAX_TRIES) / 3) * COOLDOWN_MS
+                lockedUntil = SystemClock.elapsedRealtime() + COOLDOWN_MS + extra
+            }
+        }
+        fun onRight() { wrong = 0; lockedUntil = 0L }
+    }
+
     /** آیا الان صفحه‌ی قفل/رمز روی صفحه است؟ (دکمه‌ی Back بی‌اثر می‌شود) */
     @Volatile
     var isActive = false
@@ -64,10 +89,39 @@ object LockScreen {
             ctx, p, root, dots, hint, input ->
             var buf = ""
             var done = false
+            val lim = Limiter()
+            val h = Handler(Looper.getMainLooper())
+            var cooldown: Runnable? = null
+
+            fun stopCooldown() { cooldown?.let { h.removeCallbacks(it) }; cooldown = null }
+
+            fun startCooldown() {
+                stopCooldown()
+                val r = object : Runnable {
+                    override fun run() {
+                        val rem = lim.remainMs()
+                        if (rem <= 0) {
+                            hint.text = "می‌توانی دوباره تلاش کنی"
+                            hint.setTextColor(p.muted)
+                            cooldown = null
+                            return
+                        }
+                        hint.text = "تلاش زیاد — " + ((rem + 999) / 1000) + " ثانیه صبر کن"
+                        hint.setTextColor(p.bad)
+                        h.postDelayed(this, 500)
+                    }
+                }
+                cooldown = r
+                h.post(r)
+            }
+
             fun submit() {
                 if (buf.isEmpty() || done) return
+                if (lim.remainMs() > 0) { buf = ""; renderDots(dots, 0, MAX_LEN, p, error = false); startCooldown(); return }
                 if (sha256(buf) == act.store.settings.pinHash) {
                     done = true
+                    lim.onRight()
+                    stopCooldown()
                     successDots(dots, buf.length, MAX_LEN, p)
                     hint.text = "درست است — خوش آمدی ✨"
                     hint.setTextColor(p.accent)
@@ -76,14 +130,20 @@ object LockScreen {
                         onUnlock()
                     }, 240)
                 } else {
+                    lim.onWrong()
                     renderDots(dots, buf.length, MAX_LEN, p, error = true)
-                    hint.text = "رمز اشتباه است — دوباره تلاش کن"
+                    hint.text = when {
+                        lim.remainMs() > 0 -> "تلاش زیاد — صفحه موقتاً قفل شد"
+                        lim.wrong >= MAX_TRIES - 2 -> "رمز اشتباه است — ${MAX_TRIES - lim.wrong} تلاش تا قفل شدن"
+                        else -> "رمز اشتباه است — دوباره تلاش کن"
+                    }
                     hint.setTextColor(p.bad)
                     shake(dots)
                     buf = ""
                     Handler(Looper.getMainLooper()).postDelayed({
                         renderDots(dots, 0, MAX_LEN, p, error = false)
                     }, 620)
+                    if (lim.remainMs() > 0) startCooldown()
                 }
             }
             fun refresh() {
@@ -91,7 +151,7 @@ object LockScreen {
                 if (expectedLen > 0 && buf.length == expectedLen) submit()
             }
             buildKeypad(ctx, p, root,
-                onDigit = { d -> if (buf.length < MAX_LEN && !done) { buf += d; refresh() } },
+                onDigit = { d -> if (lim.remainMs() <= 0 && buf.length < MAX_LEN && !done) { buf += d; refresh() } },
                 onBack = { if (buf.isNotEmpty()) { buf = buf.dropLast(1); refresh() } },
                 onClear = { if (buf.isNotEmpty()) { buf = ""; refresh() } },
                 onSubmit = { if (expectedLen == 0) submit() else { if (buf.isNotEmpty()) submit() } }
@@ -181,13 +241,42 @@ object LockScreen {
             ctx, p, root, dots, hint, input ->
             var buf = ""
             var done = false
+            val lim = Limiter()
+            val h = Handler(Looper.getMainLooper())
+            var cooldown: Runnable? = null
+
+            fun stopCooldown() { cooldown?.let { h.removeCallbacks(it) }; cooldown = null }
+
+            fun startCooldown() {
+                stopCooldown()
+                val r = object : Runnable {
+                    override fun run() {
+                        val rem = lim.remainMs()
+                        if (rem <= 0) {
+                            hint.text = "می‌توانی دوباره تلاش کنی"
+                            hint.setTextColor(p.muted)
+                            cooldown = null
+                            return
+                        }
+                        hint.text = "تلاش زیاد — " + ((rem + 999) / 1000) + " ثانیه صبر کن"
+                        hint.setTextColor(p.bad)
+                        h.postDelayed(this, 500)
+                    }
+                }
+                cooldown = r
+                h.post(r)
+            }
+
             fun refresh() {
                 renderDots(dots, buf.length, MAX_LEN, p, error = false)
             }
             fun submit() {
                 if (buf.isEmpty() || done) return
+                if (lim.remainMs() > 0) { buf = ""; renderDots(dots, 0, MAX_LEN, p, error = false); startCooldown(); return }
                 if (sha256(buf) == act.store.settings.pinHash) {
                     done = true
+                    lim.onRight()
+                    stopCooldown()
                     successDots(dots, buf.length, MAX_LEN, p)
                     hint.text = "تأیید شد ✨"
                     hint.setTextColor(p.accent)
@@ -196,18 +285,24 @@ object LockScreen {
                         onOk()
                     }, 240)
                 } else {
+                    lim.onWrong()
                     renderDots(dots, buf.length, MAX_LEN, p, error = true)
-                    hint.text = "رمز اشتباه است"
+                    hint.text = when {
+                        lim.remainMs() > 0 -> "تلاش زیاد — صفحه موقتاً قفل شد"
+                        lim.wrong >= MAX_TRIES - 2 -> "رمز اشتباه است — ${MAX_TRIES - lim.wrong} تلاش تا قفل شدن"
+                        else -> "رمز اشتباه است"
+                    }
                     hint.setTextColor(p.bad)
                     shake(dots)
                     buf = ""
                     Handler(Looper.getMainLooper()).postDelayed({
                         renderDots(dots, 0, MAX_LEN, p, error = false)
                     }, 620)
+                    if (lim.remainMs() > 0) startCooldown()
                 }
             }
             buildKeypad(ctx, p, root,
-                onDigit = { d -> if (buf.length < MAX_LEN && !done) { buf += d; refresh() } },
+                onDigit = { d -> if (lim.remainMs() <= 0 && buf.length < MAX_LEN && !done) { buf += d; refresh() } },
                 onBack = { if (buf.isNotEmpty()) { buf = buf.dropLast(1); refresh() } },
                 onClear = { if (buf.isNotEmpty()) { buf = ""; refresh() } },
                 onSubmit = { submit() }

@@ -40,7 +40,10 @@ object TelegramGate {
     data class GateInfo(val gate: String, val reason: String?)
 
     /** سرور رایگانِ مدیریت‌شده از ربات */
-    data class FreeServerDto(val id: Long, val name: String, val proto: String, val raw: String)
+    data class FreeServerDto(val id: Long, val name: String, val proto: String, val raw: String, val label: String = "")
+
+    /** اعلان همگانی مدیر (از ربات /notify) */
+    data class NotifDto(val id: Long, val title: String, val body: String)
 
     // ------------------------------------------------ بررسی اینترنت
 
@@ -63,7 +66,7 @@ object TelegramGate {
                     readTimeout = 4000
                     instanceFollowRedirects = true
                     useCaches = false
-                    setRequestProperty("User-Agent", "VEX-Client/3.14 (connectivity)")
+                    setRequestProperty("User-Agent", "VEX-Client/3.16 (connectivity)")
                 }
                 if (c.responseCode in 200..399) return true
             } catch (_: Throwable) {
@@ -165,8 +168,32 @@ object TelegramGate {
                     id = s.optLong("id", 0L),
                     name = s.optString("name", "سرور رایگان"),
                     proto = s.optString("proto", raw.substringBefore("://")),
-                    raw = raw
+                    raw = raw,
+                    label = s.optString("label", "")
                 ))
+            }
+            out
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * اعلان‌های همگانی جدید بعد از since (شناسه‌ی آخرین اعلان دیده‌شده).
+     * خروجی null → شبکه/سرور نبود (شناسه‌ی آخرین نباید جلو برود)
+     */
+    fun fetchNotifications(since: Long): List<NotifDto>? {
+        val body = get("/v1/notifications?since=$since") ?: return null
+        return try {
+            val o = JSONObject(body)
+            if (!o.optBoolean("ok")) return emptyList()
+            val arr = o.optJSONArray("list") ?: return emptyList()
+            val out = ArrayList<NotifDto>(arr.length())
+            for (i in 0 until arr.length()) {
+                val n = arr.optJSONObject(i) ?: continue
+                val t = n.optString("title", "").trim()
+                if (t.isEmpty()) continue
+                out.add(NotifDto(n.optLong("id", 0L), t, n.optString("body", "")))
             }
             out
         } catch (_: Throwable) {
@@ -210,7 +237,7 @@ object TelegramGate {
         c.readTimeout = 8000
         c.useCaches = false
         c.setRequestProperty("X-Vex-Key", APP_KEY)
-        c.setRequestProperty("User-Agent", "VEX-Client/3.14 (gate)")
+        c.setRequestProperty("User-Agent", "VEX-Client/3.16 (gate)")
     }
 
     private fun get(path: String): String? {

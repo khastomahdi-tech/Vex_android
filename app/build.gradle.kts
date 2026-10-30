@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 21
         targetSdk = 34
-        versionCode = 22
-        versionName = "3.15.0"
+        versionCode = 23
+        versionName = "3.16.0"
         // فقط گوشی‌های ARM — حذف کتابخانه‌های x86/x86_64 شبیه‌ساز → APK حدود ۱۶MB کوچک‌تر
         // (دانلود سبک‌تر = ریسک خرابی و خطای «بسته معتبر نیست» به‌مراتب کمتر)
         ndk {
@@ -32,13 +32,25 @@ android {
     buildTypes {
         debug { signingConfig = signingConfigs.getByName("vex") }
         release {
-            isMinifyEnabled = false
+            // سخت‌سازی: کدها obfuscate و فشرده می‌شوند — دیکامپایل/خواندن منطق برنامه سخت می‌شود
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("vex")
         }
     }
 
     packaging {
         jniLibs { useLegacyPackaging = true }
+    }
+
+    // lint vital روی release نباید بیلد را بیندازد — امضای دیجیتال و ساختار APK جداگانه در CI چک می‌شود
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

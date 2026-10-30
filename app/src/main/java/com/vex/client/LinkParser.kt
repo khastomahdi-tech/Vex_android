@@ -21,7 +21,7 @@ object LinkParser {
 
     private val SCHEMES = listOf(
         "vless://", "vmess://", "trojan://", "ss://",
-        "hysteria2://", "hy2://", "tuic://"
+        "hysteria2://", "hy2://", "tuic://", "wg://", "wireguard://"
     )
 
     // ------------------------------------------------------------ تشخیص متن
@@ -109,8 +109,83 @@ object LinkParser {
             t.startsWith("ss://", true) -> infoSs(t)
             t.startsWith("hysteria2://", true) || t.startsWith("hy2://", true) ->
                 infoUri("hysteria2", "hysteria2://" + t.substringAfter("://"))
+            t.startsWith("wg://", true) || t.startsWith("wireguard://", true) -> infoWgUri(t)
             else -> infoUri(t.substringBefore("://").lowercase(), t)
         }
+    }
+
+    /**
+     * لینک وایرگارد:  wg:// یا wireguard://
+     * قالب رایگ (NekoBox/sing-box):
+     *   wg://کلید-خصوصی@host:port?publickey=…&address=10.2.0.2/32&mtu=1408&presharedkey=…&reserved=…#نام
+     * خروجی: همان قالب دستی برنامه (ورودی ConfigBuilder.wireguardOutbound)
+     */
+    fun wgUriToManual(link: String): String? {
+        try {
+            var t = link.trim()
+            if (t.startsWith("wireguard://", true)) t = "wg://" + t.substringAfter("://")
+            if (!t.startsWith("wg://", true)) return null
+            val body = t.substring(5).substringBefore("#")
+            val frag = try { URLDecoder.decode(t.substringAfter("#", ""), "UTF-8") } catch (_: Throwable) { t.substringAfter("#", "") }
+            val name = frag.ifBlank { "WireGuard" }
+            val at = body.lastIndexOf("@")
+            if (at <= 0) return null
+            var priv = decodeWgPart(body.substring(0, at))
+            val hostPort = body.substring(at + 1).substringBefore("?")
+            if (hostPort.isEmpty()) return null
+            val host = hostPort.substringBeforeLast(":").removeSurrounding("[", "]")
+            val port = hostPort.substringAfterLast(":").toIntOrNull() ?: 51820
+            var pub = ""; var psk = ""; var mtu = ""; var reserved = ""; var dnsLine = ""
+            val addresses = mutableListOf<String>()
+            val q = body.substringAfter("?", "")
+            if (q.isNotEmpty()) {
+                for (kv in q.split("&")) {
+                    if (!kv.contains("=")) continue
+                    val k = kv.substringBefore("=").trim().lowercase()
+                    val v = decodeWgPart(kv.substringAfter("="))
+                    when (k) {
+                        "publickey", "peer", "peerpub", "peerpublickey" -> pub = v
+                        "presharedkey", "psk" -> psk = v
+                        "address", "addresses", "local", "ip" -> v.split(",").forEach { a -> if (a.isNotBlank()) addresses.add(a.trim()) }
+                        "mtu" -> mtu = v
+                        "reserved" -> reserved = v
+                        "dns" -> dnsLine = v
+                    }
+                }
+            }
+            if (priv.isEmpty() || pub.isEmpty() || host.isEmpty()) return null
+            val o = JSONObject()
+                .put("protocol", "wireguard")
+                .put("wgName", name)
+                .put("privateKey", priv)
+                .put("publicKey", pub)
+                .put("server", host)
+                .put("port", port)
+                .put("addresses_csv", addresses.joinToString(","))
+            if (psk.isNotEmpty()) o.put("presharedKey", psk)
+            if (mtu.toIntOrNull() != null) o.put("mtu", mtu.toInt())
+            if (reserved.isNotEmpty()) o.put("reserved", reserved)
+            if (dnsLine.isNotEmpty()) o.put("dns", dnsLine.split(",").first().trim())
+            return o.toString()
+        } catch (_: Throwable) {
+            return null
+        }
+    }
+
+    /** دیکود یک پارامتر لینک — کلید base64 ممکن است «+» کدنشده داشته باشد */
+    private fun decodeWgPart(s: String): String {
+        val raw = s.trim()
+        if (raw.isEmpty()) return ""
+        val dec = try { URLDecoder.decode(raw, "UTF-8") } catch (_: Throwable) { raw }
+        // اگر دیکود فاصله ساخت، یعنی «+» کدنشده بوده — همان متن خام درست است
+        return if (dec.contains(' ') && raw.contains('+')) raw else dec
+    }
+
+    private fun infoWgUri(link: String): Info {
+        val m = wgUriToManual(link) ?: throw IllegalArgumentException("لینک وایرگارد نامعتبر است")
+        val j = JSONObject(m)
+        return Info(j.optString("wgName").ifBlank { "WireGuard" }, "wireguard",
+            j.optString("server").ifBlank { null }, j.optString("port").toIntOrNull())
     }
 
     private fun infoUri(proto: String, link: String): Info {

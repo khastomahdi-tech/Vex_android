@@ -69,18 +69,18 @@ jobs:
         run: echo "v=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:assembleRelease --no-daemon
 
       - name: Verify APK (signature + integrity) — fail build if invalid
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
+          APK=app/build/outputs/apk/release/app-release.apk
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
           echo "build-tools: $BT"
           "$BT/apksigner" verify --print-certs "$APK"
           "$BT/apksigner" verify --verbose "$APK"
           python3 - <<'PY'
           import zipfile, struct, sys
-          p = 'app/build/outputs/apk/debug/app-debug.apk'
+          p = 'app/build/outputs/apk/release/app-release.apk'
           z = zipfile.ZipFile(p)
           assert z.testzip() is None, 'zip corrupt'
           assert 'AndroidManifest.xml' in z.namelist(), 'no manifest'
@@ -97,14 +97,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: vex-client-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/release/app-release.apk
 
       - name: Publish GitHub Release (public download link)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.ver.outputs.v }}"
-          SRC=app/build/outputs/apk/debug/app-debug.apk
+          SRC=app/build/outputs/apk/release/app-release.apk
           NAME="Vex-Client-${TAG}.apk"
           cp "$SRC" "$NAME"
           cp "$SRC" "Vex-Client-latest.apk"
@@ -125,6 +125,8 @@ jobs:
 
           **SHA-256 (برای اطمینان):** ${SHA}
 
+          تازه در این نسخه: پیشوند سرورها از ربات (/sname یا «پیشوند | کانفیگ») · اعلان‌های همگانی از ربات (دکمه‌ی 📢) · پشتیبانی کامل WireGuard (لینک wg:// و فایل conf) · تم پیش‌فرض روشن · قفل PIN پیشرفته‌تر (محدودیت تلاش + قفل دوباره) · سخت‌سازی امنیتی (R8 + بررسی امضا)
+          
           پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
 
       - name: Refresh APK mirror on Cloudflare Pages (vex-gate /apk)
@@ -133,7 +135,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           TAG="v${{ steps.ver.outputs.v }}"
-          SRC=app/build/outputs/apk/debug/app-debug.apk
+          SRC=app/build/outputs/apk/release/app-release.apk
           NAME="Vex-Client-${TAG}.apk"
           rm -rf /tmp/vex-cf
           mkdir -p /tmp/vex-cf/parts

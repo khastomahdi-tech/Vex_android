@@ -332,7 +332,7 @@ class ServersUi(private val act: MainActivity) {
         }
         freeProgress.visibility = View.GONE
         if (free.isEmpty()) {
-            emptyHint.text = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است.\nبه‌محض افزودن در ربات، خودکار همین‌جا ظاهر می‌شود."
+            emptyHint.text = "سروری موجود نیست\nسرور معتبری پیدا نشد — هر دقیقه خودکار دوباره بررسی می‌شود"
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
         } else {
@@ -582,6 +582,16 @@ class ServersUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginEnd = UI.dp(ctx, 10)
         })
+
+        // پیشوند مدیر (ایموجی/برچسب) — طلایی، کنار نام سرور
+        if (s.label.isNotBlank()) {
+            val lp = UI.pill(ctx, s.label, UI.alpha(0xFFF0C64B.toInt(), 0.18f), 0xFFF0C64B.toInt())
+            lp.maxLines = 1
+            card.addView(lp, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = UI.dp(ctx, 8)
+            })
+        }
 
         // نام + پینگ (ستون وسط)
         val col = UI.col(ctx)

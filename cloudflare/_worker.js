@@ -9,6 +9,7 @@
  *   POST /v1/ack             → device ack lock/unlock → owner notified
  *   POST /v1/traffic         → traffic delta report {did, type: free|private, up, down}
  *   GET  /v1/freeservers     → free servers managed from the bot → {"ok":true,"servers":[...]}
+ *   GET  /v1/notifications?since=N → push notifications written by the bot (/notify)
  *   GET  /apk                → public APK download mirror (streams latest GitHub release asset;
  *                               reliable in Iran where GitHub download links get truncated)
  *   GET  /                   → health
@@ -22,12 +23,18 @@
  *   /close [reason] locks the app; locked users see «دسترسی برنامه بسته شده است» + reason.
  *   Traffic: app reports session deltas (free/private); bot shows totals + top users.
  *   Install notification: exactly ONE per device (first install only — updates stay silent).
+ *   /notify Title | Body  → push notification to every user's phone (app polls every 60s,
+ *                           asks POST_NOTIFICATIONS on first launch).
+ *   /sname <id> <prefix>  → set/remove the server prefix (emoji/label) shown in the app.
+ *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
  */
+
+const SERVICE_V = 4;
 
 const DEFAULT_CLOSE_REASON =
   "یا برنامه در حال به‌روزرسانی است یا مشکل فنی موقت پیش آمده است.\nلطفاً کمی بعد دوباره تلاش کن؛ خبرها در کانال تلگرام منتشر می‌شود.";
 
-const PROTOCOLS = ["vless", "vmess", "trojan", "ss"];
+const PROTOCOLS = ["vless", "vmess", "trojan", "ss", "wg", "wireguard"];
 
 export default {
   async fetch(request, env) {
@@ -35,7 +42,7 @@ export default {
     const path = url.pathname;
 
     if (request.method === "GET" && (path === "/" || path === "")) {
-      return json({ ok: true, service: "vex-gate", v: 3, time: new Date().toISOString() });
+      return json({ ok: true, service: "vex-gate", v: SERVICE_V, time: new Date().toISOString() });
     }
 
     // ---------------- Public APK download mirror ----------------
@@ -118,9 +125,16 @@ export default {
       }
       if (path === "/v1/freeservers" && request.method === "GET") {
         const rs = await env.DB.prepare(
-          "SELECT id, name, proto, raw FROM free_servers WHERE enabled = 1 ORDER BY id"
+          "SELECT id, name, label, proto, raw FROM free_servers WHERE enabled = 1 ORDER BY id"
         ).all();
         return json({ ok: true, servers: rs.results || [] });
+      }
+      if (path === "/v1/notifications" && request.method === "GET") {
+        const since = Math.max(0, Math.round(Number(url.searchParams.get("since")) || 0));
+        const rs = await env.DB.prepare(
+          "SELECT id, title, body FROM notifications WHERE id > ?1 ORDER BY id ASC LIMIT 20"
+        ).bind(since).all();
+        return json({ ok: true, list: rs.results || [] });
       }
       return json({ ok: false, error: "not found" }, 404);
     }
@@ -244,6 +258,17 @@ async function handleUpdate(up, env) {
   if (!lc.startsWith("/") && pend) {
     await setSetting(env, "pend_" + chatId, "");
     if (pend === "add_fs") { await addFreeServers(text, chatId, env); return; }
+    if (pend === "notify") { await doNotify(text, chatId, env); return; }
+    if (pend.startsWith("sname_")) {
+      const id = parseInt(pend.slice(6), 10);
+      const label = text.trim().slice(0, 40);
+      if (id) {
+        const v = (!label || label === "-" || label === "clear") ? "" : label;
+        await env.DB.prepare("UPDATE free_servers SET label = ?2 WHERE id = ?1").bind(id, v).run();
+        await tgSend(env, chatId, v ? ("🏷 پیشوند سرور «" + v + "» ثبت شد — در برنامه‌ی کاربران کنار نام سرور نشان داده می‌شود.") : "🏷 پیشوند این سرور پاک شد.", fsMenuKb());
+      }
+      return;
+    }
     if (pend === "close_reason") {
       const reason = text.slice(0, 400);
       await doClose(chatId, env, reason);
@@ -268,6 +293,18 @@ async function handleUpdate(up, env) {
     await sendTraffic(chatId, env);
   } else if (lc.startsWith("/users")) {
     await sendUsers(chatId, env);
+  } else if (lc.startsWith("/sname")) {
+    const rest = text.replace(/^\/sname\s*/i, "").trim();
+    await snameCmd(rest, chatId, env);
+  } else if (lc.startsWith("/notify")) {
+    const rest = text.replace(/^\/notify\s*/i, "").trim();
+    if (rest && rest.includes("|")) { await doNotify(rest, chatId, env); return; }
+    await setSetting(env, "pend_" + chatId, "notify");
+    await tgSend(env, chatId,
+      "📢 <b>ارسال اعلان به کاربران</b>\n\n" +
+      "عنوان و متن اعلان را در یک پیام بفرست، با این شکل:\n" +
+      "<code>عنوان اعلان | متن توضیحات اعلان</code>\n\n" +
+      "اعلان برای همه‌ی کاربران برنامه (که اجازه‌ی اعلان داده‌اند) به‌صورت سیستم‌عاملی بالای صفحه می‌آید.\n\nبرای لغو /cancel");
   } else if (lc.startsWith("/fsadd")) {
     const rest = text.replace(/^\/fsadd\s*/i, "").trim();
     if (rest) { await addFreeServers(rest, chatId, env); return; }
@@ -282,6 +319,11 @@ async function handleUpdate(up, env) {
 // ---------------- callbacks (inline buttons) ----------------
 
 async function handleCb(data, chatId, env) {
+  if (data === "notify") {
+    await setSetting(env, "pend_" + chatId, "notify");
+    await askNotify(chatId, env);
+    return;
+  }
   if (data === "menu") {
     await tgSend(env, chatId, "منوی مدیریت Vex:", mainMenu());
   } else if (data === "stats") {
@@ -304,6 +346,14 @@ async function handleCb(data, chatId, env) {
     await sendFsMenu(chatId, env);
   } else if (data === "fs_add") {
     await askAddFreeServer(chatId, env);
+  } else if (data.startsWith("fs_name_")) {
+    const id = parseInt(data.slice(8), 10);
+    await setSetting(env, "pend_" + chatId, "sname_" + id);
+    await tgSend(env, chatId,
+      "🏷 <b>پیشوند سرور</b>\n\n" +
+      "متن/ایموجی پیشوند را بفرست (مثلاً <code>🇩🇪</code> یا <code>ویژه</code>).\n" +
+      "در برنامه کنار نام سرور، طلایی نشان داده می‌شود.\n" +
+      "برای پاک‌کردن پیشوند بنویس: <code>-</code>\n\nبرای لغو /cancel");
   } else if (data === "fs_list") {
     await sendFsList(chatId, env);
   } else if (data === "fs_delall") {
@@ -328,6 +378,7 @@ function mainMenu() {
     [{ text: "📊 آمار", callback_data: "stats" }, { text: "👥 کاربران", callback_data: "users" }],
     [{ text: "📈 مصرف ترافیک", callback_data: "traffic" }],
     [{ text: "🖥 سرورهای رایگان", callback_data: "fs" }],
+    [{ text: "📢 ارسال اعلان به کاربران", callback_data: "notify" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
     [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }]
   ]);
@@ -455,9 +506,12 @@ async function askAddFreeServer(chatId, env) {
   await setSetting(env, "pend_" + chatId, "add_fs");
   await tgSend(env, chatId,
     "➕ <b>افزودن سرور رایگان</b>\n\n" +
-    "کانفیگ‌ها را بفرست — هر خط یک کانفیگ:\n" +
-    "<code>vless:// · vmess:// · trojan:// · ss://</code>\n\n" +
-    "می‌توانی چند کانفیگ را هم‌زمان بفرستی. بعد از افزودن، سرورها در بخش «سرورهای رایگان» برنامه‌ی همه‌ی کاربران ظاهر می‌شوند (بدون امکان ویرایش یا حذف از سمت آن‌ها).\n\nبرای لغو /cancel");
+    "هر خط یک کانفیگ:\n" +
+    "<code>vless:// · vmess:// · trojan:// · ss:// · wg://</code>\n\n" +
+    "🏷 <b>پیشوند سرور (نشان کنار نام):</b> اگر خط را با پیشوند بفرستی، همان پیشوند در برنامه کنار نام سرور نشان داده می‌شود:\n" +
+    "<code>🇩🇪 ویژه | vless://…</code>\n\n" +
+    "📄 فایل کامل وایرگارد (<code>[Interface]…[Peer]</code>) را هم می‌توانی همان‌طور پیست کنی.\n\n" +
+    "بعد از افزودن، سرورها در بخش «سرورهای رایگان» برنامه‌ی همه‌ی کاربران تا حداکثر یک دقیقه دیگر ظاهر می‌شوند (بدون امکان ویرایش یا حذف از سمت آن‌ها).\n\nبرای لغو /cancel");
 }
 
 function extractRemark(raw, proto) {
@@ -473,25 +527,106 @@ function extractRemark(raw, proto) {
   return "";
 }
 
-async function addFreeServers(text, chatId, env) {
-  const tokens = text.split(/[\s\n]+/).map(s => s.trim()).filter(Boolean);
-  let added = 0, dup = 0, bad = 0, names = "";
-  for (const t of tokens) {
-    const p = t.split("://")[0].toLowerCase();
-    if (!PROTOCOLS.includes(p)) { bad++; continue; }
-    const raw = t.slice(0, 900);
-    const ex = await env.DB.prepare("SELECT 1 AS x FROM free_servers WHERE raw = ?1").bind(raw).first();
-    if (ex) { dup++; continue; }
-    let name = extractRemark(raw, p);
-    if (!name) {
-      const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM free_servers").first();
-      name = "سرور رایگان " + ((c ? c.n : 0) + 1);
+/** تبدیل فایل conf وایرگارد به قالب دستی برنامه (single-line JSON) — مثل wgConfToManual سمت اندروید */
+function wgConfToManual(text) {
+  try {
+    let section = "", priv = "", pub = "", psk = "", endpoint = "", dnsLine = "", mtu = "", reserved = "", name = "";
+    const addresses = [];
+    for (let rawLine of String(text).split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith("#")) {
+        const d = line.replace(/^#+\s*/, "").trim();
+        if (!name && d.length > 2) name = d;
+        continue;
+      }
+      if (line.startsWith("[")) {
+        const end = line.indexOf("]");
+        section = (end > 0 ? line.slice(1, end) : line.slice(1)).trim().toLowerCase();
+        continue;
+      }
+      const idx = line.indexOf("=");
+      if (idx <= 0) continue;
+      const key = line.slice(0, idx).trim().toLowerCase();
+      const value = line.slice(idx + 1).trim();
+      if (section === "interface") {
+        if (key === "privatekey") priv = value;
+        else if (key === "address") value.split(",").forEach(a => { if (a.trim()) addresses.push(a.trim()); });
+        else if (key === "mtu") mtu = value;
+        else if (key === "dns") dnsLine = value;
+      } else if (section === "peer") {
+        if (key === "publickey") pub = value;
+        else if (key === "presharedkey") psk = value;
+        else if (key === "endpoint") endpoint = value;
+        else if (key === "reserved") reserved = value;
+      }
     }
-    await env.DB.prepare(
-      "INSERT INTO free_servers (name, raw, proto, added_at, enabled) VALUES (?1,?2,?3,?4,1)"
-    ).bind(name, raw, p, Date.now()).run();
-    added++;
-    if (names.length < 400) names += "\n• " + name;
+    if (!priv || !pub || !endpoint || endpoint.indexOf(":") < 0) return null;
+    const host = endpoint.slice(0, endpoint.lastIndexOf(":")).replace(/^\[/, "").replace(/\]$/, "");
+    const port = parseInt(endpoint.slice(endpoint.lastIndexOf(":") + 1), 10) || 51820;
+    const o = {
+      protocol: "wireguard", wgName: (name || "WireGuard").slice(0, 60),
+      privateKey: priv, publicKey: pub, server: host, port: port,
+      addresses_csv: addresses.join(",")
+    };
+    if (psk) o.presharedKey = psk;
+    if (mtu) o.mtu = parseInt(mtu, 10) || 1408;
+    if (reserved) o.reserved = reserved;
+    if (dnsLine) o.dns = dnsLine.split(",")[0].trim();
+    return o;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function insertFs(env, raw, proto, name, label) {
+  const ex = await env.DB.prepare("SELECT 1 AS x FROM free_servers WHERE raw = ?1").bind(raw).first();
+  if (ex) return null;
+  if (!name) {
+    const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM free_servers").first();
+    name = "سرور رایگان " + ((c ? c.n : 0) + 1);
+  }
+  await env.DB.prepare(
+    "INSERT INTO free_servers (name, label, raw, proto, added_at, enabled) VALUES (?1,?2,?3,?4,?5,1)"
+  ).bind(String(name).slice(0, 80), String(label || "").slice(0, 40), raw, proto, Date.now()).run();
+  return name;
+}
+
+async function addFreeServers(text, chatId, env) {
+  let added = 0, dup = 0, bad = 0, names = "";
+  const show = (n, lb) => { if (names.length < 400) names += "\n• " + (lb ? lb + " | " : "") + n; };
+
+  // ۱) فایل کامل وایرگارد ([Interface] … [Peer]) — کل پیام یک کانفیگ است
+  if (/\[interface\]/i.test(text) && /\[peer\]/i.test(text)) {
+    const man = wgConfToManual(text);
+    if (man) {
+      const n = await insertFs(env, JSON.stringify(man), "wireguard", man.wgName, "");
+      if (n === null) dup++; else { added++; show(n, ""); }
+    } else bad++;
+  } else {
+    // ۲) خط‌به‌خط: «پیشوند | کانفیگ» یا فقط کانفیگ (چند کانفیگ در یک خط هم قبول است)
+    for (let line of String(text).split(/\r?\n/)) {
+      line = line.trim();
+      if (!line) continue;
+      let label = "", body = line;
+      const bar = line.indexOf("|");
+      if (bar > 0) {
+        const head = line.slice(0, bar).trim();
+        const tail = line.slice(bar + 1).trim();
+        if (head && tail && head.length <= 40 && !head.toLowerCase().includes("://") && tail.toLowerCase().includes("://")) {
+          label = head;
+          body = tail;
+        }
+      }
+      for (const t of body.split(/\s+/).filter(Boolean)) {
+        const p = t.split("://")[0].toLowerCase();
+        if (!PROTOCOLS.includes(p)) { bad++; continue; }
+        const raw = t.slice(0, 1200);
+        const name = extractRemark(raw, p);
+        const n = await insertFs(env, raw, p, name, label);
+        if (n === null) dup++; else { added++; show(n, label); }
+      }
+    }
   }
   const total = await countFs(env);
   await tgSend(env, chatId,
@@ -500,6 +635,54 @@ async function addFreeServers(text, chatId, env) {
     (bad ? "\n❌ " + bad + " نامعتبر بود" : "") +
     (names ? "\n" + names : "") +
     "\n\n🖥 مجموع سرورهای رایگان فعال: <b>" + total + "</b>\nلیست داخل برنامه‌ی همه‌ی کاربران هر ۱ دقیقه خودکار به‌روزرسانی می‌شود — بدون نیاز به دکمه و بدون امکان ویرایش/حذف از سمت آن‌ها.", fsMenuKb());
+}
+
+/** /sname <id> <پیشوند> — گذاشتن/پاک‌کردن پیشوند یک سرور */
+async function snameCmd(rest, chatId, env) {
+  const m = rest.match(/^(\d+)\s*(.*)$/);
+  if (!m) {
+    await tgSend(env, chatId,
+      "شکل درست: <code>/sname شناسه پیشوند</code>\n" +
+      "مثال: <code>/sname 3 🇩🇪 ویژه</code>\n" +
+      "پاک‌کردن پیشوند: <code>/sname 3 -</code>\n\n" +
+      "شناسه‌ی سرورها را از «🖥 سرورهای رایگان ← 📃 لیست سرورها» ببین (دکمه‌ی 🏷 پیشوند همان‌جا هم هست).", fsMenuKb());
+    return;
+  }
+  const id = parseInt(m[1], 10);
+  const label = m[2].trim().slice(0, 40);
+  const v = (!label || label === "-" || label === "clear") ? "" : label;
+  await env.DB.prepare("UPDATE free_servers SET label = ?2 WHERE id = ?1").bind(id, v).run();
+  await tgSend(env, chatId,
+    v ? ("🏷 پیشوند سرور #" + id + " → «" + esc(v) + "» ثبت شد — کنار نامش در برنامه نشان داده می‌شود.")
+      : ("🏷 پیشوند سرور #" + id + " پاک شد."), fsMenuKb());
+}
+
+/** اعلان همگانی: ذخیره در D1 → اپ کاربران تا ۶۰ ثانیه بعد به‌صورت نوتیفیکیشن سیستم نشان می‌دهد */
+async function askNotify(chatId, env) {
+  await tgSend(env, chatId,
+    "📢 <b>ارسال اعلان به کاربران</b>\n\n" +
+    "عنوان و متن اعلان را در یک پیام بفرست، با این شکل:\n" +
+    "<code>عنوان اعلان | متن توضیحات اعلان</code>\n\n" +
+    "اعلان برای همه‌ی کاربرانی که دسترسی اعلان داده‌اند، به‌صورت نوتیفیکیشن سیستم بالای صفحه می‌آید.\n\nبرای لغو /cancel");
+}
+
+async function doNotify(text, chatId, env) {
+  const parts = String(text).split("|");
+  const title = (parts[0] || "").trim().slice(0, 80);
+  const body = parts.slice(1).join("|").trim().slice(0, 400);
+  if (!title) {
+    await tgSend(env, chatId, "عنوان اعلان خالی بود — دوباره با شکل «عنوان | متن» بفرست.\n\nبرای لغو /cancel");
+    return;
+  }
+  const r = await env.DB.prepare(
+    "INSERT INTO notifications (title, body, created_at) VALUES (?1,?2,?3)"
+  ).bind(title, body, Date.now()).run();
+  const id = (r && r.meta && r.meta.last_row_id) ? r.meta.last_row_id : "?";
+  await tgSend(env, chatId,
+    "📢 اعلان ثبت شد (شماره‌ی " + id + ")\n\n" +
+    "🏷 عنوان: <b>" + esc(title) + "</b>\n" +
+    (body ? "📝 متن: " + esc(body) + "\n" : "") +
+    "\n⏱ تا حداکثر ۶۰ ثانیه‌ی دیگر روی گوشی کاربران آنلاین بالای صفحه ظاهر می‌شود.", mainMenu());
 }
 
 async function sendFsMenu(chatId, env) {
@@ -513,19 +696,22 @@ async function sendFsMenu(chatId, env) {
 
 async function sendFsList(chatId, env) {
   const rs = await env.DB.prepare(
-    "SELECT id, name, proto, added_at FROM free_servers ORDER BY id DESC LIMIT 50"
+    "SELECT id, name, label, proto, added_at FROM free_servers ORDER BY id DESC LIMIT 50"
   ).all();
   const list = rs.results || [];
   if (!list.length) {
     await tgSend(env, chatId, "📃 لیست سرورهای رایگان خالی است.\nبا ➕ افزودن سرور اولین کانفیگ را بفرست.", fsMenuKb());
     return;
   }
-  let out = "📃 <b>سرورهای رایگان (" + list.length + ")</b> — برای حذف روی هرکدام بزن:\n";
+  let out = "📃 <b>سرورهای رایگان (" + list.length + ")</b>\nبرای هر سرور: 🏷 پیشوند (نشان کنار نام در برنامه) یا 🗑 حذف:\n";
   const rows = [];
   for (const r of list) {
-    out += "\n" + (r.proto || "?").toUpperCase() + " · " + esc(r.name || "?") +
-      " · " + new Date(r.added_at).toISOString().slice(0, 10);
-    rows.push([{ text: "🗑 حذف: " + (r.name || r.id).slice(0, 24), callback_data: "fs_del_" + r.id }]);
+    out += "\n" + (r.proto || "?").toUpperCase() + " · " + (r.label ? "🏷 " + esc(r.label) + " · " : "") + esc(r.name || "?") +
+      " · #" + r.id + " · " + new Date(r.added_at).toISOString().slice(0, 10);
+    rows.push([
+      { text: "🏷 پیشوند", callback_data: "fs_name_" + r.id },
+      { text: "🗑 حذف: " + (r.name || r.id).slice(0, 18), callback_data: "fs_del_" + r.id }
+    ]);
   }
   rows.push([{ text: "⬅️ بازگشت", callback_data: "fs" }]);
   await tgSend(env, chatId, out, kb(rows));

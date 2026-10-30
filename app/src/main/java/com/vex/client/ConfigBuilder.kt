@@ -344,9 +344,15 @@ object ConfigBuilder {
         link.startsWith("vmess://", true) -> fromVmess(link)
         link.startsWith("hysteria2://", true) || link.startsWith("hy2://", true) -> fromUri("hysteria2", "hysteria2://" + link.substringAfter("://"))
         link.startsWith("tuic://", true) -> fromUri("tuic", link)
+        // وایرگارد: wg:// یا wireguard:// → به قالب دستی برنامه تبدیل و ساخته می‌شود
+        link.startsWith("wg://", true) || link.startsWith("wireguard://", true) -> {
+            val man = LinkParser.wgUriToManual(link)
+                ?: throw IllegalArgumentException("لینک وایرگارد نامعتبر است")
+            wireguardOutbound(JSONObject(man))
+        }
         link.contains("xhttp", true) || link.contains("splithttp", true) ->
             throw IllegalArgumentException("هسته‌ی VEX از ترنسپورت XHTTP (splitHTTP) پشتیبانی نمی‌کند — از کانفیگ vless با WS/gRPC/TCP استفاده کن")
-        else -> throw IllegalArgumentException("این نوع لینک پشتیبانی نمی‌شود (پروتکل‌های پشتیبانی‌شده: vless / vmess / trojan / ss / hysteria2 / tuic)")
+        else -> throw IllegalArgumentException("این نوع لینک پشتیبانی نمی‌شود (پروتکل‌های پشتیبانی‌شده: vless / vmess / trojan / ss / hysteria2 / tuic / wireguard)")
     }
 
     private fun fromUri(proto: String, link: String): JSONObject {

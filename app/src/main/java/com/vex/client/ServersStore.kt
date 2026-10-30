@@ -10,12 +10,13 @@ data class Server(
     var name: String,
     var protocol: String,
     var raw: String,
-    var ping: Int = -1 // -1 = تست نشده، -2 = ناموفق
+    var ping: Int = -1, // -1 = تست نشده، -2 = ناموفق
+    var label: String = "" // پیشوند مدیر (ایموجی/برچسب) — از ربات تنظیم می‌شود
 )
 
 /** تنظیمات برنامه */
 data class VexSettings(
-    var theme: String = "royal",   // light | dark | shir | royal | system — پیش‌فرض: روشن
+    var theme: String = "royal_light",   // light | dark | shir | royal | royal_light | system — پیش‌فرض: روشن سلطنتی
     var mtu: Int = 1500,
     var dns: String = "1.1.1.1",
     var bypassLan: Boolean = true,
@@ -43,7 +44,8 @@ data class VexSettings(
     var pinHash: String = "",           // SHA-256 رمز قفل برنامه — خالی = بدون قفل
     var pinLen: Int = 0,                // طول رمز (برای ارسال خودکار کیبورد اختصاصی)
     var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
-    var freeRefreshSec: Int = 60        // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
+    var freeRefreshSec: Int = 60,       // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
+    var relockOnExit: Boolean = true    // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
 )
 
 /**
@@ -106,7 +108,8 @@ class ServersStore(context: Context) {
                     name = o.optString("name", "Vex Free Server"),
                     protocol = o.optString("protocol", "?").lowercase(),
                     raw = raw,
-                    ping = o.optInt("ping", -1)
+                    ping = o.optInt("ping", -1),
+                    label = o.optString("label", "")
                 ))
             }
         } catch (_: Throwable) {}
@@ -115,7 +118,7 @@ class ServersStore(context: Context) {
         try {
             val o = JSONObject(prefs.getString(KEY_SETTINGS, "{}") ?: "{}")
             settings = VexSettings(
-                theme = o.optString("theme", "royal"),
+                theme = o.optString("theme", "royal_light"),
                 mtu = o.optInt("mtu", 1500).coerceIn(1280, 9000),
                 dns = o.optString("dns", "1.1.1.1").ifEmpty { "1.1.1.1" },
                 bypassLan = o.optBoolean("bypassLan", true),
@@ -139,6 +142,7 @@ class ServersStore(context: Context) {
                 pinLen = o.optInt("pinLen", 0).coerceIn(0, 8),
                 keepScreenOn = o.optBoolean("keepScreenOn", false),
                 freeRefreshSec = when (o.optInt("freeRefreshSec", 60)) { 30 -> 30; 300 -> 300; 0 -> 0; else -> 60 },
+                relockOnExit = o.optBoolean("relockOnExit", true),
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {
                     val arr = o.optJSONArray("perAppPackages")
@@ -148,6 +152,15 @@ class ServersStore(context: Context) {
                 } catch (_: Throwable) { mutableSetOf() }
             )
         } catch (_: Throwable) { settings = VexSettings() }
+        // مهاجرت یک‌باره‌ی تم: پیش‌فرض قدیمی «شب سلطنتی» بود؛ از v3.16 پیش‌فرض «روشن سلطنتی» است.
+        // فقط اگر کاربر همچنان روی همان پیش‌فرض قدیمی باشد، یک بار به روشن منتقل می‌شود.
+        if (!prefs.getBoolean("theme_migrated_v316", false)) {
+            if (settings.theme == "royal") {
+                settings.theme = "royal_light"
+                saveSettings()
+            }
+            prefs.edit().putBoolean("theme_migrated_v316", true).apply()
+        }
     }
 
     // ------------------------------------------------------------ ذخیره
@@ -170,7 +183,8 @@ class ServersStore(context: Context) {
             .put("name", s.name)
             .put("protocol", s.protocol)
             .put("raw", s.raw)
-            .put("ping", s.ping))
+            .put("ping", s.ping)
+            .put("label", s.label))
         prefs.edit().putString(KEY_FREE, arr.toString())
             .putLong(KEY_FREE_TS, freeLastFetch).apply()
     }
@@ -203,6 +217,7 @@ class ServersStore(context: Context) {
             .put("pinLen", settings.pinLen)
             .put("keepScreenOn", settings.keepScreenOn)
             .put("freeRefreshSec", settings.freeRefreshSec)
+            .put("relockOnExit", settings.relockOnExit)
             .toString()).apply()
     }
 
