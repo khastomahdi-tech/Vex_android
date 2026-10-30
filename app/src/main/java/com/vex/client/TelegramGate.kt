@@ -36,6 +36,12 @@ object TelegramGate {
     const val OPEN = "open"
     const val CLOSED = "closed"
 
+    /** وضعیت دروازه + دلیل بسته‌بودن (متن مدیر در ربات) */
+    data class GateInfo(val gate: String, val reason: String?)
+
+    /** سرور رایگانِ مدیریت‌شده از ربات */
+    data class FreeServerDto(val id: Long, val name: String, val proto: String, val raw: String)
+
     // ------------------------------------------------ بررسی اینترنت
 
     /**
@@ -57,7 +63,7 @@ object TelegramGate {
                     readTimeout = 4000
                     instanceFollowRedirects = true
                     useCaches = false
-                    setRequestProperty("User-Agent", "VEX-Client/3.11 (connectivity)")
+                    setRequestProperty("User-Agent", "VEX-Client/3.13 (connectivity)")
                 }
                 if (c.responseCode in 200..399) return true
             } catch (_: Throwable) {
@@ -71,33 +77,35 @@ object TelegramGate {
     // ------------------------------------------------ کلید خاموش/روشن
 
     /**
-     * وضعیت فعلی دروازه از سرور کلادفلر خوانده می‌شود.
-     * خروجی: CLOSED فقط وقتی مدیر دستور /close داده باشد؛
+     * وضعیت فعلی دروازه + دلیل بسته‌بودن از سرور کلادفلر خوانده می‌شود.
+     * خروجی: CLOSED فقط وقتی مدیر در ربات /close داده باشد؛
      * در هر خطا/عدم‌دسترسی → OPEN (شکست باز).
      */
-    fun gateStatus(): String {
-        val body = get("/v1/state") ?: return OPEN
+    fun gateInfo(): GateInfo {
+        val body = get("/v1/state") ?: return GateInfo(OPEN, null)
         return try {
             val o = JSONObject(body)
-            if (o.optBoolean("ok") && o.optString("gate") == CLOSED) CLOSED else OPEN
+            if (o.optBoolean("ok") && o.optString("gate") == CLOSED)
+                GateInfo(CLOSED, o.optString("reason", null as String?))
+            else GateInfo(OPEN, null)
         } catch (_: Throwable) {
-            OPEN
+            GateInfo(OPEN, null)
         }
     }
+
+    /** فقط وضعیت (سازگاری با کدهای قبلی) */
+    fun gateStatus(): String = gateInfo().gate
 
     // ------------------------------------------------ اطلاع‌رسانی نصب/ورود
 
     /**
-     * ثبت «نصب/اولین ورود» روی سرور (D1) — پیام به مدیر همان‌جا ارسال می‌شود.
-     * فقط یک‌بار برای هر نسخه‌ی برنامه؛ اگر ارسال ناموفق باشد دفعه‌ی بعد تلاش می‌شود.
-     * وضعیت دروازه هم در پاسخ برمی‌گردد (اگر خطا باشد null).
+     * ثبت ورود/نصب روی سرور (D1) — هر بار اجرای برنامه گزارش می‌شود؛
+     * مدیر فقط برای «کاربر جدید» یا «آپدیت نسخه» پیام می‌گیرد (تصمیم سمت سرور).
+     * سرور IP، کشور، مدل گوشی و نسخه‌ی اندروید را خودش از درخواست درمی‌آورد.
+     * پاسخ همان درخواست، وضعیت دروازه + دلیل را هم برمی‌گرداند (اگر خطا باشد null).
      */
-    fun notifyInstall(ctx: Context): String? {
+    fun notifyInstall(ctx: Context): GateInfo? {
         try {
-            val prefs = ctx.getSharedPreferences("vex_gate", Context.MODE_PRIVATE)
-            val ver = pkgVersionCode(ctx)
-            val key = "notified_v$ver"
-            if (prefs.getBoolean(key, false)) return null
             val body = JSONObject().apply {
                 put("did", deviceId(ctx))
                 put("model", deviceName())
@@ -107,14 +115,44 @@ object TelegramGate {
                 put("event", "open")
             }
             val res = post("/v1/report", body) ?: return null
-            val gate = try {
+            return try {
                 val o = JSONObject(res)
-                if (o.optBoolean("ok")) o.optString("gate", OPEN) else null
+                if (o.optBoolean("ok"))
+                    GateInfo(o.optString("gate", OPEN), o.optString("reason", null as String?))
+                else null
             } catch (_: Throwable) { null }
-            if (gate != null) prefs.edit().putBoolean(key, true).apply()
-            return gate
         } catch (_: Throwable) {
             return null
+        }
+    }
+
+    // ------------------------------------------------ سرورهای رایگان ربات
+
+    /**
+     * دریافت سرورهای رایگان از بک‌اند ربات (D1) — فقط مدیر از طریق ربات
+     * می‌تواند سرور اضافه یا حذف کند؛ اینجا فقط فهرستِ فقط‌خواندنی می‌آید.
+     */
+    fun fetchFreeServers(): List<FreeServerDto> {
+        val body = get("/v1/freeservers") ?: return emptyList()
+        return try {
+            val o = JSONObject(body)
+            if (!o.optBoolean("ok")) return emptyList()
+            val arr = o.optJSONArray("servers") ?: return emptyList()
+            val out = ArrayList<FreeServerDto>(arr.length())
+            for (i in 0 until arr.length()) {
+                val s = arr.optJSONObject(i) ?: continue
+                val raw = s.optString("raw", "")
+                if (raw.isBlank()) continue
+                out.add(FreeServerDto(
+                    id = s.optLong("id", 0L),
+                    name = s.optString("name", "سرور رایگان"),
+                    proto = s.optString("proto", raw.substringBefore("://")),
+                    raw = raw
+                ))
+            }
+            out
+        } catch (_: Throwable) {
+            emptyList()
         }
     }
 

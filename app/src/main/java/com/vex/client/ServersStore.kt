@@ -15,7 +15,7 @@ data class Server(
 
 /** تنظیمات برنامه */
 data class VexSettings(
-    var theme: String = "light",   // light | dark | shir | royal | system — پیش‌فرض: روشن
+    var theme: String = "royal",   // light | dark | shir | royal | system — پیش‌فرض: روشن
     var mtu: Int = 1500,
     var dns: String = "1.1.1.1",
     var bypassLan: Boolean = true,
@@ -110,7 +110,7 @@ class ServersStore(context: Context) {
         try {
             val o = JSONObject(prefs.getString(KEY_SETTINGS, "{}") ?: "{}")
             settings = VexSettings(
-                theme = o.optString("theme", "light"),
+                theme = o.optString("theme", "royal"),
                 mtu = o.optInt("mtu", 1500).coerceIn(1280, 9000),
                 dns = o.optString("dns", "1.1.1.1").ifEmpty { "1.1.1.1" },
                 bypassLan = o.optBoolean("bypassLan", true),

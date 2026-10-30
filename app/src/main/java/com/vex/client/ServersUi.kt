@@ -325,7 +325,9 @@ class ServersUi(private val act: MainActivity) {
         title.text = "سرورها (${act.store.servers.size})"
         val servers = act.store.servers
         if (servers.isEmpty()) {
-            emptyHint.text = "هنوز سروری اضافه نشده.\nاز دکمه‌ی «+» پایین صفحه شروع کن:\nپیست، QR، فایل، دستی یا اشتراک."
+            emptyHint.text = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است.
+سرورهای رایگان فقط از طریق ربات Vex اضافه می‌شوند؛
+برای دریافت تازه روی دکمه‌ی بالای صفحه بزن."
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
             freeProgress.visibility = View.GONE

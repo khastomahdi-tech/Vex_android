@@ -15,3 +15,12 @@ CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT
 );
+-- سرورهای رایگان که فقط از طریق ربات مدیریت می‌شوند
+CREATE TABLE IF NOT EXISTS free_servers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT,
+  raw TEXT UNIQUE,
+  proto TEXT,
+  added_at INTEGER,
+  enabled INTEGER DEFAULT 1
+);

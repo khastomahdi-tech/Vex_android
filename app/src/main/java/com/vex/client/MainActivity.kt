@@ -80,6 +80,8 @@ class MainActivity : ComponentActivity() {
     // ---- دروازه‌ی ورود ----
     private lateinit var gateRoot: LinearLayout
     private var gateBuilt = false
+    /** دلیل بسته‌بودن برنامه (از ربات مدیر) */
+    private var gateReason: String? = null
 
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
@@ -176,11 +178,10 @@ class MainActivity : ComponentActivity() {
             // اینترنت هست → برنامه بلافاصله باز می‌شود
             main.post { if (!isFinishing) enterApp() }
             // بررسی وضعیت ربات (کلادفلر) + ثبت نصب/ورود — پاسخ report هم وضعیت را می‌دهد
-            val st = TelegramGate.gateStatus()
-            val reported = TelegramGate.notifyInstall(this)
-            if (reported != null) TelegramGate.ackIfChanged(reported, this) else TelegramGate.ackIfChanged(st, this)
-            val finalSt = if (st == TelegramGate.CLOSED || reported == TelegramGate.CLOSED) TelegramGate.CLOSED else st
-            if (finalSt == TelegramGate.CLOSED) {
+            val info = TelegramGate.notifyInstall(this) ?: TelegramGate.gateInfo()
+            TelegramGate.ackIfChanged(info.gate, this)
+            if (info.gate == TelegramGate.CLOSED) {
+                gateReason = info.reason
                 main.post {
                     if (!isFinishing) {
                         requestStop() // برنامه بسته شد → تونل هم قطع می‌شود
@@ -199,9 +200,10 @@ class MainActivity : ComponentActivity() {
     private fun startGateWatch() {
         main.postDelayed({
             Thread {
-                val st = TelegramGate.gateStatus()
-                if (st == TelegramGate.CLOSED) {
-                    TelegramGate.ackIfChanged(st, this)
+                val info = TelegramGate.gateInfo()
+                if (info.gate == TelegramGate.CLOSED) {
+                    gateReason = info.reason
+                    TelegramGate.ackIfChanged(info.gate, this)
                     main.post {
                         if (!isFinishing) {
                             requestStop()
@@ -841,25 +843,29 @@ class MainActivity : ComponentActivity() {
      */
     fun refreshFreeServers() {
         if (FreeServers.fetching) { UI.toast(this, "دریافت سرورهای رایگان در حال اجراست"); return }
-        UI.toast(this, "در حال دریافت سرورهای رایگان…")
         freeFetching = true
-        serversUi.freeProgressMsg = "در حال دریافت از منابع رایگان…"
+        serversUi.freeProgressMsg = "در حال دریافت از سرور مدیریت…"
         if (serversUi.tab == 1) serversUi.render()
         Thread {
-            val alive = FreeServers.fetchAliveServers { msg ->
+            val dtos = TelegramGate.fetchFreeServers()
+            var alive: List<Server> = emptyList()
+            if (dtos.isEmpty()) {
                 main.post {
-                    serversUi.freeProgressMsg = msg
+                    serversUi.freeProgressMsg = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است"
                     if (serversUi.tab == 1) serversUi.render()
+                }
+            } else {
+                alive = FreeServers.aliveFromBot(dtos) { msg ->
+                    main.post {
+                        serversUi.freeProgressMsg = msg
+                        if (serversUi.tab == 1) serversUi.render()
+                    }
                 }
             }
             freeFetching = false
             main.post {
-                if (alive.isNotEmpty()) {
-                    store.replaceFreeServers(alive)
-                    UI.toast(this, "${alive.size} سرور رایگان سالم ذخیره شد")
-                } else if (store.freeLastFetch == 0L) {
-                    UI.toast(this, "دریافت ناموفق بود — دوباره تلاش کن")
-                }
+                store.replaceFreeServers(alive)
+                UI.toast(this, if (alive.isEmpty()) "سرور رایگان فعالی پیدا نشد" else "${alive.size} سرور رایگان آماده شد")
                 serversUi.render()
                 homeUi.renderServerCard()
             }
@@ -980,7 +986,7 @@ class MainActivity : ComponentActivity() {
             setPadding(0, UI.dp(ctx, 26), 0, 0)
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
-                "closed" -> { text = "برنامه غیرفعال شده است"; setTextColor(p.bad) }
+                "closed" -> { text = "دسترسی برنامه بسته شده است"; setTextColor(p.bad) }
                 else -> { text = "در حال بررسی اتصال…"; setTextColor(p.text) }
             }
         }
@@ -993,7 +999,9 @@ class MainActivity : ComponentActivity() {
             setLineSpacing(UI.dp(ctx, 3).toFloat(), 1f)
             when (state) {
                 "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
-                "closed" -> text = "این نسخه از سمت پشتیبانی بسته شده است.\nبرای نسخه‌ی جدید و اطلاعات بیشتر، کانال تلگرام را ببین."
+                "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
+                        ?: "یا برنامه در حال به‌روزرسانی است یا مشکل فنی موقت پیش آمده است.
+لطفاً کمی بعد دوباره تلاش کن؛ خبرها در کانال تلگرام منتشر می‌شود."
                 else -> text = "چند لحظه صبر کن…"
             }
         }
