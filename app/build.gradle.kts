@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 21
         targetSdk = 34
-        versionCode = 30
-        versionName = "3.23.0"
+        versionCode = 31
+        versionName = "1"
         // فقط گوشی‌های ARM — حذف کتابخانه‌های x86/x86_64 شبیه‌ساز → APK حدود ۱۶MB کوچک‌تر
         // (دانلود سبک‌تر = ریسک خرابی و خطای «بسته معتبر نیست» به‌مراتب کمتر)
         ndk {
@@ -74,4 +74,6 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
     // دیکودر QR به‌صورت آفلاین (مدل داخل APK؛ بدون نیاز به گوگل‌پلی)
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // موتور سایفون (Psiphon tunnel core) — اتصال با سایفون داخل خود برنامه
+    implementation("ca.psiphon:psiphontunnel:2.0.42")
 }

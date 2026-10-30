@@ -22,6 +22,7 @@ import io.nekohasekai.libbox.RoutePrefixIterator
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.libbox.WIFIState
+import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.Inet6Address
@@ -78,6 +79,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
         // ---- آخرین بار اتصال (برای اتصال مجدد خودکار پس از کشته‌شدن سرویس) ----
         @Volatile var lastPayload: String? = null
+        /** جلسه‌ی فعلی/آخر با موتور سایفون اجرا شده است؟ (برای خاموش‌کردن تونل سایفون هنگام قطع) */
+        @Volatile var lastEnginePsiphon = false
 
         // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
         private val logBuf = ArrayDeque<String>(400)
@@ -151,7 +154,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
     private fun startVpn(config: String) {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
-        startForeground(NOTIF_ID, notif("در حال اتصال...", "راه‌اندازی هسته..."))
+        val usePsiphon = try { JSONObject(config).optString("engine") == "psiphon" } catch (_: Throwable) { false }
+        lastEnginePsiphon = usePsiphon
+        startForeground(NOTIF_ID, notif(
+            if (usePsiphon) "در حال اتصال... (سایفون)" else "در حال اتصال...",
+            if (usePsiphon) "راه‌اندازی موتور سایفون..." else "راه‌اندازی هسته..."))
         uiState = "connecting"
         tileListener?.invoke("connecting")
         netState = 0; netMsg = ""; netMs = -1
@@ -166,7 +173,16 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     workingDir = getExternalFilesDir(null) ?: File(filesDir, "work"),
                     tempDir = cacheDir
                 )
-                val coreConfig = ConfigBuilder.build(config)
+                val coreConfig = if (usePsiphon) {
+                    // موتور سایفون: تونل رسمی Psiphon به‌صورت پروکسی محلی بالا می‌آید
+                    // و هسته‌ی sing-box ترافیک را به آن می‌فرستد (tun → sing-box → سایفون)
+                    val port = PsiphonEngine.ensureStarted(applicationContext)
+                    if (port == 0) throw Exception("اتصال سایفون برقرار نشد — دوباره امتحان کن")
+                    PsiphonEngine.awaitConnected(20_000L) // بهتر است تا اتصال واقعی صبر شود؛ الزامی نیست
+                    ConfigBuilder.buildPsiphon(port, config)
+                } else {
+                    ConfigBuilder.build(config)
+                }
                 val eng = CoreEngine(coreConfig, this)
                 eng.start() // داخل همین فراخوانی openTun() صدا زده می‌شود
 
@@ -339,6 +355,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
+        // اگر این جلسه با موتور سایفون بود، تونل سایفون هم بسته می‌شود
+        if (lastEnginePsiphon) {
+            lastEnginePsiphon = false
+            try { PsiphonEngine.stop() } catch (_: Throwable) {}
+        }
         tunIfaceName = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -731,7 +752,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             .setContentTitle("VEX CLIENT — $title")
             .setContentText(body.lineSequence().first())
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.ic_stat_vex)
             .setContentIntent(open)
             .addAction(0, "قطع اتصال", stop)
             .setOngoing(true)

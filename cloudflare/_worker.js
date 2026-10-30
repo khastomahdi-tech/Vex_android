@@ -43,9 +43,13 @@
  *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
  *   /panel → web admin panel link · /minver <code> → forced-update banner on old builds
  *   /ping → health check · /reload → re-sync GitHub fallback snapshots · /notifs recent list
+ *   🚫 نسخه‌های بسته: versions menu — close/open SPECIFIC app versions (blocked_versions in D1)
+ *       → users running a blocked version see «این نسخه بسته شده است؛ بروزرسانی کنید» and cannot enter.
+ *       Web panel has the same section under tab «🚫 نسخه‌ها».
+ *   Free-server list rows now also have a per-server ⚫/🟢 enable/disable toggle.
  */
 
-const SERVICE_V = 9;
+const SERVICE_V = 10;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -120,7 +124,8 @@ export default {
         const gate = (await getSetting(env, "gate")) || "open";
         const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
         const minVer = Number(await getSetting(env, "min_ver")) || 0;
-        return json({ ok: true, gate, reason, min_ver: minVer });
+        const blocked = await getBlocked(env);
+        return json({ ok: true, gate, reason, min_ver: minVer, blocked });
       }
       if (path === "/v1/report" && request.method === "POST") {
         return report(request, env);
@@ -346,7 +351,8 @@ async function handleAdmin(path, url, request, env) {
     const mv = Number(await getSetting(env, "min_ver")) || 0;
     const cr = (await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON;
     const owner = await getSetting(env, "owner");
-    return J({ ok: true, min_ver: mv, close_reason: cr, owner, service_v: SERVICE_V });
+    const blocked = await getBlocked(env);
+    return J({ ok: true, min_ver: mv, close_reason: cr, owner, blocked, service_v: SERVICE_V });
   }
 
   if (path === "/admin/settings" && request.method === "POST") {
@@ -363,6 +369,44 @@ async function handleAdmin(path, url, request, env) {
     }
     if (changed) await ghSync(env, "state.json", await stateSnapshot(env));
     return J({ ok: true, min_ver: Number(await getSetting(env, "min_ver")) || 0 });
+  }
+
+  // ---------------- نسخه‌های بسته (version kill-switch) ----------------
+  // نسخه‌ی مشخصی از برنامه را می‌بندد؛ کاربرِ آن نسخه پیام «این نسخه بسته شده است» می‌بیند.
+  if (path === "/admin/versions" && request.method === "GET") {
+    const blocked = await getBlocked(env);
+    const rs = await env.DB.prepare(
+      "SELECT ver, COUNT(*) AS n, MAX(last_seen) AS last_seen FROM users GROUP BY ver ORDER BY last_seen DESC LIMIT 40"
+    ).all();
+    return J({ ok: true, blocked, versions: rs.results || [] });
+  }
+
+  if (path === "/admin/versions/block" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const ver = normalizeVersion(b.ver);
+    if (!ver) return J({ ok: false, error: "ver required" }, 400);
+    const list = await getBlocked(env);
+    if (!list.includes(ver)) list.push(ver);
+    await setBlocked(env, list);
+    await ghSync(env, "state.json", await stateSnapshot(env));
+    return J({ ok: true, blocked: list });
+  }
+
+  if (path === "/admin/versions/unblock" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const ver = normalizeVersion(b.ver);
+    if (!ver) return J({ ok: false, error: "ver required" }, 400);
+    let list = await getBlocked(env);
+    list = list.filter(v => v !== ver);
+    await setBlocked(env, list);
+    await ghSync(env, "state.json", await stateSnapshot(env));
+    return J({ ok: true, blocked: list });
+  }
+
+  if (path === "/admin/versions/clear" && request.method === "POST") {
+    await setBlocked(env, []);
+    await ghSync(env, "state.json", await stateSnapshot(env));
+    return J({ ok: true, blocked: [] });
   }
 
   if (path === "/admin/notifications/delete" && request.method === "POST") {
@@ -427,7 +471,7 @@ async function report(request, env) {
     await tgSend(env, owner, text);
   }
 
-  return json({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null, min_ver: minVer, users: total ? total.n : 0 });
+  return json({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null, min_ver: minVer, blocked: await getBlocked(env), users: total ? total.n : 0 });
 }
 
 async function ack(request, env) {
@@ -505,6 +549,25 @@ async function handleUpdate(up, env) {
       }
       return;
     }
+    if (pend === "blockver") {
+      const vers = text.split(/[،,\s]+/).map(normalizeVersion).filter(Boolean);
+      if (!vers.length) {
+        await tgSend(env, chatId, "نسخه‌ای پیدا نشد — مثلاً بفرست: <code>3.23.0</code>\n\nبرای لغو /cancel");
+        return;
+      }
+      const list = await getBlocked(env);
+      let added = 0;
+      for (const v of vers) {
+        if (!list.includes(v)) { list.push(v); added++; }
+      }
+      await setBlocked(env, list);
+      await ghSync(env, "state.json", await stateSnapshot(env));
+      await tgSend(env, chatId,
+        "🚫 " + added + " نسخه بسته شد:\n" +
+        vers.map(v => "• " + esc(v)).join("\n") +
+        "\n\nکاربران این نسخه‌ها موقع ورود پیام بستن می‌بینند. لیست کامل: 🚫 نسخه‌های بسته", mainMenu());
+      return;
+    }
     if (pend === "close_reason") {
       const reason = text.slice(0, 400);
       await doClose(chatId, env, reason);
@@ -558,6 +621,8 @@ async function handleUpdate(up, env) {
       kb([[{ text: "🌐 بازکردن پنل", url: "https://panel.demonvpn.shop" }], [{ text: "⬅️ منوی اصلی", callback_data: "menu" }]]));
   } else if (lc.startsWith("/minver")) {
     await minverCmd(text.replace(/^\/minver\s*/i, "").trim(), chatId, env);
+  } else if (lc.startsWith("/blocked") || lc.startsWith("/vers")) {
+    await sendVersions(chatId, env);
   } else if (lc.startsWith("/ping")) {
     const t0 = Date.now();
     await env.DB.prepare("SELECT 1 AS x").first();
@@ -641,6 +706,40 @@ async function handleCb(data, chatId, env) {
     await sendNotifs(chatId, env);
   } else if (data === "minver") {
     await minverCmd("", chatId, env);
+  } else if (data === "vers") {
+    await sendVersions(chatId, env);
+  } else if (data === "ver_add") {
+    await setSetting(env, "pend_" + chatId, "blockver");
+    await tgSend(env, chatId,
+      "🚫 <b>بستن نسخه</b>\n\n" +
+      "شماره‌ی نسخه را بفرست — چند نسخه را با ویرگول یا فاصله جدا کن:\n" +
+      "<code>3.23.0, 3.22.0</code>\n\n" +
+      "کاربرانی که همان نسخه را دارند موقع ورود پیام «This version has been disabled…» می‌بینند و وارد نمی‌شوند.\n\nبرای لغو /cancel");
+  } else if (data === "ver_clear") {
+    await setBlocked(env, []);
+    await ghSync(env, "state.json", await stateSnapshot(env));
+    await tgSend(env, chatId, "♻️ همه‌ی نسخه‌های بسته آزاد شدند — همه می‌توانند وارد شوند.");
+    await sendVersions(chatId, env);
+  } else if (data.startsWith("vblk_")) {
+    const ver = normalizeVersion(data.slice(5));
+    if (ver) {
+      const list = await getBlocked(env);
+      if (!list.includes(ver)) list.push(ver);
+      await setBlocked(env, list);
+      await ghSync(env, "state.json", await stateSnapshot(env));
+      await tgSend(env, chatId, "🚫 نسخه‌ی <b>" + esc(ver) + "</b> بسته شد — کاربرانش دیگر وارد نمی‌شوند.");
+    }
+    await sendVersions(chatId, env);
+  } else if (data.startsWith("vunblk_")) {
+    const ver = normalizeVersion(data.slice(7));
+    if (ver) {
+      let list = await getBlocked(env);
+      list = list.filter(v => v !== ver);
+      await setBlocked(env, list);
+      await ghSync(env, "state.json", await stateSnapshot(env));
+      await tgSend(env, chatId, "✅ نسخه‌ی <b>" + esc(ver) + "</b> باز شد.");
+    }
+    await sendVersions(chatId, env);
   } else if (data === "syncsnap") {
     await syncSnaps(chatId, env);
   } else if (data === "fs_delall") {
@@ -659,6 +758,17 @@ async function handleCb(data, chatId, env) {
       await ghSync(env, "freeservers.json", await fsSnapshot(env));
     }
     await sendFsList(chatId, env);
+  } else if (data.startsWith("fs_tgl_")) {
+    const id = parseInt(data.slice(7), 10);
+    if (id) {
+      const row = await env.DB.prepare("SELECT enabled FROM free_servers WHERE id = ?1").bind(id).first();
+      if (row) {
+        const nv = (Number(row.enabled) === 1) ? 0 : 1;
+        await env.DB.prepare("UPDATE free_servers SET enabled = ?2 WHERE id = ?1").bind(id, nv).run();
+        await ghSync(env, "freeservers.json", await fsSnapshot(env));
+      }
+    }
+    await sendFsList(chatId, env);
   }
 }
 
@@ -672,8 +782,8 @@ function mainMenu() {
     [{ text: "📢 ارسال اعلان", callback_data: "notify" }, { text: "📜 اعلان‌های اخیر", callback_data: "notifs" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
     [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }],
-    [{ text: "🔄 حداقل نسخه", callback_data: "minver" }, { text: "🔄 همگام‌سازی", callback_data: "syncsnap" }],
-    [{ text: "🌐 پنل مدیریت وب", url: "https://panel.demonvpn.shop" }]
+    [{ text: "🚫 نسخه‌های بسته", callback_data: "vers" }, { text: "🔄 حداقل نسخه", callback_data: "minver" }],
+    [{ text: "🔄 همگام‌سازی", callback_data: "syncsnap" }, { text: "🌐 پنل مدیریت وب", url: "https://panel.demonvpn.shop" }]
   ]);
 }
 
@@ -724,6 +834,7 @@ async function sendStats(chatId, env) {
   const tt = await trafficTotals(env);
   const nc = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications").first();
   const mv = Number(await getSetting(env, "min_ver")) || 0;
+  const bl = await getBlocked(env);
   await tgSend(env, chatId,
     "📊 <b>آمار Vex Client</b>\n" +
     "👥 کل کاربران (نصب‌ها): <b>" + (t ? t.n : 0) + "</b>\n" +
@@ -733,6 +844,7 @@ async function sendStats(chatId, env) {
     "🖥 سرورهای رایگان فعال: " + fs + "\n" +
     "📢 اعلان‌های ارسال‌شده: " + (nc ? nc.n : 0) + "\n" +
     "🔄 حداقل نسخه‌ی مجاز: " + (mv ? mv : "—") + "\n" +
+    "🚫 نسخه‌های بسته: " + (bl.length ? bl.map(v => esc(v)).join("، ") : "—") + "\n" +
     "🆓 مصرف سرورهای رایگان: " + fmtB(tt.freeB) + "\n" +
     "🔑 مصرف سرورهای شخصی: " + fmtB(tt.privB) + "\n" +
     "🧮 مصرف کل: <b>" + fmtB(tt.freeB + tt.privB) + "</b>\n" +
@@ -1111,8 +1223,8 @@ async function minverCmd(rest, chatId, env) {
       "🔄 <b>حداقل نسخه‌ی مجاز</b>\n\n" +
       "الان: <b>" + (cur ? cur : "خاموش") + "</b>\n\n" +
       "اگر این عدد از versionCode کاربر بالاتر باشد، موقع ورود بنر «🔔 نسخه‌ی جدید منتشر شده» با دکمه‌ی دانلود می‌بیند.\n\n" +
-      "تنظیم: <code>/minver 30</code>\nخاموش‌کردن: <code>/minver 0</code>\n\n" +
-      "💡 نسخه‌ی فعلی برنامه <b>30</b> است.", mainMenu());
+      "تنظیم: <code>/minver 31</code>\nخاموش‌کردن: <code>/minver 0</code>\n\n" +
+      "💡 کد نسخه‌ی فعلی برنامه <b>31</b> است (نام نمایشی: 1). برای بستن یک نسخه‌ی مشخص، «🚫 نسخه‌های بسته» را ببین.", mainMenu());
     return;
   }
   const n = Math.round(Number(rest));
@@ -1139,24 +1251,67 @@ async function sendFsMenu(chatId, env) {
 
 async function sendFsList(chatId, env) {
   const rs = await env.DB.prepare(
-    "SELECT id, name, label, proto, added_at FROM free_servers ORDER BY id DESC LIMIT 50"
+    "SELECT id, name, label, proto, added_at, enabled FROM free_servers ORDER BY id DESC LIMIT 50"
   ).all();
   const list = rs.results || [];
   if (!list.length) {
     await tgSend(env, chatId, "📃 لیست سرورهای رایگان خالی است.\nبا ➕ افزودن سرور اولین کانفیگ را بفرست.", fsMenuKb());
     return;
   }
-  let out = "📃 <b>سرورهای رایگان (" + list.length + ")</b>\nبرای هر سرور: 🏷 پیشوند (نشان کنار نام در برنامه) یا 🗑 حذف:\n";
+  let out = "📃 <b>سرورهای رایگان (" + list.length + ")</b>\n" +
+    "برای هر سرور: 🏷 پیشوند · ⚫/🟢 فعال/غیرفعال · 🗑 حذف:\n";
   const rows = [];
   for (const r of list) {
-    out += "\n" + (r.proto || "?").toUpperCase() + " · " + (r.label ? "🏷 " + esc(r.label) + " · " : "") + esc(r.name || "?") +
+    const on = Number(r.enabled) === 1;
+    out += "\n" + (on ? "🟢" : "⚫") + " " + (r.proto || "?").toUpperCase() + " · " +
+      (r.label ? "🏷 " + esc(r.label) + " · " : "") + esc(r.name || "?") +
       " · #" + r.id + " · " + new Date(r.added_at).toISOString().slice(0, 10);
     rows.push([
       { text: "🏷 پیشوند", callback_data: "fs_name_" + r.id },
-      { text: "🗑 حذف: " + (r.name || r.id).slice(0, 18), callback_data: "fs_del_" + r.id }
+      { text: on ? "⚫ خاموش" : "🟢 روشن", callback_data: "fs_tgl_" + r.id },
+      { text: "🗑 حذف: " + (r.name || r.id).slice(0, 14), callback_data: "fs_del_" + r.id }
     ]);
   }
   rows.push([{ text: "⬅️ بازگشت", callback_data: "fs" }]);
+  await tgSend(env, chatId, out, kb(rows));
+}
+
+/**
+ * 🚫 نسخه‌های بسته — بستن/باز کردن نسخه‌های مشخص برنامه.
+ * نسخه‌ی بسته‌شده موقع ورود کاربر پیام «This version has been disabled» می‌بیند.
+ */
+async function sendVersions(chatId, env) {
+  const blocked = await getBlocked(env);
+  let rows = [];
+  let out = "🚫 <b>نسخه‌های بسته</b>\n\n";
+  if (blocked.length) {
+    out += "الان بسته‌اند:";
+    for (const v of blocked) {
+      out += "\n• <b>" + esc(v) + "</b>";
+      rows.push([{ text: "✅ باز کردن: " + v, callback_data: "vunblk_" + v }]);
+    }
+  } else {
+    out += "هیچ نسخه‌ای بسته نیست — همه می‌توانند وارد شوند.";
+  }
+  out += "\n\n👥 <b>نسخه‌های دیده‌شده روی دستگاه کاربران</b> (برای بستن، دکمه‌اش را بزن):";
+  const rs = await env.DB.prepare(
+    "SELECT ver, COUNT(*) AS n, MAX(last_seen) AS last_seen FROM users GROUP BY ver ORDER BY last_seen DESC LIMIT 10"
+  ).all();
+  const vers = rs.results || [];
+  if (!vers.length) {
+    out += "\nهنوز ورودی ثبت نشده.";
+  } else {
+    for (const r of vers) {
+      const v = normalizeVersion(r.ver) || "?";
+      const isBlocked = blocked.includes(v);
+      out += "\n" + (isBlocked ? "🚫" : "•") + " v" + esc(v) + " — " + r.n + " دستگاه" +
+        " · آخرین ورود " + new Date(r.last_seen).toISOString().slice(5, 16).replace("T", " ");
+      rows.push([{ text: (isBlocked ? "✅ باز کردن v" : "🚫 بستن v") + v, callback_data: (isBlocked ? "vunblk_" : "vblk_") + v }]);
+    }
+  }
+  rows.push([{ text: "✍️ بستن نسخه‌ی جدید", callback_data: "ver_add" }]);
+  if (blocked.length) rows.push([{ text: "♻️ آزاد کردن همه", callback_data: "ver_clear" }]);
+  rows.push([{ text: "⬅️ منوی اصلی", callback_data: "menu" }]);
   await tgSend(env, chatId, out, kb(rows));
 }
 
@@ -1167,7 +1322,8 @@ async function stateSnapshot(env) {
   const gate = (await getSetting(env, "gate")) || "open";
   const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
   const minVer = Number(await getSetting(env, "min_ver")) || 0;
-  return { ok: true, gate, reason, min_ver: minVer, ts: Date.now() };
+  const blocked = await getBlocked(env);
+  return { ok: true, gate, reason, min_ver: minVer, blocked, ts: Date.now() };
 }
 
 /** اسنپ‌شات سرورهای رایگان — همان شکل پاسخ /v1/freeservers */
@@ -1255,6 +1411,38 @@ async function answerCb(env, id, text) {
 async function getSetting(env, k) {
   const r = await env.DB.prepare("SELECT v FROM settings WHERE k = ?1").bind(k).first();
   return r ? r.v : null;
+}
+
+// ---------------- نسخه‌های بسته (blocked_versions در D1 settings) ----------------
+
+/** فهرست نسخه‌های بسته — همیشه آرایه‌ی تمیز از رشته‌های کوتاه */
+async function getBlocked(env) {
+  const raw = (await getSetting(env, "blocked_versions")) || "[]";
+  let arr = [];
+  try { arr = JSON.parse(raw); } catch (e) {}
+  if (!Array.isArray(arr)) arr = [];
+  const out = [];
+  for (const v of arr) {
+    const n = normalizeVersion(v);
+    if (n && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+async function setBlocked(env, list) {
+  const clean = [];
+  for (const v of (Array.isArray(list) ? list : [])) {
+    const n = normalizeVersion(v);
+    if (n && !clean.includes(n)) clean.push(n);
+  }
+  await setSetting(env, "blocked_versions", JSON.stringify(clean));
+  return clean;
+}
+
+/** نرمال‌سازی رشته‌ی نسخه: حذف فاصله، حذف v ابتدایی، حداکثر ۲۴ کاراکتر */
+function normalizeVersion(v) {
+  let s = String(v == null ? "" : v).trim().replace(/^v/i, "").slice(0, 24);
+  return s;
 }
 
 async function setSetting(env, k, v) {

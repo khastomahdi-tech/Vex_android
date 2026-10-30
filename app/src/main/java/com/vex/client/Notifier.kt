@@ -76,7 +76,8 @@ object Notifier {
                 .setContentTitle(title)
                 .setContentText(body.ifEmpty { "اعلان از مدیر Vex" })
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body.ifEmpty { "اعلان از مدیر Vex" }))
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_stat_vex)
+                .setColor(0xFFE8C15A.toInt())
                 .setContentIntent(open)
                 .setAutoCancel(true)
             if (Build.VERSION.SDK_INT < 26) b.priority = NotificationCompat.PRIORITY_HIGH
@@ -119,7 +120,8 @@ object Notifier {
                 .setContentTitle("Vex بسته شد")
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_stat_vex)
+                .setColor(0xFFE8C15A.toInt())
                 .setContentIntent(open)
                 .setAutoCancel(true)
             if (Build.VERSION.SDK_INT < 26) b.priority = NotificationCompat.PRIORITY_DEFAULT

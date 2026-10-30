@@ -44,6 +44,7 @@ data class VexSettings(
     var pinLen: Int = 0,                // طول رمز (برای ارسال خودکار کیبورد اختصاصی)
     var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
     var freeRefreshSec: Int = 60,       // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
+    var engine: String = "vex",         // موتور اتصال: vex (سرورها) | psiphon (سایفون)
     var relockOnExit: Boolean = true    // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
 )
 
@@ -140,6 +141,7 @@ class ServersStore(context: Context) {
                 pinLen = o.optInt("pinLen", 0).coerceIn(0, 8),
                 keepScreenOn = o.optBoolean("keepScreenOn", false),
                 freeRefreshSec = when (o.optInt("freeRefreshSec", 60)) { 30 -> 30; 300 -> 300; 0 -> 0; else -> 60 },
+                engine = if (o.optString("engine", "vex") == "psiphon") "psiphon" else "vex",
                 relockOnExit = o.optBoolean("relockOnExit", true),
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {
@@ -224,6 +226,7 @@ class ServersStore(context: Context) {
             .put("keepScreenOn", settings.keepScreenOn)
             .put("freeRefreshSec", settings.freeRefreshSec)
             .put("relockOnExit", settings.relockOnExit)
+            .put("engine", settings.engine)
             .toString()).apply()
     }
 

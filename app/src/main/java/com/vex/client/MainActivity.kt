@@ -227,10 +227,17 @@ class MainActivity : ComponentActivity() {
             }
             // اینترنت هست → اول وضعیت ربات (کلادفلر) چک می‌شود؛ اگر مدیر برنامه را
             // بسته باشد کاربر اصلاً وارد نمی‌شود و همین‌جا پیام انگلیسی می‌بیند.
-            val info = TelegramGate.notifyInstall(this) ?: TelegramGate.gateInfo()
+            var info = TelegramGate.notifyInstall(this) ?: TelegramGate.gateInfo()
             TelegramGate.ackIfChanged(info.gate, this)
             // اعلام «نسخه‌ی جدید» — مدیر در پنل/ربات min_ver را بالاتر از این نسخه گذاشته باشد
             pendingUpdateVer = if (info.minVer > TelegramGate.selfVersionCode(this).toInt()) info.minVer else 0
+            // نسخه‌های بسته‌شده توسط مدیر — اگر نسخه‌ی همین برنامه در لیست باشد، ورود قفل می‌شود
+            if (info.gate == TelegramGate.OPEN && TelegramGate.selfVersionIsBlocked(info, this)) {
+                info = TelegramGate.GateInfo(
+                    TelegramGate.CLOSED,
+                    "This version of Vex has been disabled. Please update to the latest version."
+                )
+            }
             // مصرف جمع‌شده‌ی قبلی (اگر مانده) به بک‌اند ربات گزارش می‌شود
             TrafficStore.flushAsync(this)
             if (info.gate == TelegramGate.CLOSED) {
@@ -258,9 +265,10 @@ class MainActivity : ComponentActivity() {
                 // گزارش دوره‌ای مصرف به بک‌اند ربات (وقتی متصل است)
                 if (connectionState == "connected") TrafficStore.flushAsync(this@MainActivity)
                 val info = TelegramGate.gateInfo()
-                if (info.gate == TelegramGate.CLOSED) {
-                    gateReason = info.reason
-                    TelegramGate.ackIfChanged(info.gate, this)
+                val blockedInfo = blockedHere(info)
+                if (info.gate == TelegramGate.CLOSED || blockedInfo != null) {
+                    gateReason = blockedInfo?.reason ?: info.reason
+                    TelegramGate.ackIfChanged(TelegramGate.CLOSED, this)
                     main.post {
                         if (!isFinishing) {
                             requestStop()
@@ -272,6 +280,17 @@ class MainActivity : ComponentActivity() {
                 }
             }.start()
         }, GATE_WATCH_INTERVAL_MS)
+    }
+
+    /** چک «نسخه‌ی این دستگاه بسته شده است» — هم در ورود و هم در تماشای دوره‌ای */
+    private fun blockedHere(info: TelegramGate.GateInfo): TelegramGate.GateInfo? {
+        if (info.gate == TelegramGate.OPEN && TelegramGate.selfVersionIsBlocked(info, this)) {
+            return TelegramGate.GateInfo(
+                TelegramGate.CLOSED,
+                "This version of Vex has been disabled. Please update to the latest version."
+            )
+        }
+        return null
     }
 
     /** بازکردن رابط اصلی — بعد از قفل هم بدون ساخت مجدد برمی‌گردد */
@@ -788,6 +807,11 @@ class MainActivity : ComponentActivity() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
             else -> {
+                // موتور سایفون: به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
+                if (store.settings.engine == "psiphon") {
+                    requestStart(Server(-99, "سایفون", "psiphon", "psiphon://engine"))
+                    return
+                }
                 // هیچ سروری انتخاب نشده → بهترین سرور رایگان (پیش‌فرض) خودکار انتخاب می‌شود
                 val s = store.selected() ?: ensureDefaultServer()
                 if (s == null) {
@@ -807,7 +831,10 @@ class MainActivity : ComponentActivity() {
         if (!pendingAutoConnect) return
         pendingAutoConnect = false
         if (!::root.isInitialized || connectionState != "stopped") return
-        val s = store.selected() ?: ensureDefaultServer() ?: return
+        val s = store.selected() ?: ensureDefaultServer() ?: run {
+            // موتور سایفون به سرور نیاز ندارد — کانفیگ شبه‌ساز
+            if (store.settings.engine == "psiphon") Server(-99, "سایفون", "psiphon", "psiphon://engine") else null
+        } ?: return
         main.postDelayed({
             if (connectionState == "stopped") requestStart(s)
         }, 350)
@@ -843,7 +870,11 @@ class MainActivity : ComponentActivity() {
             gotoSettings()
             return
         }
-        val payload = store.connectionPayload(s)
+        val payload0 = store.connectionPayload(s)
+        // موتور اتصال — «سایفون» ترافیک را به تونل رسمی Psiphon می‌فرستد، نه به سرور انتخابی
+        val payload = if (store.settings.engine == "psiphon")
+            try { org.json.JSONObject(payload0).put("engine", "psiphon").toString() } catch (_: Throwable) { payload0 }
+        else payload0
         // تنظیمات رفتاری سرویس (پیش از شروع)
         VexVpnService.autoReconnect = store.settings.autoReconnect
         VexVpnService.autoNetTest = store.settings.autoNetTest

@@ -44,17 +44,10 @@ object ConfigBuilder {
         val outbound = if (raw.startsWith("{")) fromManual(JSONObject(raw)) else fromLink(raw)
         outbound.put("tag", "proxy")
 
-        val mtu = j.optInt("mtu", 1500).coerceIn(1280, 9000)
-        val bypassLan = j.optBoolean("bypassLan", true)
-        val ipv6 = j.optBoolean("ipv6", false)
         val useMux = j.optBoolean("mux", false)
         val muxPad = j.optBoolean("muxPadding", false)
         val tfo = j.optBoolean("tcpFastOpen", false)
-        val sniff = j.optBoolean("sniffing", true)
         val domainStrategy = j.optString("domainStrategy", "prefer_ipv4").trim()
-        val dnsUser = j.optString("dns", "1.1.1.1").trim().ifEmpty { "1.1.1.1" }
-        val dnsAddress = if (dnsUser.contains("://")) dnsUser else "tcp://$dnsUser"
-        val logLevel = j.optString("logLevel", "warning").trim().ifEmpty { "warning" }
 
         applyMux(outbound, useMux, muxPad)
         // استراتژی دامنه + TCP Fast Open روی outbound واقعی sing-box
@@ -62,6 +55,40 @@ object ConfigBuilder {
             outbound.put("domain_strategy", domainStrategy)
         }
         if (tfo) outbound.put("tcp_fast_open", true)
+
+        return assembleShell(outbound, j)
+    }
+
+    /**
+     * کانفیگ sing-box برای موتور «اتصال با سایفون»:
+     * همان پوسته‌ی tun/DNS/route، فقط outbound به SOCKS5 محلیِ سایفون
+     * (127.0.0.1:port — بازشده توسط PsiphonEngine) وصل می‌شود؛ یعنی
+     * tun → sing-box → سایفون → اینترنت.
+     */
+    fun buildPsiphon(socksPort: Int, input: String): String {
+        require(socksPort > 0) { "پورت سایفون آماده نیست" }
+        val j = JSONObject(input)
+        val outbound = JSONObject()
+            .put("type", "socks")
+            .put("tag", "proxy")
+            .put("server", "127.0.0.1")
+            .put("server_port", socksPort)
+            .put("version", "5")
+        return assembleShell(outbound, j)
+    }
+
+    /**
+     * پوسته‌ی مشترک کانفیگ: tun inbound + DNS + قوانین مسیریابی + outbound مشخص.
+     * outbound باید tag="proxy" داشته باشد؛ تنظیمات mtu/bypassLan/ipv6/dns/... از j خوانده می‌شود.
+     */
+    private fun assembleShell(outbound: JSONObject, j: JSONObject): String {
+        val mtu = j.optInt("mtu", 1500).coerceIn(1280, 9000)
+        val bypassLan = j.optBoolean("bypassLan", true)
+        val ipv6 = j.optBoolean("ipv6", false)
+        val sniff = j.optBoolean("sniffing", true)
+        val dnsUser = j.optString("dns", "1.1.1.1").trim().ifEmpty { "1.1.1.1" }
+        val dnsAddress = if (dnsUser.contains("://")) dnsUser else "tcp://$dnsUser"
+        val logLevel = j.optString("logLevel", "warning").trim().ifEmpty { "warning" }
 
         val rules = JSONArray()
         // زیرکی ترافیک (Sniffing) — قابل خاموش‌کردن از تنظیمات مثل v2rayNG.

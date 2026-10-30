@@ -62,6 +62,9 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var exitFlag: TextView
     private lateinit var exitCountry: TextView
     private lateinit var exitIp: TextView
+    // ---- گزینش موتور اتصال (Vex / سایفون) ----
+    private lateinit var engVex: TextView
+    private lateinit var engPsi: TextView
     private var exitInfo: ExitInfo? = null
 
     // ---- بنر «نسخه‌ی جدید منتشر شده» (مدیر از پنل/ربات min_ver را بالا برده باشد) ----
@@ -96,6 +99,7 @@ class HomeUi(private val act: MainActivity) {
         col.addView(buildUpdateBanner(), 0)
         col.addView(buildPowerZone())
         col.addView(buildConnectionStatus())
+        col.addView(buildEngineBar())
         col.addView(buildStatsRow())
         col.addView(buildExitIpCard())
         col.addView(buildServerCard())
@@ -196,6 +200,72 @@ class HomeUi(private val act: MainActivity) {
             setMargins(0, UI.dp(ctx, 4), 0, UI.dp(ctx, 0))
         }
         return zone
+    }
+
+    // ---------------------------------------------------------- موتور اتصال (Vex / سایفون)
+
+    /** دو قرص انتخاب موتور — «Vex» (سرورهای خود برنامه) یا «سایفون» (موتور رسمی Psiphon) */
+    private fun buildEngineBar(): View {
+        val ctx = act
+        val row = UI.row(ctx).apply { gravity = Gravity.CENTER }
+
+        fun pill(tv: TextView) {
+            tv.textSize = 12.5f
+            tv.typeface = Fonts.bold(ctx)
+            tv.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 7), UI.dp(ctx, 18), UI.dp(ctx, 7))
+            tv.gravity = Gravity.CENTER
+        }
+
+        engVex = TextView(ctx).apply { text = "⚡ Vex"; pill(this) }
+        engPsi = TextView(ctx).apply { text = "🧅 سایفون"; pill(this) }
+
+        engVex.setOnClickListener { switchEngine("vex") }
+        engPsi.setOnClickListener { switchEngine("psiphon") }
+
+        val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0) }
+        row.addView(engVex)
+        row.addView(gap)
+        row.addView(engPsi)
+        row.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 2), 0, UI.dp(ctx, 4))
+        }
+        return row
+    }
+
+    private fun switchEngine(which: String) {
+        if (act.connectionState != "stopped") {
+            UI.toast(act, "اول اتصال را قطع کن، بعد موتور را عوض کن")
+            return
+        }
+        if (act.store.settings.engine == which) return
+        act.store.settings.engine = which
+        act.store.saveSettings()
+        renderEngineBar()
+        renderServerCard()
+        UI.toast(
+            act,
+            if (which == "psiphon") "موتور سایفون فعال شد — بدون نیاز به سرور وصل می‌شود"
+            else "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
+        )
+    }
+
+    /** ظاهر دو قرص بر اساس موتور فعال */
+    fun renderEngineBar() {
+        val psiphon = act.store.settings.engine == "psiphon"
+        val selBg = UI.alpha(p.accent, 0.16f)
+        val selStroke = UI.alpha(p.accent, 0.55f)
+        val idleBg = UI.card(act, p, 20, fillColor = p.card2)
+
+        engVex.background = if (!psiphon) GradientDrawable().apply {
+            setColor(selBg); setStroke(UI.dp(act, 1), selStroke); cornerRadius = UI.dp(act, 20).toFloat()
+        } else idleBg
+        engVex.setTextColor(if (!psiphon) p.accent else p.muted)
+
+        engPsi.background = if (psiphon) GradientDrawable().apply {
+            setColor(selBg); setStroke(UI.dp(act, 1), selStroke); cornerRadius = UI.dp(act, 20).toFloat()
+        } else idleBg
+        engPsi.setTextColor(if (psiphon) p.accent else p.muted)
     }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر
@@ -528,6 +598,8 @@ class HomeUi(private val act: MainActivity) {
     fun applyTheme(np: Palette) {
         p = np
         val ctx = act
+        // قرص‌های موتور اتصال هم با تم هماهنگ می‌شوند (اگر ساخته شده باشند)
+        if (::engVex.isInitialized && ::engPsi.isInitialized) renderEngineBar()
 
         // بنر نسخه‌ی جدید — کارت اکسنت ملایم
         updateCard.background = GradientDrawable().apply {
@@ -605,6 +677,7 @@ class HomeUi(private val act: MainActivity) {
 
     fun render() {
         renderStatus()
+        renderEngineBar()
         renderServerCard()
         renderExitIp()
     }
@@ -639,9 +712,15 @@ class HomeUi(private val act: MainActivity) {
     fun renderServerCard() {
         val s = act.store.selected()
         if (s == null) {
-            serverName.text = "سروری انتخاب نشده"
-            serverName.setTextColor(p.muted)
-            serverIp.text = "برای انتخاب، کارت را لمس کن"
+            if (act.store.settings.engine == "psiphon") {
+                serverName.text = "اتصال با سایفون"
+                serverName.setTextColor(p.accent)
+                serverIp.text = "بدون نیاز به سرور — پاور را بزن"
+            } else {
+                serverName.text = "سروری انتخاب نشده"
+                serverName.setTextColor(p.muted)
+                serverIp.text = "برای انتخاب، کارت را لمس کن"
+            }
             serverBadgeText.text = "—"
             serverBadge.background = UI.card(act, p, 10, fillColor = p.card2)
             serverBadgeText.setTextColor(p.muted)

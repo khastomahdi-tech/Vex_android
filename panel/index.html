@@ -192,6 +192,7 @@
     <button class="tabBtn" data-t="ntf">📢 اعلان‌ها</button>
     <button class="tabBtn" data-t="usr">👥 کاربران</button>
     <button class="tabBtn" data-t="ctl">🔒 کنترل برنامه</button>
+    <button class="tabBtn" data-t="ver">🚫 نسخه‌ها</button>
     <button class="tabBtn" data-t="set">⚙️ تنظیمات</button>
   </div>
 
@@ -343,6 +344,7 @@ function render(tab){
   else if (tab === "ntf") renderNotifs(v);
   else if (tab === "usr") renderUsers(v);
   else if (tab === "ctl") renderControl(v);
+  else if (tab === "ver") renderVersions(v);
   else renderSettings(v);
 }
 
@@ -558,8 +560,8 @@ async function renderControl(v){
     '</div></div>' +
     '<div class="card"><h2>🔄 حداقل نسخه‌ی مجاز (به‌روزرسانی اجباری نرم)</h2>' +
     '<div class="desc">اگر versionCode کاربر کمتر از این عدد باشد، موقع ورود بنر «🔔 نسخه‌ی جدید منتشر شده» با دکمه‌ی دانلود می‌بیند.<br>' +
-    'نسخه‌ی فعلی برنامه: versionCode <b style="color:var(--gold)">30</b> (v3.23.0) — فعلاً: <b>' + (mv || "خاموش") + '</b></div>' +
-    '<div class="row"><input class="inp" id="mvInput" type="number" min="0" style="max-width:150px" placeholder="مثلاً 31" value="' + (mv || "") + '" />' +
+    'نسخه‌ی فعلی برنامه: versionCode <b style="color:var(--gold)">31</b> (نام نمایشی 1) — فعلاً: <b>' + (mv || "خاموش") + '</b></div>' +
+    '<div class="row"><input class="inp" id="mvInput" type="number" min="0" style="max-width:150px" placeholder="مثلاً 32" value="' + (mv || "") + '" />' +
     '<button class="btn" onclick="saveMinVer()">ثبت</button>' +
     '<button class="btn ghost" onclick="saveMinVer(0)">خاموش‌کردن</button></div></div>';
 }
@@ -586,6 +588,51 @@ async function saveMinVer(zero){
   if (SET) SET.min_ver = j.min_ver;
   toast(n ? "🔄 حداقل نسخه: " + n : "🔄 حداقل نسخه خاموش شد");
   render(curTab);
+}
+
+/* ================= 🚫 نسخه‌های بسته ================= */
+async function renderVersions(v){
+  v.innerHTML = '<div class="card"><h2>🚫 بستن نسخه‌های برنامه</h2>' +
+    '<div class="desc">نسخه‌ی مشخصی از برنامه را می‌بندی؛ کاربرانی که همان نسخه را دارند موقع ورود پیام «This version has been disabled. Please update.» می‌بینند و وارد نمی‌شوند. مکانیزم «حداقل نسخه» فقط بنر می‌دهد؛ بستن نسخه واقعاً ورود را قفل می‌کند.</div>' +
+    '<div class="row"><input class="inp" id="verInput" placeholder="شماره نسخه، مثلاً 3.23.0" style="max-width:220px" />' +
+    '<button class="btn bad" onclick="verBlock()">🚫 بستن این نسخه</button></div></div>' +
+    '<div class="card"><h2>⛔ لیست نسخه‌های بسته</h2><div class="slist" id="verBlocked"><div class="desc">در حال دریافت…</div></div></div>' +
+    '<div class="card"><h2>👥 نسخه‌های دیده‌شده روی دستگاه کاربران</h2><div class="slist" id="verSeen"><div class="desc">در حال دریافت…</div></div></div>';
+  await loadVersions();
+}
+async function loadVersions(){
+  try {
+    const j = await api("/admin/versions");
+    const bl = j.blocked || [];
+    const blEl = document.getElementById("verBlocked");
+    if (!bl.length) blEl.innerHTML = '<div class="desc">هیچ نسخه‌ای بسته نیست — همه می‌توانند وارد شوند.</div>';
+    else blEl.innerHTML = bl.map(x =>
+      '<div class="srow"><div><b>' + esc(x) + '</b> <span class="desc">— بسته</span></div>' +
+      '<div class="row"><button class="btn good" onclick="verUnblock(\'' + esc(x) + '\')">✅ باز کردن</button></div></div>').join("");
+    const vs = j.versions || [];
+    const vsEl = document.getElementById("verSeen");
+    if (!vs.length) vsEl.innerHTML = '<div class="desc">هنوز ورودی ثبت نشده.</div>';
+    else vsEl.innerHTML = vs.map(r => {
+      const isBl = bl.includes(r.ver);
+      return '<div class="srow"><div><b>v' + esc(r.ver) + '</b> <span class="desc">· ' + r.n + ' دستگاه · آخرین ورود ' + dt(r.last_seen) + '</span></div>' +
+        '<div class="row">' + (isBl
+          ? '<button class="btn good" onclick="verUnblock(\'' + esc(r.ver) + '\')">✅ باز کردن</button>'
+          : '<button class="btn bad" onclick="verBlock(\'' + esc(r.ver) + '\')">🚫 بستن</button>') + '</div></div>';
+    }).join("");
+  } catch(e){ if (e.message === "auth"){ logout(); return; } document.getElementById("verBlocked").innerHTML = '<div class="desc">خطا در دریافت</div>'; }
+}
+async function verBlock(preset){
+  const el = document.getElementById("verInput");
+  const ver = (preset || (el ? el.value : "") || "").trim().replace(/^v/i,"").slice(0,24);
+  if (!ver){ toast("شماره نسخه را وارد کن", true); return; }
+  await api("/admin/versions/block", { method: "POST" }, { ver });
+  toast("🚫 نسخه‌ی " + ver + " بسته شد");
+  await loadVersions();
+}
+async function verUnblock(ver){
+  await api("/admin/versions/unblock", { method: "POST" }, { ver });
+  toast("✅ نسخه‌ی " + ver + " باز شد");
+  await loadVersions();
 }
 
 /* ================= ۶) تنظیمات ================= */
