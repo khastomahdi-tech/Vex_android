@@ -194,9 +194,9 @@ class MainActivity : ComponentActivity() {
     }
 
     /** لمس کاشی VPN وقتی برنامه از قبل باز است */
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) == true) {
+        if (intent.getBooleanExtra(EXTRA_AUTO_CONNECT, false)) {
             pendingAutoConnect = true
             if (::root.isInitialized) maybeAutoConnect()
         }
