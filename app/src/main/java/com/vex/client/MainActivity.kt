@@ -22,6 +22,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
@@ -69,6 +70,13 @@ class MainActivity : ComponentActivity() {
     private lateinit var screenServers: View
     private lateinit var screenSettings: View
     private lateinit var screenStats: View
+
+    // ---- هدر (داخل ستون اسکرول هر صفحه سوار می‌شود) ----
+    private lateinit var headerView: View
+
+    // ---- دروازه‌ی ورود ----
+    private lateinit var gateRoot: LinearLayout
+    private var gateBuilt = false
 
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
@@ -136,7 +144,54 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // دروازه‌ی ورود: اول اینترنت (با تایم‌اوت) — بدون اینترنت وارد برنامه نمی‌شود
+        setContentView(buildGateView())
+        setGateUi("checking")
+        runGate()
+    }
 
+    /**
+     * اجرای دروازه:
+     *  ۱) حداکثر ۱۲ ثانیه برای اینترنت صبر می‌کند؛ اگر نشد → قفل «دسترسی به اینترنت نداری».
+     *  ۲) با اینترنت، برنامه بلافاصله باز می‌شود (بدون انتظار تلگرام).
+     *  ۳) هم‌زمان کلید خاموش/روشنِ ربات چک می‌شود؛ اگر مدیر /close داده باشد،
+     *     برنامه وسط کار هم قفل می‌شود. و نصب جدید به مدیر اطلاع داده می‌شود.
+     */
+    private fun runGate() {
+        setGateUi("checking")
+        Thread {
+            val deadline = System.currentTimeMillis() + 12_000L
+            var online = false
+            while (System.currentTimeMillis() < deadline) {
+                if (TelegramGate.hasInternet()) { online = true; break }
+                try { Thread.sleep(1300) } catch (_: InterruptedException) { return@Thread }
+            }
+            if (!online) {
+                main.post { if (!isFinishing) setGateUi("no-internet") }
+                return@Thread
+            }
+            // اینترنت هست → برنامه باز می‌شود؛ بررسی ربات در پس‌زمینه ادامه دارد
+            main.post { if (!isFinishing) enterApp() }
+            val st = TelegramGate.gateStatus()
+            TelegramGate.ackIfChanged(st, this)
+            if (st == TelegramGate.CLOSED) {
+                main.post {
+                    if (!isFinishing) {
+                        requestStop() // برنامه بسته شد → تونل هم قطع می‌شود
+                        setGateUi("closed")
+                    }
+                }
+            }
+            TelegramGate.notifyInstall(this)
+        }.start()
+    }
+
+    /** بازکردن رابط اصلی — بعد از قفل هم بدون ساخت مجدد برمی‌گردد */
+    private fun enterApp() {
+        if (::root.isInitialized) {
+            setContentView(root)
+            return
+        }
         store = ServersStore(this)
         dialogs = DialogsHelper(this)
 
@@ -144,7 +199,9 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
-        root.addView(buildHeader())
+        // هدر دیگر ثابت بالای صفحه نیست — داخل ستون اسکرول هر صفحه می‌نشیند
+        // تا با بالا/پایین کردن صفحه، هدر هم حرکت کند.
+        headerView = buildHeader()
 
         val body = FrameLayout(this)
         homeUi = HomeUi(this)
@@ -207,23 +264,14 @@ class MainActivity : ComponentActivity() {
 
     // ---------------- هدر / ناوبری ----------------
 
-    /** هدر سلطنتی: دکمه‌ی تلگرام + تاج و VEX CLIENT طلایی + نشان V با غار */
+    /** هدر سلطنتی: دکمه‌ی تلگرام + «Vex Client» طلایی + دکمه‌ی گیر — بدون هیچ شیر/آیکونی پشت متن */
     private fun buildHeader(): View {
         val ctx = this
         val header = FrameLayout(ctx)
         header.tag = "header"
         header.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 10), UI.dp(ctx, 14), UI.dp(ctx, 6))
 
-        // شیر محو پشت عنوان (نقش باز بال‌گشوده مثل طرح مرجع)
-        val bgLion = ImageView(ctx).apply {
-            setImageResource(R.drawable.art_lion)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            alpha = 0.08f
-        }
-        header.addView(bgLion, FrameLayout.LayoutParams(
-            UI.dp(ctx, 172), UI.dp(ctx, 96), Gravity.CENTER))
-
-        // عنوان مرکزی: فقط «Vex Client» انگلیسی — بدون هیچ آیکونی کنار متن
+        // عنوان مرکزی: فقط «Vex Client» انگلیسی — شیر پشت عنوان حذف شد؛ فقط متن
         val titleRow = UI.row(ctx).apply { gravity = Gravity.CENTER }
         vexTv = TextView(ctx).apply {
             text = "Vex"
@@ -239,12 +287,11 @@ class MainActivity : ComponentActivity() {
             includeFontPadding = false
         }
         titleRow.addView(vexTv, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = UI.dp(ctx, 9)
-        })
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         titleRow.addView(clientTv, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginStart = UI.dp(ctx, 6)
+            gravity = Gravity.CENTER_VERTICAL
         })
         header.addView(titleRow, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -319,6 +366,7 @@ class MainActivity : ComponentActivity() {
     }
     fun switchTab(idx: Int) {
         currentTab = idx
+        attachHeader(idx)
         screenHome.visibility = if (idx == 0) View.VISIBLE else View.GONE
         screenServers.visibility = if (idx == 1) View.VISIBLE else View.GONE
         screenStats.visibility = if (idx == 2) View.VISIBLE else View.GONE
@@ -345,6 +393,35 @@ class MainActivity : ComponentActivity() {
     /** بازکردن تنظیمات از دکمه‌ی گیر بالای صفحه */
     fun gotoSettings() = switchTab(3)
 
+    // ---------------- هدر متحرک (همراه اسکرول) ----------------
+
+    /**
+     * هدر داخل ستون اسکرول صفحه‌ی فعال سوار می‌شود تا با بالا/پایین کردن محتوا،
+     * هدر هم (مثل بقیه‌ی نوشته‌ها) حرکت کند — نه اینکه ثابت بالا وایسد.
+     */
+    private fun attachHeader(idx: Int) {
+        if (!::headerView.isInitialized) return
+        val target = when (idx) {
+            0 -> if (::screenHome.isInitialized) screenHome else return
+            1 -> if (::screenServers.isInitialized) screenServers else return
+            2 -> if (::screenStats.isInitialized) screenStats else return
+            else -> if (::screenSettings.isInitialized) screenSettings else return
+        }
+        val sv = firstScrollView(target) ?: return
+        val col = sv.getChildAt(0) as? LinearLayout ?: return
+        if (headerView.parent === col) return
+        (headerView.parent as? android.view.ViewGroup)?.removeView(headerView)
+        col.addView(headerView, 0)
+    }
+
+    private fun firstScrollView(v: View): ScrollView? {
+        if (v is ScrollView) return v
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) firstScrollView(v.getChildAt(i))?.let { return it }
+        }
+        return null
+    }
+
     /** بازکردن کانال تلگرام: اول اپ تلگرام (tg://) و اگر نبود مرورگر */
     private fun openTelegramChannel() {
         val url = TELEGRAM_CHANNEL_URL
@@ -364,6 +441,8 @@ class MainActivity : ComponentActivity() {
 
     fun applyThemeAll() {
         val p = Themes.resolve(this, store.settings.theme)
+        // اول هدر داخل ستون اسکرول صفحه‌ی فعال سوار شود، بعد تم روی همه اعمال شود
+        attachHeader(currentTab)
         root.setBackgroundColor(p.bg)
         // هدر سلطنتی — شفاف روی پس‌زمینه، عناصر طلایی
         val header = root.findViewWithTag<FrameLayout>("header")
@@ -444,7 +523,9 @@ class MainActivity : ComponentActivity() {
         if (!store.settings.showExitIp) { homeUi.clearExitIp(); return }
         exitIpThread?.interrupt()
         exitIpThread = Thread {
-            val info = try { NetUtil.fetchExitInfo() } catch (_: Throwable) { null }
+            // درخواست از inbound محلی هسته رد می‌شود تا واقعاً از تونل خارج شود؛
+            // در نتیجه آی‌پی برگشتی همان خروجی سروری است که به آن وصل شده‌ایم.
+            val info = try { NetUtil.fetchExitInfo(throughTunnel = true) } catch (_: Throwable) { null }
             if (Thread.currentThread().isInterrupted) return@Thread
             main.post {
                 if (connectionState == "connected") homeUi.setExitIp(info)
@@ -789,6 +870,122 @@ class MainActivity : ComponentActivity() {
     fun showServerMenu(s: Server) = dialogs.showServerMenu(s)
     fun showEditServer(s: Server) = dialogs.showEditServer(s)
     fun confirmDelete(ids: Set<Int>, after: () -> Unit) = dialogs.confirmDelete(ids, after)
+
+    // ---------------- دروازه‌ی ورود (قفل صفحه) ----------------
+
+    /** صفحه‌ی قفل ورود — چیدمان سلطنتی تیره با لوگوی طلایی */
+    private fun buildGateView(): View {
+        val ctx = this
+        gateRoot = UI.col(ctx).apply { gravity = Gravity.CENTER }
+        gateBuilt = true
+        return gateRoot
+    }
+
+    /** حالت‌های قفل: checking (اسپینر) / no-internet / closed */
+    private fun setGateUi(state: String) {
+        if (!gateBuilt) return
+        val ctx = this
+        val p = Themes.dark()
+        // اگر برنامه باز بوده (قفل وسط کار) → صفحه‌ی قفل جایش را می‌گیرد
+        setContentView(gateRoot)
+        gateRoot.setBackgroundColor(p.bg)
+        gateRoot.removeAllViews()
+
+        // لوگو: دایره‌ی طلایی + آیکون
+        val icBox = FrameLayout(ctx).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
+                orientation = GradientDrawable.Orientation.TL_BR
+                setStroke(UI.dp(ctx, 1), UI.alpha(0xFFF7DE8A.toInt(), 0.7f))
+            }
+        }
+        val ic = IconView(ctx, if (state == "closed") "gear" else "globe").apply {
+            iconColor = 0xFF1A1304.toInt(); bold = true
+        }
+        icBox.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 34), UI.dp(ctx, 34), Gravity.CENTER))
+        gateRoot.addView(icBox, LinearLayout.LayoutParams(
+            UI.dp(ctx, 86), UI.dp(ctx, 86)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+
+        // نام برنامه: Vex (روشن) + Client (آبی)
+        val nameRow = UI.row(ctx).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, UI.dp(ctx, 16), 0, 0)
+        }
+        nameRow.addView(TextView(ctx).apply {
+            text = "Vex"
+            textSize = 24f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            setTextColor(0xFFF5F7FF.toInt())
+        })
+        nameRow.addView(TextView(ctx).apply {
+            text = " Client"
+            textSize = 18f
+            typeface = Fonts.bold(ctx)
+            setTextColor(p.accent)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        })
+        gateRoot.addView(nameRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // عنوان و پیام هر حالت
+        val title = TextView(ctx).apply {
+            textSize = 17f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
+            setPadding(0, UI.dp(ctx, 26), 0, 0)
+            when (state) {
+                "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
+                "closed" -> { text = "برنامه غیرفعال شده است"; setTextColor(p.bad) }
+                else -> { text = "در حال بررسی اتصال…"; setTextColor(p.text) }
+            }
+        }
+        gateRoot.addView(title, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        val msg = TextView(ctx).apply {
+            textSize = 13.5f; gravity = Gravity.CENTER; setTextColor(p.muted)
+            setPadding(0, UI.dp(ctx, 8), 0, 0)
+            setLineSpacing(UI.dp(ctx, 3).toFloat(), 1f)
+            when (state) {
+                "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
+                "closed" -> text = "این نسخه از سمت پشتیبانی بسته شده است.\nبرای نسخه‌ی جدید و اطلاعات بیشتر، کانال تلگرام را ببین."
+                else -> text = "چند لحظه صبر کن…"
+            }
+        }
+        gateRoot.addView(msg, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // اسپینر حالت بررسی
+        if (state == "checking") {
+            val sp = android.widget.ProgressBar(ctx)
+            sp.indeterminateTintList = android.content.res.ColorStateList.valueOf(p.accent)
+            gateRoot.addView(sp, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = UI.dp(ctx, 24)
+            })
+        }
+
+        // دکمه‌ها
+        val btns = UI.row(ctx).apply { gravity = Gravity.CENTER; setPadding(0, UI.dp(ctx, 26), 0, 0) }
+        if (state == "no-internet" || state == "closed") {
+            val retry = UI.softButton(ctx, "تلاش دوباره", p)
+            retry.setOnClickListener { runGate() }
+            btns.addView(retry, LinearLayout.LayoutParams(
+                UI.dp(ctx, 148), UI.dp(ctx, 46)).apply { marginEnd = UI.dp(ctx, 10) })
+        }
+        if (state == "closed") {
+            val tg = UI.softButton(ctx, "کانال تلگرام", p)
+            tg.setOnClickListener { openTelegramChannel() }
+            btns.addView(tg, LinearLayout.LayoutParams(
+                UI.dp(ctx, 148), UI.dp(ctx, 46)))
+        }
+        if (btns.childCount > 0) {
+            gateRoot.addView(btns, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+    }
 
     override fun onBackPressed() {
         if (currentTab != 0) switchTab(0) else super.onBackPressed()

@@ -85,7 +85,7 @@ class HomeUi(private val act: MainActivity) {
             overScrollMode = View.OVER_SCROLL_NEVER
         }
         val col = UI.col(ctx)
-        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 6), UI.dp(ctx, 14), UI.dp(ctx, 24))
+        col.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 2), UI.dp(ctx, 14), UI.dp(ctx, 24))
 
         col.addView(buildPowerZone())
         col.addView(buildConnectionStatus())
@@ -178,7 +178,7 @@ class HomeUi(private val act: MainActivity) {
             gravity = Gravity.CENTER
             textDirection = View.TEXT_DIRECTION_LTR
             letterSpacing = 0.08f
-            setPadding(0, UI.dp(ctx, 4), 0, 0)
+            setPadding(0, UI.dp(ctx, 6), 0, 0)
         }
 
         col.addView(statusText)
@@ -186,7 +186,7 @@ class HomeUi(private val act: MainActivity) {
 
         col.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, UI.dp(ctx, 0), 0, UI.dp(ctx, 2))
+            setMargins(0, UI.dp(ctx, 2), 0, UI.dp(ctx, 10))
         }
         return col
     }
@@ -272,7 +272,7 @@ class HomeUi(private val act: MainActivity) {
         row.addView(up, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
             marginStart = UI.dp(ctx, 8)
         })
-        return wrapCard(row, topMarginDp = 6)
+        return wrapCard(row, topMarginDp = 10)
     }
 
     // ---------------------------------------------------------- کارت آی‌پی خروجی
@@ -305,7 +305,7 @@ class HomeUi(private val act: MainActivity) {
         // ردیف مقدار: پرچم + کشور (راست) — آی‌پی (چپ، LTR)
         val row = UI.row(ctx).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, UI.dp(ctx, 7), 0, 0)
+            setPadding(0, UI.dp(ctx, 9), 0, 0)
         }
         exitFlag = TextView(ctx).apply {
             text = "🌐"
@@ -346,7 +346,7 @@ class HomeUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         exitWrap.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, UI.dp(ctx, 8), 0, 0)
+            setMargins(0, UI.dp(ctx, 12), 0, 0)
         }
         return exitWrap
     }
@@ -409,7 +409,7 @@ class HomeUi(private val act: MainActivity) {
 
         serverLabel = UI.label(ctx, "سرور انتخابشده", 12f, p.muted)
 
-        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 7), 0, 0) }
+        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 9), 0, 0) }
 
         // نام + IP
         val nameCol = UI.col(ctx)
@@ -456,7 +456,7 @@ class HomeUi(private val act: MainActivity) {
 
         serverCard.addView(serverLabel)
         serverCard.addView(row)
-        return wrapCard(serverCard, topMarginDp = 10, framed = true).also {
+        return wrapCard(serverCard, topMarginDp = 12, framed = true).also {
             serverWrap = it as LinearLayout
         }
     }

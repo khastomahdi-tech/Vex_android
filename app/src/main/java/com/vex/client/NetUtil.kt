@@ -13,68 +13,84 @@ data class ExitInfo(val ip: String, val country: String, val code: String)
 object NetUtil {
 
     /**
-     * گرفتن «آی‌پی خروجی» از سرویس‌های رایگان جئو-آی‌پی.
-     * وقتی VPN روشن است، این درخواست از داخل تونل می‌رود؛ پس آی‌پی برگشتی
-     * همان آی‌پی خروجی سروری است که به آن وصل شده‌ایم.
-     * چند منبع به‌ترتیب امتحان می‌شود تا اگر یکی از دسترس خارج بود بقیه جواب بدهند.
+     * گرفتن «آی‌پی خروجی واقعی سرور».
+     *
+     * نکته‌ی مهم: خود برنامه از تونل مستثناست (addDisallowedApplication)؛ پس یک
+     * درخواست مستقیم، آی‌پی واقعی کاربر را می‌دهد — نه سرور! برای همین درخواست
+     * عمداً از inbound محلی هسته (127.0.0.1:19085) رد می‌شود تا از داخل تونل
+     * خارج شود و آی‌پی برگشتی دقیقاً همان خروجی سروری باشد که به آن وصل شده‌ایم.
+     *
+     * چند منبع + دو دور تلاش (فاصله‌دار) تا تازه‌سازی اتصال هم پوشش داده شود.
+     * اگر تونل جواب نداد null برمی‌گردد — هیچ‌وقت آی‌پی اشتباه نشان داده نمی‌شود.
      */
-    fun fetchExitInfo(): ExitInfo? {
-        // ۱) ipwho.is — رایگان، بدون کلید، HTTPS
-        try {
-            val body = fetchJson("https://ipwho.is/")
-            if (body.isNotBlank()) {
-                val j = org.json.JSONObject(body)
-                if (j.optBoolean("success", true)) {
+    fun fetchExitInfo(throughTunnel: Boolean = true): ExitInfo? {
+        val proxy = if (throughTunnel)
+            Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", ConfigBuilder.LOCAL_TEST_PORT))
+        else null
+        for (attempt in 1..2) {
+            // ۱) ipwho.is — رایگان، بدون کلید، HTTPS
+            try {
+                val body = fetchJson("https://ipwho.is/", proxy)
+                if (body.isNotBlank()) {
+                    val j = org.json.JSONObject(body)
+                    if (j.optBoolean("success", true)) {
+                        val ip = j.optString("ip").trim()
+                        if (ip.isNotEmpty()) return ExitInfo(
+                            ip,
+                            j.optString("country").trim().ifEmpty { "—" },
+                            j.optString("country_code").trim().uppercase()
+                        )
+                    }
+                }
+            } catch (_: Throwable) {}
+            // ۲) ip-api.com — رایگان (HTTP)، بدون کلید
+            try {
+                val body = fetchJson("http://ip-api.com/json/?fields=status,query,country,countryCode", proxy)
+                if (body.isNotBlank()) {
+                    val j = org.json.JSONObject(body)
+                    if (j.optString("status") == "success") {
+                        val ip = j.optString("query").trim()
+                        if (ip.isNotEmpty()) return ExitInfo(
+                            ip,
+                            j.optString("country").trim().ifEmpty { "—" },
+                            j.optString("countryCode").trim().uppercase()
+                        )
+                    }
+                }
+            } catch (_: Throwable) {}
+            // ۳) ipinfo.io — بدون توکن هم جواب می‌دهد (محدود)
+            try {
+                val body = fetchJson("https://ipinfo.io/json", proxy)
+                if (body.isNotBlank()) {
+                    val j = org.json.JSONObject(body)
                     val ip = j.optString("ip").trim()
                     if (ip.isNotEmpty()) return ExitInfo(
                         ip,
                         j.optString("country").trim().ifEmpty { "—" },
-                        j.optString("country_code").trim().uppercase()
+                        j.optString("country").trim().uppercase()
                     )
                 }
+            } catch (_: Throwable) {}
+            if (attempt == 1) {
+                // تازه وصل شده‌ایم؛ کمی صبر تا inbound هسته آماده شود
+                try { Thread.sleep(2500) } catch (_: InterruptedException) { return null }
             }
-        } catch (_: Throwable) {}
-        // ۲) ip-api.com — رایگان (HTTP)، بدون کلید
-        try {
-            val body = fetchJson("http://ip-api.com/json/?fields=status,query,country,countryCode")
-            if (body.isNotBlank()) {
-                val j = org.json.JSONObject(body)
-                if (j.optString("status") == "success") {
-                    val ip = j.optString("query").trim()
-                    if (ip.isNotEmpty()) return ExitInfo(
-                        ip,
-                        j.optString("country").trim().ifEmpty { "—" },
-                        j.optString("countryCode").trim().uppercase()
-                    )
-                }
-            }
-        } catch (_: Throwable) {}
-        // ۳) ipinfo.io — بدون توکن هم جواب می‌دهد (محدود)
-        try {
-            val body = fetchJson("https://ipinfo.io/json")
-            if (body.isNotBlank()) {
-                val j = org.json.JSONObject(body)
-                val ip = j.optString("ip").trim()
-                if (ip.isNotEmpty()) return ExitInfo(
-                    ip,
-                    j.optString("country").trim().ifEmpty { "—" },
-                    j.optString("country").trim().uppercase()
-                )
-            }
-        } catch (_: Throwable) {}
+        }
         return null
     }
 
-    /** درخواست GET ساده برای سرویس‌های جئو-آی‌پی */
-    private fun fetchJson(url: String): String {
+    /** درخواست GET برای سرویس‌های جئو-آی‌پی — با پروکسی اختیاری (مسیر تونل) */
+    private fun fetchJson(url: String, proxy: Proxy? = null): String {
         var conn: HttpURLConnection? = null
         return try {
-            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            val raw = URL(url).openConnection(
+                proxy ?: Proxy.NO_PROXY) as HttpURLConnection
+            conn = raw.apply {
                 connectTimeout = 7000
                 readTimeout = 7000
                 instanceFollowRedirects = true
                 useCaches = false
-                setRequestProperty("User-Agent", "VEX-Client/3.9 (exit-ip)")
+                setRequestProperty("User-Agent", "VEX-Client/3.10 (exit-ip)")
                 setRequestProperty("Accept", "application/json")
             }
             val code = conn.responseCode

@@ -37,7 +37,6 @@ class ServersUi(private val act: MainActivity) {
     private lateinit var tabMine: TextView
     private lateinit var tabFree: TextView
     private lateinit var listContainer: LinearLayout
-    private lateinit var listScroll: ScrollView
     private lateinit var emptyHint: TextView
     private lateinit var freeProgress: TextView
     private lateinit var bottomBar: LinearLayout
@@ -53,9 +52,9 @@ class ServersUi(private val act: MainActivity) {
 
         root = FrameLayout(ctx)
 
-        // ---- ستون اصلی
+        // ---- ستون اصلی (همه‌چیز داخل یک اسکرول — با هدر هم‌راه حرکت می‌کند)
         content = UI.col(ctx)
-        content.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 10))
+        content.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 96))
 
         // ---- نوار بالا: عنوان + دریافت رایگان + پینگ همه
         val top = UI.row(ctx)
@@ -104,16 +103,9 @@ class ServersUi(private val act: MainActivity) {
         hint.setPadding(0, UI.dp(ctx, 6), 0, UI.dp(ctx, 8))
         content.addView(hint)
 
-        // ---- لیست
+        // ---- لیست (مستقیم داخل ستون؛ کل صفحه با هم اسکرول می‌شود)
         listContainer = UI.col(ctx)
-        listScroll = ScrollView(ctx).apply {
-            overScrollMode = View.OVER_SCROLL_NEVER
-        }
-        listScroll.addView(listContainer, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        listScroll.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        content.addView(listScroll)
+        content.addView(listContainer)
 
         emptyHint = UI.label(ctx, "", 14f, p.muted)
         emptyHint.gravity = Gravity.CENTER
@@ -138,10 +130,23 @@ class ServersUi(private val act: MainActivity) {
         deleteBtn.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         bottomBar.addView(deleteBtn)
-        content.addView(bottomBar)
 
-        root.addView(content, FrameLayout.LayoutParams(
+        // ---- کل صفحه (هدر + عنوان + تب‌ها + لیست) داخل یک اسکرول واحد
+        val outerScroll = ScrollView(ctx).apply {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isFillViewport = true
+        }
+        outerScroll.addView(content, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        root.addView(outerScroll, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // ---- نوار حذف به‌صورت ثابت پایین صفحه (بیرون از اسکرول)
+        root.addView(bottomBar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM).apply {
+            setMargins(UI.dp(ctx, 18), 0, UI.dp(ctx, 18), UI.dp(ctx, 10))
+        })
 
         // ---- دکمه‌ی شناور «+» — پایین سمت راست (فقط تب سرورهای من)
         fab = buildFab()
