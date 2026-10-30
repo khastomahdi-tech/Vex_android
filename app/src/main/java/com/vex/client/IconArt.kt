@@ -17,7 +17,7 @@ import kotlin.math.sin
  */
 class IconView(context: Context, val icon: String) : View(context) {
 
-    var iconColor: Int = Themes.goldMuted
+    var iconColor: Int = 0xFF9AA3B2.toInt()
         set(value) { field = value; invalidate() }
 
     var bold: Boolean = false
@@ -266,6 +266,20 @@ class IconView(context: Context, val icon: String) : View(context) {
                 canvas.drawRoundRect(
                     RectF(cx - 9f * u, baseY + 0.6f * u, cx + 9f * u, baseY + 3f * u),
                     1.2f * u, 1.2f * u, fill
+                )
+            }
+            "lock" -> {
+                // بدنه‌ی قفل — گرد و ساده
+                canvas.drawRoundRect(
+                    RectF(cx - 7.2f * u, cy - 1.8f * u, cx + 7.2f * u, cy + 8.4f * u),
+                    2.2f * u, 2.2f * u, fill
+                )
+                // حلقه‌ی بالایی قفل
+                val sh = Paint(stroke)
+                sh.strokeWidth = sw * 1.25f
+                canvas.drawArc(
+                    RectF(cx - 4.4f * u, cy - 8.8f * u, cx + 4.4f * u, cy + 2.8f * u),
+                    180f, 180f, false, sh
                 )
             }
             "plus" -> {

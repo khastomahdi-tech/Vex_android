@@ -5,36 +5,28 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.DashPathEffect
-import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.SweepGradient
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
 import kotlin.math.min
-import kotlin.math.sin
 
 /**
- * دکمه‌ی پاور سلطنتی VEX — مطابق طرح مرجع:
- *  - حلقه‌ی اصلی با گرادیان طلایی فلزی
- *  - دو خط لبه‌ی باریک بالا و پایین حلقه
- *  - حلقه‌ی باریک دوم + حلقه‌ی تزئینی نقطه‌چین بیرونی
- *  - صفحه‌ی داخلی تیره با درخشش ملایم مرکز
- *  - گلیف پاور طلایی با هاله در حالت روشن، تنفس/چرخش در حالت اتصال
- *  (تاج حذف شد — دکمه کاملاً متقارن و وسط‌چین است)
+ * دکمه‌ی پاور VEX — طراحی تمیز و مدرن (بدون جلوه‌های طلایی):
+ *  یک دایره‌ی آراسته با حلقه‌ی رنگی وضعیت (اکسنت تم = خاموش، سبز = متصل)،
+ *  صفحه‌ی داخلی روشن و گلیف پاور ساده؛ در حالت اتصال‌درحال یک قوس چرخان
+ *  روی حلقه می‌گردد و در حالت متصل یک هاله‌ی بسیار ملایم نفس می‌کشد.
  */
 class PowerButtonView(context: Context) : View(context) {
 
     var mode: String = "off"   // off | busy | on
         set(value) { field = value; restartAnim(); invalidate() }
 
-    var palette: Palette = Themes.royal()
+    var palette: Palette = Themes.light()
         set(value) { field = value; invalidate() }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -53,7 +45,7 @@ class PowerButtonView(context: Context) : View(context) {
     private var phase = 0f
     private var pressAnim: ObjectAnimator? = null
 
-    /** بازخورد لمسی لوکس: فرو رفتن نرم هنگام فشردن، جهش هنگام رها کردن */
+    /** بازخورد لمسی: فرو رفتن نرم هنگام فشردن، جهش هنگام رها کردن */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> animateScale(0.945f, 110)
@@ -108,229 +100,81 @@ class PowerButtonView(context: Context) : View(context) {
         val cx = w / 2f
         val cy = h / 2f
         val p = palette
-        val rMain = min(w, h) / 2f - dp(29f) // شعاع حلقه‌ی اصلی
-
-        // رنگ پایه‌ی حلقه: اتصال موفق = سبز، بقیه = طلایی/اکsent تم
         val connected = mode == "on"
-        val ringBase = if (connected) 0xFF3DC871.toInt() else p.accent
+        val ringBase = if (connected) 0xFF27BE6D.toInt() else p.accent
+        val rMain = min(w, h) / 2f - dp(26f)
+        val maxR = min(w, h) / 2f - dp(2f)
 
-        // ---------- ۰) سایه‌ی افتاده زیر دکمه — حس عمق و نشستن روی صفحه ----------
-        val maxR = min(w, h) / 2f - dp(1.5f)
-        val shR = min(rMain * 1.28f, maxR)
+        // ---------- سایه‌ی ملایم زیر دکمه ----------
+        val shA = if (Themes.isLightBg(p)) 0.16f else 0.32f
         fillP.shader = RadialGradient(
-            cx, cy + dp(9f), shR,
-            UI.alpha(0xFF1F1403.toInt(), 0.34f), Color.TRANSPARENT, Shader.TileMode.CLAMP
+            cx, cy + dp(7f), rMain * 1.22f,
+            UI.alpha(0xFF0B1226.toInt(), shA), Color.TRANSPARENT, Shader.TileMode.CLAMP
         )
-        canvas.drawCircle(cx, cy + dp(9f), shR, fillP)
+        canvas.drawCircle(cx, cy + dp(7f), rMain * 1.22f, fillP)
         fillP.shader = null
 
-        // ---------- ۱) هاله‌ی بیرونی دولایه — کوچک و ظریف، همیشه داخل کادر ----------
-        // (شعاع هاله نباید از نصف عرض View بیشتر شود وگرنه لبه‌ها بریده می‌شوند
-        //  و به شکل «مربع سبز» دیده می‌شود؛ پس شعاع را کپ می‌کنیم)
-        val glowR = minOf(rMain + dp(20f), maxR)
-        val glowA = when (mode) {
-            "on" -> 0.30f + 0.07f * sin(phase * 2f * Math.PI).toFloat()
-            "busy" -> 0.16f + 0.13f * (0.5f + 0.5f * sin(phase * 2f * Math.PI).toFloat())
-            else -> 0.07f // نفس ملایم حتی در حالت خاموش — حس فلز گران‌بها
-        }
-        if (glowA > 0.01f) {
-            // لایه‌ی پهن و کم‌رنگ (مخملی)
-            paint.shader = RadialGradient(
-                cx, cy, glowR,
-                UI.alpha(ringBase, (glowA * 0.40f).coerceIn(0f, 1f)),
-                Color.TRANSPARENT, Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(cx, cy, glowR, paint)
-            // لایه‌ی نزدیک حلقه (گرم و متمرکز)
-            paint.shader = RadialGradient(
-                cx, cy, rMain + dp(8f),
-                UI.alpha(ringBase, glowA.coerceIn(0f, 1f)),
-                Color.TRANSPARENT, Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(cx, cy, rMain + dp(8f), paint)
-            paint.shader = null
-        }
-
-        // ---------- ۱.۵) پالس سونار هنگام اتصال موفق — حلقه‌های آرام و expanding ----------
-        if (mode == "on") {
-            stroke.shader = null
-            stroke.strokeCap = Paint.Cap.ROUND
-            for (k in 0..1) {
-                val t = (phase + k * 0.5f) % 1f
-                val span = (maxR - rMain - dp(10f)).coerceAtLeast(dp(2f))
-                val pr = rMain + dp(10f) + t * span
-                val a = (1f - t) * 0.32f
-                stroke.color = UI.alpha(ringBase, a)
-                stroke.strokeWidth = dp(2.4f) - dp(1.2f) * t
-                if (stroke.strokeWidth > 0) canvas.drawCircle(cx, cy, pr, stroke)
-            }
-        }
-
-        // ---------- ۲) حلقه‌های تزئینی بیرونی ----------
-        // حلقه‌ی نقطه‌چین (حکاکی)
-        stroke.shader = null
-        stroke.color = UI.alpha(ringBase, 0.5f)
-        stroke.strokeWidth = dp(1.2f)
-        stroke.pathEffect = DashPathEffect(floatArrayOf(dp(1.6f), dp(5.2f)), 0f)
-        canvas.drawCircle(cx, cy, rMain + dp(26f), stroke)
-        stroke.pathEffect = null
-        // حلقه‌ی باریک دوم
-        stroke.color = UI.alpha(ringBase, 0.85f)
-        stroke.strokeWidth = dp(1.4f)
-        canvas.drawCircle(cx, cy, rMain + dp(19f), stroke)
-        // تیک‌های حکاکی بین دو حلقه (نقش فلز کنده‌کاری‌شده‌ی طرح مرجع)
-        stroke.color = UI.alpha(ringBase, 0.34f)
-        stroke.strokeWidth = dp(1.1f)
-        stroke.pathEffect = null
-        val rTickIn = rMain + dp(20.4f)
-        val rTickOut = rTickIn + dp(3.4f)
-        for (i in 0 until 72) {
-            val ang = Math.PI * 2.0 * i / 72.0
-            val cosA = Math.cos(ang).toFloat(); val sinA = sin(ang).toFloat()
-            val long = i % 6 == 0
-            val ro = if (long) rTickOut + dp(1.6f) else rTickOut
-            canvas.drawLine(cx + cosA * rTickIn, cy + sinA * rTickIn,
-                            cx + cosA * ro, cy + sinA * ro, stroke)
-        }
-        stroke.pathEffect = null
-
-        // ستاره‌ی مدارگرد روی حلقه‌ی نقطه‌چین (در روشن/در حال اتصال)
+        // ---------- هاله‌ی وضعیت — فقط متصل / در حال اتصال، بسیار ملایم ----------
         if (mode != "off") {
-            val orbA = phase * 2f * Math.PI
-            val orbR = rMain + dp(26f)
-            val orbCol = if (connected) 0xFFC9FFDD.toInt() else 0xFFFFE9A8.toInt()
+            val glowA = (if (connected) 0.20f else 0.15f) +
+                    (if (mode == "on") 0.05f * kotlin.math.sin(phase * 2f * Math.PI).toFloat() else 0f)
+            val glowR = minOf(rMain + dp(16f), maxR)
             fillP.shader = RadialGradient(
-                cx + (orbR * Math.cos(orbA)).toFloat(), cy + (orbR * Math.sin(orbA)).toFloat(), dp(8f),
-                orbCol, Color.TRANSPARENT, Shader.TileMode.CLAMP
+                cx, cy, glowR,
+                UI.alpha(ringBase, glowA.coerceIn(0f, 0.3f)), Color.TRANSPARENT, Shader.TileMode.CLAMP
             )
-            canvas.drawCircle(cx + (orbR * Math.cos(orbA)).toFloat(), cy + (orbR * Math.sin(orbA)).toFloat(), dp(8f), fillP)
+            canvas.drawCircle(cx, cy, glowR, fillP)
             fillP.shader = null
         }
 
-        // ---------- ۳) حلقه‌ی اصلی گرادیانی (اتصال موفق = سبز فلزی) ----------
-        val golds = if (connected) intArrayOf(
-            0xFF1E7A46.toInt(), 0xFF4CE07E.toInt(), 0xFF2FBF66.toInt(),
-            0xFF14522E.toInt(), 0xFF37A85C.toInt(), 0xFF1E7A46.toInt()
-        ) else intArrayOf(
-            0xFF8A6A1B.toInt(), 0xFFF5D061.toInt(), 0xFFE8B923.toInt(),
-            0xFF6E5412.toInt(), 0xFFC99B2E.toInt(), 0xFF8A6A1B.toInt()
-        )
-        val sweep = SweepGradient(cx, cy, golds, null)
-        canvas.save()
-        if (mode == "busy") canvas.rotate(phase * 360f, cx, cy)
-        stroke.shader = sweep
-        stroke.strokeWidth = dp(11f)
-        canvas.drawCircle(cx, cy, rMain, stroke)
+        // ---------- صفحه‌ی داخلی ----------
+        val discR = rMain - dp(11f)
+        fillP.color = p.card
+        canvas.drawCircle(cx, cy, discR, fillP)
+        if (connected) {
+            fillP.color = UI.alpha(ringBase, 0.10f)
+            canvas.drawCircle(cx, cy, discR, fillP)
+        }
+        fillP.shader = null
         stroke.shader = null
-        canvas.restore()
+        stroke.color = p.line
+        stroke.strokeWidth = dp(1.2f)
+        canvas.drawCircle(cx, cy, discR, stroke)
 
-        // لبه‌های باریک بالا/پایین حلقه‌ی اصلی
-        stroke.color = UI.alpha(if (connected) 0xFF8CF5B0.toInt() else 0xFFF5D061.toInt(), 0.55f)
-        stroke.strokeWidth = dp(1f)
-        canvas.drawCircle(cx, cy, rMain + dp(6.2f), stroke)
-        canvas.drawCircle(cx, cy, rMain - dp(6.2f), stroke)
-
-        // دنباله‌ی دنباله‌دار در حال اتصال — قوس روشن چرخان روی حلقه‌ی اصلی
+        // ---------- حلقه‌ی اصلی (وضعیت رنگ) ----------
+        stroke.shader = null
+        stroke.strokeWidth = dp(9f)
         if (mode == "busy") {
-            stroke.shader = null
-            stroke.color = UI.alpha(0xFFFFE9A8.toInt(), 0.85f)
-            stroke.strokeWidth = dp(2.6f)
+            stroke.color = UI.alpha(ringBase, 0.18f)
+            canvas.drawCircle(cx, cy, rMain, stroke)
+            stroke.color = ringBase
             rect.set(cx - rMain, cy - rMain, cx + rMain, cy + rMain)
-            canvas.drawArc(rect, phase * 360f - 64f, 64f, false, stroke)
+            canvas.drawArc(rect, phase * 360f - 80f, 80f, false, stroke)
+        } else {
+            stroke.color = ringBase
+            canvas.drawCircle(cx, cy, rMain, stroke)
         }
-
-        // درخشش آینه‌ای چرخان روی حلقه — حس فلز صیقلی
-        val specSweep = SweepGradient(
-            cx, cy,
-            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, UI.alpha(0xFFFFF6D8.toInt(), 0.75f), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.42f, 0.5f, 0.58f)
-        )
-        canvas.save()
-        if (mode != "off") canvas.rotate(phase * 360f, cx, cy) else canvas.rotate(-38f, cx, cy)
-        stroke.shader = specSweep
-        stroke.strokeWidth = dp(11f)
-        canvas.drawCircle(cx, cy, rMain, stroke)
         stroke.shader = null
-        canvas.restore()
 
-        // درخشش دومِ آرام‌تر روی حلقه‌ی بیرونی — خلاف جهت چرخش (جلوه‌ی فلز زنده)
-        if (mode != "off") {
-            canvas.save()
-            canvas.rotate(-phase * 240f, cx, cy)
-            stroke.shader = specSweep
-            stroke.strokeWidth = dp(4f)
-            canvas.drawCircle(cx, cy, rMain + dp(19f), stroke)
-            stroke.shader = null
-            canvas.restore()
-        }
-
-        // ---------- ۴) صفحه‌ی داخلی تیره ----------
-        fillP.shader = if (connected) RadialGradient(
-            cx - rMain * 0.25f, cy - rMain * 0.32f, rMain * 1.35f,
-            0xFF0B2E1A.toInt(), 0xFF020604.toInt(), Shader.TileMode.CLAMP
-        ) else RadialGradient(
-            cx - rMain * 0.25f, cy - rMain * 0.32f, rMain * 1.35f,
-            0xFF2B2109.toInt(), 0xFF060401.toInt(), Shader.TileMode.CLAMP
-        )
-        canvas.drawCircle(cx, cy, rMain - dp(7f), fillP)
-        fillP.shader = null
-        // نور افتاده از بالا-چپ روی صفحه (جلوی محدب)
-        fillP.shader = RadialGradient(
-            cx - rMain * 0.38f, cy - rMain * 0.45f, rMain * 1.05f,
-            UI.alpha(if (connected) 0xFF8CF5B0.toInt() else 0xFFF5D061.toInt(), 0.10f), Color.TRANSPARENT, Shader.TileMode.CLAMP
-        )
-        canvas.drawCircle(cx, cy, rMain - dp(7f), fillP)
-        fillP.shader = null
-        // نور لبه‌ی پایین صفحه — مقعر شدن صفحه‌ی داخلی (حس فرورفتگی فلزی)
-        stroke.shader = null
-        stroke.color = UI.alpha(ringBase, 0.16f)
-        stroke.strokeWidth = dp(2.4f)
-        rect.set(cx - (rMain - dp(9.5f)), cy - (rMain - dp(9.5f)), cx + (rMain - dp(9.5f)), cy + (rMain - dp(9.5f)))
-        canvas.drawArc(rect, 32f, 116f, false, stroke)
-        // دو حلقه‌ی حکاکی ظریف داخل صفحه
-        stroke.strokeWidth = dp(1f)
-        stroke.color = UI.alpha(ringBase, 0.20f)
-        canvas.drawCircle(cx, cy, rMain - dp(14f), stroke)
-        stroke.color = UI.alpha(ringBase, 0.12f)
-        canvas.drawCircle(cx, cy, rMain - dp(17.5f), stroke)
-
-        // ---------- ۵) گلیف پاور ----------
-        val gr = rMain * 0.46f
+        // ---------- گلیف پاور ----------
+        val gr = rMain * 0.44f
         if (mode == "on") {
             fillP.shader = RadialGradient(
-                cx, cy, gr * 2.3f,
-                UI.alpha(if (connected) 0xFF9FFFBF.toInt() else 0xFFFFD868.toInt(), 0.38f), Color.TRANSPARENT, Shader.TileMode.CLAMP
+                cx, cy, gr * 2.1f,
+                UI.alpha(ringBase, 0.14f), Color.TRANSPARENT, Shader.TileMode.CLAMP
             )
-            canvas.drawCircle(cx, cy, gr * 2.3f, fillP)
+            canvas.drawCircle(cx, cy, gr * 2.1f, fillP)
             fillP.shader = null
         }
         glyph.color = when (mode) {
-            "on" -> if (connected) 0xFF8CF5B0.toInt() else 0xFFFFD868.toInt()
-            "busy" -> UI.alpha(p.accent, 0.85f)
-            else -> 0xFFE3B94F.toInt()
+            "on" -> 0xFF1E9E5B.toInt()
+            "busy" -> UI.alpha(p.accent, 0.9f)
+            else -> p.accent
         }
-        // هاله‌ی زیر گلیف در حالت روشن (نور پخش)
-        if (mode == "on") {
-            val haloCol = if (connected) 0xFF8CF5B0.toInt() else 0xFFFFD868.toInt()
-            val halo = Paint(glyph).apply {
-                strokeWidth = dp(11f)
-                this.color = UI.alpha(haloCol, 0.22f)
-            }
-            canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, halo)
-            rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
-            canvas.drawArc(rect, -45f, 270f, false, halo)
-        }
-        glyph.strokeWidth = dp(6.4f)
+        glyph.strokeWidth = dp(6f)
         canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, glyph)
         rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
         canvas.drawArc(rect, -45f, 270f, false, glyph)
-        // نقطه‌ی درخشان سر خط پاور
-        if (mode != "off") {
-            fillP.color = UI.alpha(
-                if (connected) 0xFFE9FFF2.toInt() else 0xFFFFF3C4.toInt(),
-                if (mode == "on") 0.95f else 0.6f)
-            canvas.drawCircle(cx, cy - gr, dp(2.4f), fillP)
-        }
     }
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density

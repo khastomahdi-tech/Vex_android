@@ -16,7 +16,7 @@ data class Server(
 
 /** تنظیمات برنامه */
 data class VexSettings(
-    var theme: String = "royal_light",   // light | dark | shir | royal | royal_light | system — پیش‌فرض: روشن سلطنتی
+    var theme: String = "light",   // light | dark | shir | royal | royal_light | system — پیش‌فرض: روشن تمیز
     var mtu: Int = 1500,
     var dns: String = "1.1.1.1",
     var bypassLan: Boolean = true,
@@ -118,7 +118,7 @@ class ServersStore(context: Context) {
         try {
             val o = JSONObject(prefs.getString(KEY_SETTINGS, "{}") ?: "{}")
             settings = VexSettings(
-                theme = o.optString("theme", "royal_light"),
+                theme = o.optString("theme", "light"),
                 mtu = o.optInt("mtu", 1500).coerceIn(1280, 9000),
                 dns = o.optString("dns", "1.1.1.1").ifEmpty { "1.1.1.1" },
                 bypassLan = o.optBoolean("bypassLan", true),
@@ -160,6 +160,15 @@ class ServersStore(context: Context) {
                 saveSettings()
             }
             prefs.edit().putBoolean("theme_migrated_v316", true).apply()
+        }
+        // مهاجرت یک‌باره‌ی تم از v3.19: ظاهر «AI‌مانند» طلایی حذف شد؛ نصب‌های روی تم‌های
+        // سلطنتی/شیر یک بار به تم روشن تمیز منتقل می‌شوند (تیره دستی دست‌نخورده می‌ماند).
+        if (!prefs.getBoolean("theme_migrated_v319", false)) {
+            if (settings.theme == "royal" || settings.theme == "royal_light" || settings.theme == "shir") {
+                settings.theme = "light"
+                saveSettings()
+            }
+            prefs.edit().putBoolean("theme_migrated_v319", true).apply()
         }
     }
 

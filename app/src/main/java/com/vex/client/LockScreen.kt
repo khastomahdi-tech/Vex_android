@@ -361,20 +361,19 @@ object LockScreen {
         root.setBackgroundColor(p.bg)
         root.setPadding(UI.dp(ctx, 24), UI.dp(ctx, 30), UI.dp(ctx, 24), UI.dp(ctx, 30))
 
-        // تاج طلایی داخل دایره‌ی گرادیانی + سایه
+        // آیکون قفل داخل دایره‌ی ملایم تم — تمیز و بدون طلاکاری
         val icBox = FrameLayout(ctx).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                orientation = GradientDrawable.Orientation.TL_BR
-                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
-                setStroke(UI.dp(ctx, 1), UI.alpha(0xFFF7DE8A.toInt(), 0.7f))
+                setColor(UI.alpha(p.accent, 0.12f))
+                setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.35f))
             }
             outlineProvider = ViewOutlineProvider.BACKGROUND
             clipToOutline = false
-            elevation = UI.dp(ctx, 6).toFloat()
+            elevation = UI.dp(ctx, 4).toFloat()
         }
-        val ic = IconView(ctx, "crown").apply {
-            iconColor = 0xFF1A1304.toInt(); bold = true
+        val ic = IconView(ctx, "lock").apply {
+            iconColor = p.accent; bold = true
         }
         icBox.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 30), UI.dp(ctx, 30), Gravity.CENTER))
         root.addView(icBox, LinearLayout.LayoutParams(

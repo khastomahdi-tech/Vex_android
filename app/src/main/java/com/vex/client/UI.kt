@@ -134,8 +134,8 @@ object Themes {
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
             if (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES) dark() else light()
         }
-        // تم پیش‌فرض برنامه = سلطنتی طلایی (شب)
-        else -> royal()
+        // تم پیش‌فرض برنامه = روشن تمیز (بدون حالت AI‌مانند)
+        else -> light()
     }
 }
 

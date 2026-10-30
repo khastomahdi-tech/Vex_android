@@ -489,7 +489,7 @@ class MainActivity : ComponentActivity() {
                 setPadding(UI.dp(ctx, 10), UI.dp(ctx, 7), UI.dp(ctx, 10), UI.dp(ctx, 7))
             }
             val iv = IconView(ctx, ic)
-            val tv = UI.label(ctx, lbl, 11f, Themes.goldMuted, bold = true).apply {
+            val tv = UI.label(ctx, lbl, 11f, 0xFF9AA3B2.toInt(), bold = true).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, UI.dp(ctx, 3), 0, 0)
             }
@@ -514,15 +514,14 @@ class MainActivity : ComponentActivity() {
         screenSettings.visibility = if (idx == 3) View.VISIBLE else View.GONE
         for ((i, n) in navItems.withIndex()) {
             val active = i == idx
-            // قرص طلایی گرادیانی برای آیتم فعال (مطابق طرح مرجع)
+            val p = Themes.resolve(this, store.settings.theme)
+            // قرص ملایم اکسنت برای آیتم فعال — تمیز و بدون گرادیان طلایی
             n.item.background = if (active) android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = UI.dp(this@MainActivity, 16).toFloat()
-                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
-                orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
+                setColor(UI.alpha(p.accent, 0.14f))
             } else null
-            // روی قرص طلایی همیشه متن تیره — در هر تمی خوانا می‌ماند
-            n.icon.iconColor = if (active) 0xFF1A1304.toInt() else Themes.goldMuted
-            n.label.setTextColor(if (active) 0xFF1A1304.toInt() else Themes.goldMuted)
+            n.icon.iconColor = if (active) p.accent else p.muted
+            n.label.setTextColor(if (active) p.accent else p.muted)
         }
         if (idx == 1) serversUi.render()
         if (idx == 2) statsUi.render()
@@ -623,19 +622,15 @@ class MainActivity : ComponentActivity() {
 
     /**
      * دکمه‌ی خورشید هدر: یک لمس = روز، لمس دوباره = شب.
-     * بین تم سلطنتیِ شب (پیش‌فرض) و سلطنتیِ روز جابه‌جا می‌شود؛
-     * اگر کاربر تم دیگری انتخاب کرده باشد، جفتِ روشن/تیره‌ی همان استفاده می‌شود.
+     * بین تم روشن تمیز و تیره‌ی تمیز جابه‌جا می‌شود.
      */
     fun toggleDayNight() {
-        val next = when (store.settings.theme) {
-            "royal_light" -> "royal"
-            "royal" -> "royal_light"
+        val cur = store.settings.theme
+        val next = when (cur) {
             "light" -> "dark"
             "dark" -> "light"
-            "shir" -> "royal_light"
             else ->
-                if (Themes.isLightBg(Themes.resolve(this, store.settings.theme))) "royal"
-                else "royal_light"
+                if (Themes.isLightBg(Themes.resolve(this, cur))) "dark" else "light"
         }
         store.settings.theme = next
         store.saveSettings()
@@ -1162,17 +1157,16 @@ class MainActivity : ComponentActivity() {
         gateRoot.setBackgroundColor(p.bg)
         gateRoot.removeAllViews()
 
-        // لوگو: دایره‌ی طلایی + آیکون
+        // لوگو: دایره‌ی ملایم اکسنت + آیکون (تمیز، بدون گرادیان طلایی)
         val icBox = FrameLayout(ctx).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
-                orientation = GradientDrawable.Orientation.TL_BR
-                setStroke(UI.dp(ctx, 1), UI.alpha(0xFFF7DE8A.toInt(), 0.7f))
+                setColor(UI.alpha(p.accent, 0.12f))
+                setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.35f))
             }
         }
         val ic = IconView(ctx, if (state == "closed") "gear" else "globe").apply {
-            iconColor = 0xFF1A1304.toInt(); bold = true
+            iconColor = p.accent; bold = true
         }
         icBox.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 34), UI.dp(ctx, 34), Gravity.CENTER))
         gateRoot.addView(icBox, LinearLayout.LayoutParams(

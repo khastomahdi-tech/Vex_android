@@ -217,7 +217,7 @@ class ServersUi(private val act: MainActivity) {
         }
     }
 
-    /** دکمه‌ی شناور گرد طلایی با «+» — با جهش نرم هنگام لمس */
+    /** دکمه‌ی شناور گرد با «+» — رنگ اکسنت تم، با جهش نرم هنگام لمس */
     private fun buildFab(): FrameLayout {
         val ctx = act
         val f = FrameLayout(ctx).apply {
@@ -226,9 +226,7 @@ class ServersUi(private val act: MainActivity) {
             contentDescription = "افزودن سرور"
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                colors = intArrayOf(0xFFF0C64B.toInt(), 0xFFB9861B.toInt())
-                orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
-                setStroke(UI.dp(ctx, 1), UI.alpha(0xFFF7DE8A.toInt(), 0.7f))
+                setColor(p.accent)
             }
             setOnClickListener {
                 // جهش کوچک بازخورد لمسی
@@ -238,7 +236,7 @@ class ServersUi(private val act: MainActivity) {
             }
         }
         val ic = IconView(ctx, "plus").apply {
-            iconColor = 0xFF1A1304.toInt(); bold = true
+            iconColor = p.onAccent; bold = true
         }
         f.addView(ic, FrameLayout.LayoutParams(
             UI.dp(ctx, 28), UI.dp(ctx, 28), Gravity.CENTER))
@@ -591,7 +589,7 @@ class ServersUi(private val act: MainActivity) {
 
         // پیشوند مدیر (ایموجی/برچسب) — طلایی، کنار نام سرور
         if (s.label.isNotBlank()) {
-            val lp = UI.pill(ctx, s.label, UI.alpha(0xFFF0C64B.toInt(), 0.18f), 0xFFF0C64B.toInt())
+            val lp = UI.pill(ctx, s.label, UI.alpha(p.accent, 0.14f), p.accent)
             lp.maxLines = 1
             card.addView(lp, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {

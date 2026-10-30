@@ -36,7 +36,10 @@
  *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
  */
 
-const SERVICE_V = 6;
+const SERVICE_V = 7;
+
+const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
+const LATEST_ASSET = "Vex-Client-latest.apk";
 
 const DEFAULT_CLOSE_REASON = "The admin has closed the app for now. Please try again later.";
 const CLOSE_REASON_UPDATE = "We're updating the app. Please try again later.";
@@ -308,6 +311,8 @@ async function handleUpdate(up, env) {
     await tgSend(env, chatId, "🔓 برنامه باز شد و برای همه قابل استفاده است.", mainMenu());
   } else if (lc.startsWith("/stats")) {
     await sendStats(chatId, env);
+  } else if (lc.startsWith("/ghstats")) {
+    await sendGhStats(chatId, env);
   } else if (lc.startsWith("/traffic")) {
     await sendTraffic(chatId, env);
   } else if (lc.startsWith("/users")) {
@@ -347,6 +352,8 @@ async function handleCb(data, chatId, env) {
     await tgSend(env, chatId, "منوی مدیریت Vex:", mainMenu());
   } else if (data === "stats") {
     await sendStats(chatId, env);
+  } else if (data === "ghstats") {
+    await sendGhStats(chatId, env);
   } else if (data === "traffic") {
     await sendTraffic(chatId, env);
   } else if (data === "users") {
@@ -415,7 +422,7 @@ async function handleCb(data, chatId, env) {
 function mainMenu() {
   return kb([
     [{ text: "📊 آمار", callback_data: "stats" }, { text: "👥 کاربران", callback_data: "users" }],
-    [{ text: "📈 مصرف ترافیک", callback_data: "traffic" }],
+    [{ text: "📈 مصرف ترافیک", callback_data: "traffic" }, { text: "📥 نصب از گیت‌هاب", callback_data: "ghstats" }],
     [{ text: "🖥 سرورهای رایگان", callback_data: "fs" }],
     [{ text: "📢 ارسال اعلان به کاربران", callback_data: "notify" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
@@ -479,6 +486,59 @@ async function sendStats(chatId, env) {
     "🔑 مصرف سرورهای شخصی: " + fmtB(tt.privB) + "\n" +
     "🧮 مصرف کل: <b>" + fmtB(tt.freeB + tt.privB) + "</b>\n" +
     "وضعیت برنامه: " + (gate === "closed" ? "🔒 بسته" : "🔓 باز"), mainMenu());
+}
+
+/**
+ * آمار نصب از گیت‌هاب — تعداد دانلودهای APK از Releases گیت‌هاب:
+ * کل نصب‌ها + نصب هر نسخه (asset نسخه‌دار هر Release) + دانلودهای لینک Latest.
+ * توکن/ریپو از D1 settings (gh_token / gh_repo) — بدون توکن هم کار می‌کند.
+ */
+async function sendGhStats(chatId, env) {
+  let repo = env.GH_REPO || (await getSetting(env, "gh_repo")) || DEFAULT_REPO;
+  repo = String(repo).replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+  const token = env.GH_TOKEN || (await getSetting(env, "gh_token"));
+  const hdr = { "user-agent": "vex-gate", "accept": "application/vnd.github+json" };
+  if (token) hdr.authorization = "Bearer " + token;
+  let rels = null;
+  try {
+    const res = await fetch("https://api.github.com/repos/" + repo + "/releases?per_page=100", { headers: hdr });
+    if (res.ok) {
+      const j = await res.json();
+      if (Array.isArray(j)) rels = j;
+    }
+  } catch (e) {}
+  if (!rels) {
+    await tgSend(env, chatId, "⚠️ گرفتن آمار از گیت‌هاب ممکن نشد — چند لحظه بعد دوباره امتحان کن.", mainMenu());
+    return;
+  }
+  const rows = [];
+  let total = 0, latestDl = 0;
+  for (const r of rels) {
+    if (r.draft) continue;
+    let verDl = 0, latDl = 0;
+    for (const a of (r.assets || [])) {
+      const c = Number(a.download_count) || 0;
+      total += c;
+      if (a.name === LATEST_ASSET) latDl += c; else verDl += c;
+    }
+    latestDl += latDl;
+    rows.push({ tag: String(r.tag_name || r.name || "?"), ver: verDl, lat: latDl, date: String(r.published_at || "").slice(0, 10) });
+  }
+  let out = "📥 <b>آمار نصب از گیت‌هاب</b>\n\n" +
+    "📦 کل دانلودهای APK: <b>" + total + "</b>\n" +
+    "🔗 دانلود از لینک Latest: " + latestDl + "\n";
+  if (rows.length) {
+    out += "\n🔢 <b>نصب به تفکیک نسخه:</b>";
+    for (const r of rows.slice(0, 14)) {
+      out += "\n• " + esc(r.tag) + " — <b>" + r.ver + "</b> نصب" +
+        (r.date ? "  <i>(" + r.date + ")</i>" : "");
+    }
+    if (rows.length > 14) out += "\n… و " + (rows.length - 14) + " نسخه‌ی دیگر";
+  } else {
+    out += "\nهنوز Release‌ای منتشر نشده است.";
+  }
+  out += "\n\n<i>هر دانلود APK از صفحه‌ی Releases گیت‌هاب = یک نصب. این آمار مستقیم از گیت‌هاب خوانده می‌شود.</i>";
+  await tgSend(env, chatId, out, mainMenu());
 }
 
 async function sendTraffic(chatId, env) {

@@ -4,22 +4,19 @@ import android.animation.Animator
 import android.animation.AnimatorSet
 import android.animation.ValueAnimator
 import android.app.Activity
-import android.graphics.Color
 import android.view.Gravity
-import android.view.View
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * پیش‌نمایش ورود VEX — پیش از ورود به برنامه:
- *  دو شیر بالدار روبه‌روی هم از بالای صفحه به مرکز سقوط می‌کنند و می‌نشینند،
- *  تاج حذف شد — دو شیر + عنوان طلایی VEX CLIENT
- *  لمس صفحه = رد کردن؛ پس از ~۲٫۴ ثانیه محو و حذف می‌شود.
+ * پیش‌نمایش ورود VEX — تمیز و ساده:
+ *  آیکون خود برنامه از بالای صفحه به مرکز سقوط می‌کند و با نشستن نرم می‌ایستد،
+ *  عنوان VEX CLIENT زیر آن محو-ظاهر می‌شود؛ بعد صفحه با یک حرکت ملایم به سمت بالا
+ *  راهی و رابط برنامه نمایش داده می‌شود. لمس صفحه = رد کردن.
  */
 object IntroSplash {
 
@@ -28,102 +25,94 @@ object IntroSplash {
         val density = ctx.resources.displayMetrics.density
 
         val overlay = FrameLayout(ctx).apply {
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(0xFFF5F7FB.toInt())
             isClickable = true
             isFocusable = true
         }
 
-        // ---------------- صحنه‌ی مرکزی: دو شیر + عنوان ----------------
+        // ---------------- صحنه‌ی مرکزی: آیکون برنامه + عنوان ----------------
         val stage = FrameLayout(ctx)
         val stageLp = FrameLayout.LayoutParams(
             UI.dp(ctx, 340), UI.dp(ctx, 300), Gravity.CENTER)
 
-        // شیر بالدار چپ (رو به راست) — سقوط از بالا
-        val leftBox = lionBox(ctx, mirrored = false)
-        val leftLp = FrameLayout.LayoutParams(
-            UI.dp(ctx, 170), UI.dp(ctx, 178),
-            Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = UI.dp(ctx, 4) }
-        stage.addView(leftBox, leftLp)
+        val icon = ImageView(ctx).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        stage.addView(icon, FrameLayout.LayoutParams(
+            UI.dp(ctx, 118), UI.dp(ctx, 118),
+            Gravity.CENTER).apply { bottomMargin = UI.dp(ctx, 44) })
 
-        // شیر بالدار راست (آینه‌ی چپ، رو به چپ)
-        val rightBox = lionBox(ctx, mirrored = true)
-        val rightLp = FrameLayout.LayoutParams(
-            UI.dp(ctx, 170), UI.dp(ctx, 178),
-            Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 4) }
-        stage.addView(rightBox, rightLp)
-
-        // عنوان: VEX CLIENT
-        val titleCol = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
+        val title = TextView(ctx).apply {
+            text = "VEX CLIENT"
+            textSize = 22f
+            typeface = Fonts.bold(ctx)
+            setTextColor(0xFF172033.toInt())
+            letterSpacing = 0.12f
             gravity = Gravity.CENTER
             alpha = 0f
         }
-        val title = TextView(ctx).apply {
-            text = "VEX CLIENT"
-            textSize = 25f
-            typeface = Fonts.bold(ctx)
-            setTextColor(0xFFE8B923.toInt())
-            letterSpacing = 0.14f
-            gravity = Gravity.CENTER
-            setShadowLayer(9f * density, 0f, 0f, 0x66E8B923)
-        }
-        titleCol.addView(title)
-        stage.addView(titleCol, FrameLayout.LayoutParams(
+        stage.addView(title, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER).apply { topMargin = UI.dp(ctx, 100) })
+            Gravity.CENTER).apply { topMargin = UI.dp(ctx, 88) })
 
         overlay.addView(stage, stageLp)
 
-        // شروع: هر دو جعبه بالای صفحه (بیرون از دید)
-        val dropFrom = -(UI.dp(ctx, 360)).toFloat()
-        leftBox.translationY = dropFrom
-        rightBox.translationY = dropFrom
+        // شروع: آیکون بالای صفحه (بیرون از دید)
+        val dropFrom = -(UI.dp(ctx, 340)).toFloat()
+        icon.translationY = dropFrom
 
         // ---------------- انیمیشن سقوط و نشستن ----------------
-        fun fall(box: FrameLayout, delay: Long, dur: Long): Animator =
-            ValueAnimator.ofFloat(dropFrom, 0f).apply {
-                startDelay = delay
-                duration = dur
-                interpolator = DecelerateInterpolator(2.2f) // سقوط با ترمز نرم
-                addUpdateListener { box.translationY = it.animatedValue as Float }
-            }
+        val fall = ValueAnimator.ofFloat(dropFrom, 0f).apply {
+            duration = 680
+            interpolator = DecelerateInterpolator(1.9f)
+            addUpdateListener { icon.translationY = it.animatedValue as Float }
+        }
 
         // لرزش نشستن (bounce کوچک بعد از فرود)
-        fun settle(box: FrameLayout, delay: Long): Animator =
-            ValueAnimator.ofFloat(0f, 1f).apply {
-                startDelay = delay
-                duration = 340
-                interpolator = LinearInterpolator()
-                addUpdateListener {
-                    val t = it.animatedValue as Float
-                    box.translationY = -14f * density * (1f - t) * kotlin.math.sin(t * Math.PI).toFloat()
-                }
+        val settle = ValueAnimator.ofFloat(0f, 1f).apply {
+            startDelay = 680
+            duration = 320
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                icon.translationY = -12f * density * (1f - t) * kotlin.math.sin(t * Math.PI).toFloat()
             }
+        }
 
         val titleIn = ValueAnimator.ofFloat(0f, 1f).apply {
-            startDelay = 720
-            duration = 520
+            startDelay = 540
+            duration = 420
             addUpdateListener {
                 val v = it.animatedValue as Float
-                titleCol.alpha = v
-                titleCol.scaleX = 0.86f + 0.14f * v
-                titleCol.scaleY = 0.86f + 0.14f * v
+                title.alpha = v
+                title.scaleX = 0.9f + 0.1f * v
+                title.scaleY = 0.9f + 0.1f * v
             }
         }
 
         val anims = AnimatorSet().apply {
-            playTogether(
-                fall(leftBox, 120, 820),
-                fall(rightBox, 260, 820),
-                settle(leftBox, 940),
-                settle(rightBox, 1060),
-                titleIn
-            )
+            playTogether(fall, settle, titleIn)
         }
         anims.start()
 
-        // ---------------- بستن ----------------
+        // ---------------- بستن: صفحه‌ی اصلی از پایین آرام بالا می‌آید ----------------
         var closed = false
+        fun revealMain(instant: Boolean) {
+            val content = act.findViewById<FrameLayout>(android.R.id.content)
+            val mainRoot = if (content.childCount > 0) content.getChildAt(0) else null
+            if (mainRoot == null || instant) {
+                mainRoot?.translationY = 0f
+                mainRoot?.alpha = 1f
+                return
+            }
+            if (mainRoot.translationY == 0f && mainRoot.alpha == 1f) return
+            mainRoot.animate().translationY(0f).alpha(1f)
+                .setDuration(400)
+                .setInterpolator(DecelerateInterpolator(1.6f))
+                .start()
+        }
+
         fun close(now: Boolean) {
             if (closed) return
             closed = true
@@ -133,11 +122,15 @@ object IntroSplash {
                 } catch (_: Throwable) {}
                 onDone()
             }
-            if (now) { anims.cancel(); finish() }
-            else {
-                overlay.animate().alpha(0f).setDuration(420)
+            if (now) {
+                anims.cancel()
+                revealMain(instant = true)
+                finish()
+            } else {
+                revealMain(instant = false)
+                overlay.animate().alpha(0f).setDuration(400)
                     .setInterpolator(AccelerateInterpolator())
-                    .setStartDelay(620)
+                    .setStartDelay(240)
                     .withEndAction { finish() }
                     .start()
             }
@@ -148,35 +141,16 @@ object IntroSplash {
             override fun onAnimationEnd(animation: Animator) { close(now = false) }
         })
 
-        // افزودن روی کل محتوای پنجره
+        // افزودن روی کل محتوای پنجره؛ قبل از افتادن آیکون، صفحه‌ی اصلی کمی پایین‌تر و محو است
         val content = act.findViewById<FrameLayout>(android.R.id.content)
+        if (content.childCount > 0) {
+            val mainRoot = content.getChildAt(0)
+            mainRoot.translationY = UI.dp(ctx, 42).toFloat()
+            mainRoot.alpha = 0.9f
+        }
         content.addView(overlay, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         overlay.alpha = 0f
-        overlay.animate().alpha(1f).setDuration(180).start()
-    }
-
-    /** جعبه‌ی شیر طبیعی طلایی + هاله‌ی نور پشتش */
-    private fun lionBox(ctx: Activity, mirrored: Boolean): FrameLayout {
-        val box = FrameLayout(ctx)
-        // هاله‌ی طلایی محو پشت شیر — جلوه‌ی سلطنتی روی زمینه‌ی سیاه
-        val glow = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.OVAL
-            gradientType = android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT
-            colors = intArrayOf(
-                UI.alpha(0xFFE8B923.toInt(), 0.34f),
-                UI.alpha(0xFFE8B923.toInt(), 0.06f),
-                android.graphics.Color.TRANSPARENT)
-        }
-        box.background = glow
-        box.setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
-        val lion = ImageView(ctx).apply {
-            setImageResource(R.drawable.art_lion)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            if (mirrored) scaleX = -1f
-        }
-        box.addView(lion, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        return box
+        overlay.animate().alpha(1f).setDuration(160).start()
     }
 }

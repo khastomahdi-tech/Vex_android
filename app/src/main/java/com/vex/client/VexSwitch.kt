@@ -81,7 +81,7 @@ class VexSwitch(context: Context) : View(context) {
 
         // ---------- ریل (تم‌پذیر — در تم روشن هم خوانا) ----------
         val light = Themes.isLightBg(p)
-        val offTrack = if (light) 0xFFE3E8F2.toInt() else 0xFF2A2418.toInt()
+        val offTrack = if (light) 0xFFE3E8F2.toInt() else 0xFF2B3448.toInt()
         val onTrack = p.accent
         val c = lerpColor(offTrack, onTrack, prog)
         track.shader = LinearGradient(
@@ -91,7 +91,7 @@ class VexSwitch(context: Context) : View(context) {
         )
         canvas.drawRoundRect(RectF(0f, 0f, w, h), r, r, track)
         track.shader = null
-        val ringOn = if (light) p.accent else 0xFFF7DE8A.toInt()
+        val ringOn = p.accent
         trackStroke.color = UI.alpha(if (prog > 0.5f) ringOn else p.line, 0.55f + 0.45f * prog)
         trackStroke.strokeWidth = strokeW
         canvas.drawRoundRect(RectF(strokeW / 2f, strokeW / 2f, w - strokeW / 2f, h - strokeW / 2f), r - strokeW / 2f, r - strokeW / 2f, trackStroke)
@@ -110,8 +110,8 @@ class VexSwitch(context: Context) : View(context) {
         }
 
         // ---------- دسته (تم‌پذیر) ----------
-        val knobOff = if (light) 0xFFF7F8FB.toInt() else 0xFF8D8672.toInt()
-        val knobOn = if (light) 0xFFFFFFFF.toInt() else 0xFFFFF3CE.toInt()
+        val knobOff = if (light) 0xFFF7F8FB.toInt() else 0xFF9AA3B2.toInt()
+        val knobOn = 0xFFFFFFFF.toInt()
         val knobCol = lerpColor(knobOff, knobOn, prog)
         knobP.shader = RadialGradient(
             kx - knobR * 0.3f, r - knobR * 0.35f, knobR * 1.7f,
