@@ -244,6 +244,21 @@ class IconView(context: Context, val icon: String) : View(context) {
                 canvas.drawLine(cx - 6.5f * u, cy, cx + 6.5f * u, cy, pp)
                 canvas.drawLine(cx, cy - 6.5f * u, cx, cy + 6.5f * u, pp)
             }
+            "check" -> {
+                val cp = Paint(stroke)
+                cp.strokeWidth = sw * 1.5f
+                val p = Path()
+                p.moveTo(cx - 6.4f * u, cy + 0.4f * u)
+                p.lineTo(cx - 1.8f * u, cy + 5.2f * u)
+                p.lineTo(cx + 6.6f * u, cy - 5.2f * u)
+                canvas.drawPath(p, cp)
+            }
+            "dots" -> {
+                val r = 1.7f * u
+                canvas.drawCircle(cx, cy - 6.2f * u, r, fill)
+                canvas.drawCircle(cx, cy, r, fill)
+                canvas.drawCircle(cx, cy + 6.2f * u, r, fill)
+            }
         }
     }
 }

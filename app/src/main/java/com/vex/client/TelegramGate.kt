@@ -3,38 +3,38 @@ package com.vex.client
 import android.content.Context
 import android.os.Build
 import org.json.JSONObject
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
- * دروازه‌ی تلگرام Vex — سه کار:
+ * دروازه‌ی Vex — نسخه‌ی کلادفلر:
  *
- *  ۱) hasInternet()          → بررسی واقعی دسترسی اینترنت (پیش از ورود به برنامه).
- *  ۲) gateStatus()           → کلید خاموش/روشن از راه دور با ربات تلگرام:
- *          مدیر به ربات دستور «/close» بدهد  → برنامه روی همه‌ی دستگاه‌ها قفل می‌شود.
- *          دستور «/open»                     → دوباره باز می‌شود.
+ *  بک‌اند ربات تلگرام روی Cloudflare Pages (vex-gate.pages.dev) + دیتابیس D1 اجرا می‌شود:
+ *
+ *  ۱) hasInternet()   → بررسی واقعی دسترسی اینترنت (پیش از ورود به برنامه).
+ *  ۲) gateStatus()    → وضعیت قفل/باز از سرور کلادفلر خوانده می‌شود:
+ *          مدیر در ربات «/close» بدهد  → برنامه روی همه‌ی دستگاه‌ها قفل می‌شود.
+ *          «/open»                     → دوباره باز می‌شود.
  *          (اولین کسی که به ربات /start بدهد = مدیر شناخته می‌شود)
- *  ۳) notifyInstall()        → وقتی کسی برنامه را نصب/باز کند، مشخصات دستگاه
- *          به چت مدیر ربات ارسال می‌شود (فقط یک‌بار برای هر نسخه).
+ *  ۳) notifyInstall() → نصب/ورود هر دستگاه در D1 ثبت و به چت مدیر پیام می‌رود
+ *          (فقط یک‌بار برای هر نسخه؛ پاسخ همان درخواست، وضعیت دروازه را هم برمی‌گرداند).
+ *  ۴) ackIfChanged()  → وقتی قفل/باز شدن واقعاً روی دستگاه اجرا شد، به مدیر خبر می‌دهد.
  *
- *  نکته: اگر تلگرام در دسترس نباشد (مثلاً فیلترینگ بدون پروکسی)، دروازه
- *  «باز» در نظر گرفته می‌شود تا برنامه برای کاربر قفل نشود — کلید فقط وقتی
- *  اجرا می‌شود که پاسخ واقعی ربات خوانده شود.
+ *  نکته: اگر سرور در دسترس نباشد، دروازه «باز» در نظر گرفته می‌شود تا برنامه
+ *  برای کاربر قفل نشود — قفل فقط وقتی اجرا می‌شود که پاسخ واقعی سرور خوانده شود.
  */
 object TelegramGate {
 
-    private const val BOT_TOKEN = "9127495800:AAFzev2Q6NqyiXnG-jY4tuOgeyc4AO9dng0"
+    /** بک‌اند کلادفلر (Pages) + کلید احراز برنامه */
+    private const val GATE_URL = "https://vex-gate.pages.dev"
+    private const val APP_KEY = "vexk_8c3b1e664023f4df081d8dbb"
 
     /** وضعیت دروازه */
     const val OPEN = "open"
     const val CLOSED = "closed"
-
-    /** شناسه‌ی چت مدیر — از getUpdates خوانده و کش می‌شود */
-    @Volatile private var adminChatId: Long = 0L
 
     // ------------------------------------------------ بررسی اینترنت
 
@@ -57,7 +57,7 @@ object TelegramGate {
                     readTimeout = 4000
                     instanceFollowRedirects = true
                     useCaches = false
-                    setRequestProperty("User-Agent", "VEX-Client/3.10 (connectivity)")
+                    setRequestProperty("User-Agent", "VEX-Client/3.11 (connectivity)")
                 }
                 if (c.responseCode in 200..399) return true
             } catch (_: Throwable) {
@@ -68,47 +68,18 @@ object TelegramGate {
         return false
     }
 
-    // ------------------------------------------------ کلید خاموش/روشن ربات
+    // ------------------------------------------------ کلید خاموش/روشن
 
     /**
-     * وضعیت فعلی دروازه از ربات خوانده می‌شود.
-     * خروجی: CLOSED فقط وقتی آخرین دستور مدیر «/close» باشد؛
+     * وضعیت فعلی دروازه از سرور کلادفلر خوانده می‌شود.
+     * خروجی: CLOSED فقط وقتی مدیر دستور /close داده باشد؛
      * در هر خطا/عدم‌دسترسی → OPEN (شکست باز).
      */
     fun gateStatus(): String {
-        val body = apiCall("getUpdates?timeout=0&limit=100") ?: return OPEN
+        val body = get("/v1/state") ?: return OPEN
         return try {
-            val arr = JSONObject(body).optJSONArray("result") ?: return OPEN
-
-            // گذر اول: پیدا کردن مدیر (اولین چتی که /start فرستاده؛ در نبودش، اولین چت موجود)
-            var startChat = 0L
-            var firstChat = 0L
-            for (i in 0 until arr.length()) {
-                val up = arr.optJSONObject(i) ?: continue
-                val m = up.optJSONObject("message") ?: continue
-                val chat = m.optJSONObject("chat")?.optLong("id", 0L) ?: 0L
-                if (chat == 0L) continue
-                if (firstChat == 0L) firstChat = chat
-                if (startChat == 0L && m.optString("text").trim() == "/start") startChat = chat
-            }
-            val admin = if (startChat != 0L) startChat else firstChat
-            if (admin == 0L) return OPEN
-            adminChatId = admin
-
-            // گذر دوم: آخرین دستور /close یا /open از سمت مدیر
-            var lastClose = Long.MIN_VALUE
-            var lastOpen = Long.MIN_VALUE
-            for (i in 0 until arr.length()) {
-                val up = arr.optJSONObject(i) ?: continue
-                val uid = up.optLong("update_id", Long.MIN_VALUE)
-                val m = up.optJSONObject("message") ?: continue
-                val chat = m.optJSONObject("chat")?.optLong("id", 0L) ?: 0L
-                if (chat != admin) continue
-                val text = m.optString("text").trim().lowercase(Locale.US)
-                if (text.startsWith("/close")) lastClose = uid
-                else if (text.startsWith("/open")) lastOpen = uid
-            }
-            if (lastClose != Long.MIN_VALUE && lastClose >= lastOpen) CLOSED else OPEN
+            val o = JSONObject(body)
+            if (o.optBoolean("ok") && o.optString("gate") == CLOSED) CLOSED else OPEN
         } catch (_: Throwable) {
             OPEN
         }
@@ -117,27 +88,34 @@ object TelegramGate {
     // ------------------------------------------------ اطلاع‌رسانی نصب/ورود
 
     /**
-     * اطلاع‌رسانی «نصب/اولین ورود» به مدیر ربات — فقط یک‌بار برای هر نسخه‌ی برنامه.
-     * اگر ارسال ناموفق باشد (اینترنت/تلگرام قطع)، دفعه‌ی بعد دوباره تلاش می‌شود.
+     * ثبت «نصب/اولین ورود» روی سرور (D1) — پیام به مدیر همان‌جا ارسال می‌شود.
+     * فقط یک‌بار برای هر نسخه‌ی برنامه؛ اگر ارسال ناموفق باشد دفعه‌ی بعد تلاش می‌شود.
+     * وضعیت دروازه هم در پاسخ برمی‌گردد (اگر خطا باشد null).
      */
-    fun notifyInstall(ctx: Context) {
+    fun notifyInstall(ctx: Context): String? {
         try {
             val prefs = ctx.getSharedPreferences("vex_gate", Context.MODE_PRIVATE)
             val ver = pkgVersionCode(ctx)
             val key = "notified_v$ver"
-            if (prefs.getBoolean(key, false)) return
-            val chat = adminChatId
-            if (chat == 0L) return
-            val text = "🔔 ورود/نصب جدید Vex Client\n" +
-                    "📱 گوشی: ${deviceName()}\n" +
-                    "🤖 سیستم: Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
-                    "🏷 نسخه: ${pkgVersionName(ctx)}\n" +
-                    "🌐 زبان: ${Locale.getDefault().toString()}\n" +
-                    "🕐 زمان: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}"
-            if (sendMessage(chat, text)) {
-                prefs.edit().putBoolean(key, true).apply()
+            if (prefs.getBoolean(key, false)) return null
+            val body = JSONObject().apply {
+                put("did", deviceId(ctx))
+                put("model", deviceName())
+                put("android", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+                put("ver", pkgVersionName(ctx))
+                put("lang", Locale.getDefault().toString())
+                put("event", "open")
             }
-        } catch (_: Throwable) {}
+            val res = post("/v1/report", body) ?: return null
+            val gate = try {
+                val o = JSONObject(res)
+                if (o.optBoolean("ok")) o.optString("gate", OPEN) else null
+            } catch (_: Throwable) { null }
+            if (gate != null) prefs.edit().putBoolean(key, true).apply()
+            return gate
+        } catch (_: Throwable) {
+            return null
+        }
     }
 
     /**
@@ -150,38 +128,61 @@ object TelegramGate {
             val prev = prefs.getString("gate_state", "") ?: ""
             if (prev == state) return
             prefs.edit().putString("gate_state", state).apply()
-            val chat = adminChatId
-            if (chat == 0L) return
-            if (state == CLOSED) {
-                sendMessage(chat, "🔒 Vex روی دستگاه «${deviceName()}» قفل شد (دستور /close اجرا شد)")
-            } else if (prev == CLOSED && state == OPEN) {
-                sendMessage(chat, "🔓 Vex روی دستگاه «${deviceName()}» باز شد (دستور /open اجرا شد)")
+            val body = JSONObject().apply {
+                put("device", deviceName())
+                put("state", state)
             }
+            post("/v1/ack", body)
         } catch (_: Throwable) {}
     }
 
-    // ------------------------------------------------ ابزار داخلی
-
-    private fun sendMessage(chat: Long, text: String): Boolean {
-        val enc = URLEncoder.encode(text, "UTF-8")
-        val body = apiCall("sendMessage?chat_id=$chat&text=$enc&disable_web_page_preview=true")
-            ?: return false
-        return try { JSONObject(body).optBoolean("ok", false) } catch (_: Throwable) { false }
+    /** شناسه‌ی یکتای دستگاه — تصادفی و محلی (بدون دسترسی به شناسه‌های سیستمی) */
+    fun deviceId(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences("vex_gate", Context.MODE_PRIVATE)
+        var did = prefs.getString("did", null)
+        if (did == null) {
+            did = UUID.randomUUID().toString()
+            prefs.edit().putString("did", did).apply()
+        }
+        return did
     }
 
-    /** یک GET ساده به Bot API — در هر خطا null (شکست باز در سطح بالاتر) */
-    private fun apiCall(method: String): String? {
+    // ------------------------------------------------ ابزار شبکه
+
+    private fun http(c: HttpURLConnection) {
+        c.connectTimeout = 6000
+        c.readTimeout = 8000
+        c.useCaches = false
+        c.setRequestProperty("X-Vex-Key", APP_KEY)
+        c.setRequestProperty("User-Agent", "VEX-Client/3.11 (gate)")
+    }
+
+    private fun get(path: String): String? {
         var c: HttpURLConnection? = null
         return try {
-            c = (URL("https://api.telegram.org/bot$BOT_TOKEN/$method").openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 6000
-                useCaches = false
-                setRequestProperty("User-Agent", "VEX-Client/3.10 (gate)")
+            c = (URL("$GATE_URL$path").openConnection() as HttpURLConnection).apply {
+                http(this)
             }
-            if (c.responseCode in 200..299) {
-                c.inputStream?.bufferedReader()?.readText()
-            } else null
+            if (c.responseCode in 200..299) c.inputStream?.bufferedReader()?.readText() else null
+        } catch (_: Throwable) {
+            null
+        } finally {
+            try { c?.disconnect() } catch (_: Throwable) {}
+        }
+    }
+
+    private fun post(path: String, body: JSONObject): String? {
+        var c: HttpURLConnection? = null
+        return try {
+            c = (URL("$GATE_URL$path").openConnection() as HttpURLConnection).apply {
+                http(this)
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+            val w = OutputStreamWriter(c.outputStream, Charsets.UTF_8)
+            w.write(body.toString()); w.flush(); w.close()
+            if (c.responseCode in 200..299) c.inputStream?.bufferedReader()?.readText() else null
         } catch (_: Throwable) {
             null
         } finally {

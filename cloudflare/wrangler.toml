@@ -1,0 +1,8 @@
+name = "vex-gate"
+pages_build_output_dir = "."
+compatibility_date = "2026-10-30"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vex-gate-db"
+database_id = "bc171887-7131-43c5-a7d9-d8746a17423e"

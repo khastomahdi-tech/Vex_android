@@ -618,7 +618,8 @@ class DialogsHelper(private val act: MainActivity) {
         })
         col.addView(menuRow("مشاهده‌ی متن کانفیگ") { showRaw(s) })
         col.addView(menuRow("حذف سرور", p.bad) {
-            act.confirmDelete(setOf(s.id)) { act.renderAll() }
+            // حذف فوری بدون تأیید — اگر همین سرور وصل باشد، خود deleteServers جلویش را می‌گیرد
+            act.deleteServers(setOf(s.id))
         })
         dialog(s.name, wrapForm(col, scrollable = false), null, null, "بستن")
     }
@@ -657,30 +658,6 @@ class DialogsHelper(private val act: MainActivity) {
                 act.toast("کپی شد")
             } catch (_: Throwable) {}
         })
-    }
-
-    // ------------------------------------------------------------ حذف
-
-    fun confirmDelete(ids: Set<Int>, after: () -> Unit) {
-        val msg = UI.label(ctx, "${ids.size} سرور حذف شود؟ این کار قابل بازگشت نیست.", 14f, p.text)
-        msg.setPadding(UI.dp(ctx, 22), UI.dp(ctx, 12), UI.dp(ctx, 22), 0)
-        val b = AlertDialog.Builder(ctx)
-            .setCustomTitle(UI.label(ctx, "حذف سرورها", 17f, p.text, bold = true))
-            .setView(msg)
-            .setPositiveButton("حذف") { d, _ ->
-                act.store.remove(ids)
-                act.toast("حذف شد")
-                d.dismiss()
-                after()
-            }
-            .setNegativeButton("انصراف") { d, _ -> d.dismiss() }
-        val dlg = b.create()
-        dlg.show()
-        try {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(p.bad)
-            dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(p.muted)
-            dlg.window?.setBackgroundDrawable(UI.card(ctx, p, 20, stroke = p.line, fillColor = p.bg2))
-        } catch (_: Throwable) {}
     }
 
     // ------------------------------------------------------------ لاگ / خطا

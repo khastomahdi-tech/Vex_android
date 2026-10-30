@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** لینک کانال تلگرام — دکمه‌ی تلگرام بالای صفحه به همین کانال می‌رود */
         const val TELEGRAM_CHANNEL_URL = "https://t.me/vex_vpnfree"
+
+        /** فاصله‌ی بازبینی دوره‌ای وضعیت ربات (۵ دقیقه) */
+        private const val GATE_WATCH_INTERVAL_MS = 5 * 60_000L
     }
 
     lateinit var store: ServersStore
@@ -170,11 +173,14 @@ class MainActivity : ComponentActivity() {
                 main.post { if (!isFinishing) setGateUi("no-internet") }
                 return@Thread
             }
-            // اینترنت هست → برنامه باز می‌شود؛ بررسی ربات در پس‌زمینه ادامه دارد
+            // اینترنت هست → برنامه بلافاصله باز می‌شود
             main.post { if (!isFinishing) enterApp() }
+            // بررسی وضعیت ربات (کلادفلر) + ثبت نصب/ورود — پاسخ report هم وضعیت را می‌دهد
             val st = TelegramGate.gateStatus()
-            TelegramGate.ackIfChanged(st, this)
-            if (st == TelegramGate.CLOSED) {
+            val reported = TelegramGate.notifyInstall(this)
+            if (reported != null) TelegramGate.ackIfChanged(reported, this) else TelegramGate.ackIfChanged(st, this)
+            val finalSt = if (st == TelegramGate.CLOSED || reported == TelegramGate.CLOSED) TelegramGate.CLOSED else st
+            if (finalSt == TelegramGate.CLOSED) {
                 main.post {
                     if (!isFinishing) {
                         requestStop() // برنامه بسته شد → تونل هم قطع می‌شود
@@ -182,8 +188,31 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            TelegramGate.notifyInstall(this)
+            startGateWatch()
         }.start()
+    }
+
+    /**
+     * بازبینی دوره‌ای وضعیت ربات (هر ۵ دقیقه) تا دستور /close حتی وسط کار
+     * هم برنامه را قفل کند؛ پس از قفل، تماشا متوقف می‌شود.
+     */
+    private fun startGateWatch() {
+        main.postDelayed({
+            Thread {
+                val st = TelegramGate.gateStatus()
+                if (st == TelegramGate.CLOSED) {
+                    TelegramGate.ackIfChanged(st, this)
+                    main.post {
+                        if (!isFinishing) {
+                            requestStop()
+                            setGateUi("closed")
+                        }
+                    }
+                } else {
+                    main.post { startGateWatch() }
+                }
+            }.start()
+        }, GATE_WATCH_INTERVAL_MS)
     }
 
     /** بازکردن رابط اصلی — بعد از قفل هم بدون ساخت مجدد برمی‌گردد */
@@ -869,7 +898,22 @@ class MainActivity : ComponentActivity() {
     fun showAddMenu() = dialogs.showAddMenu()
     fun showServerMenu(s: Server) = dialogs.showServerMenu(s)
     fun showEditServer(s: Server) = dialogs.showEditServer(s)
-    fun confirmDelete(ids: Set<Int>, after: () -> Unit) = dialogs.confirmDelete(ids, after)
+
+    /**
+     * حذف فوری بدون هیچ دیالوگ تأیید — همان لحظه حذف می‌شود.
+     * فقط اگر همین سرورِ در حال اتصال باشد، پیام می‌دهد که اول اتصال را قطع کن.
+     */
+    fun deleteServers(ids: Set<Int>) {
+        if (ids.isEmpty()) return
+        if (connectionState != "stopped" && store.selectedId in ids) {
+            UI.toast(this, "اول اتصال را از این سرور قطع کن، بعد سرور را حذف کن")
+            return
+        }
+        store.remove(ids)
+        serversUi.clearChecks()
+        renderAll()
+        UI.toast(this, if (ids.size == 1) "سرور حذف شد" else "${ids.size} سرور حذف شد")
+    }
 
     // ---------------- دروازه‌ی ورود (قفل صفحه) ----------------
 

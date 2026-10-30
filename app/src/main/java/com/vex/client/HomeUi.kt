@@ -6,17 +6,17 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
 /**
  * صفحه‌ی اصلی VEX — چیدمان تمیز:
- *  ناحیه‌ی پاور با دو شیر بالدار روبه‌روی هم و دکمه‌ی پاور (بدون هیچ تاج و علامت اضافه)؛
+ *  ناحیه‌ی پاور فقط خودِ دکمه‌ی پاور است — بدون شیر، تاج یا هر علامت اضافه؛
  *  بالای پاور هیچ چیز نیست — هویت برنامه فقط در هدر بالای صفحه است؛
  *  زیر پاور: متن وضعیت («اتصال با موفقیت انجام شد») + تایمر زنده‌ی مدت اتصال؛
  *  دو کارت آمار (دانلود / آپلود) با قاب دوبل طلایی؛
+ *  کارت آی‌پی خروجی (IP + کشور + پرچم)؛
  *  کارت سرور انتخاب‌شده (نام + IP + نشان قرمز پروتکل + پینگ).
  */
 class HomeUi(private val act: MainActivity) {
@@ -110,51 +110,17 @@ class HomeUi(private val act: MainActivity) {
         val ctx = act
         val zone = FrameLayout(ctx)
 
-        // جعبه‌ی شیر چپ (رو به راست = سمت مرکز)
-        val leftBox = lionBox(ctx, mirrored = false)
-        zone.addView(leftBox, FrameLayout.LayoutParams(
-            UI.dp(ctx, 160), UI.dp(ctx, 168),
-            Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = UI.dp(ctx, 2) })
-
-        // جعبه‌ی شیر راست (آینه‌ی چپ)
-        val rightBox = lionBox(ctx, mirrored = true)
-        zone.addView(rightBox, FrameLayout.LayoutParams(
-            UI.dp(ctx, 160), UI.dp(ctx, 168),
-            Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = UI.dp(ctx, 2) })
-
-        // دکمه‌ی پاور
+        // فقط خود دکمه‌ی پاور — شیرها حذف شدند؛ وسط‌چین با فاصله‌ی نفس بالا/پایین
         power = PowerButtonView(ctx)
         power.setOnClickListener { act.togglePower() }
         zone.addView(power, FrameLayout.LayoutParams(
-            UI.dp(ctx, 252), UI.dp(ctx, 252), Gravity.CENTER))
+            UI.dp(ctx, 248), UI.dp(ctx, 248), Gravity.CENTER))
 
         zone.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 264)).apply {
-            setMargins(0, UI.dp(ctx, 2), 0, UI.dp(ctx, 0))
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 262)).apply {
+            setMargins(0, UI.dp(ctx, 4), 0, UI.dp(ctx, 0))
         }
         return zone
-    }
-
-    /** شیر بالدار طبیعی طلایی + هاله‌ی نور پشتش — بدون تاج و هیچ علامت اضافه */
-    private fun lionBox(ctx: android.content.Context, mirrored: Boolean): FrameLayout {
-        val box = FrameLayout(ctx)
-        // هاله‌ی طلایی محو پشت شیر — عمق و جلوه‌ی سلطنتی
-        val glow = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.OVAL
-            gradientType = android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT
-            colors = intArrayOf(UI.alpha(0xFFE8B923.toInt(), 0.30f), UI.alpha(0xFFE8B923.toInt(), 0.05f), android.graphics.Color.TRANSPARENT)
-        }
-        box.background = glow
-        box.setPadding(UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6))
-        val lion = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            alpha = 1f
-            if (mirrored) scaleX = -1f
-        }
-        lion.setImageResource(R.drawable.art_lion)
-        box.addView(lion, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        return box
     }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر

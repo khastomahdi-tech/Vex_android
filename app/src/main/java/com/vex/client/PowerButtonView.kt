@@ -114,10 +114,19 @@ class PowerButtonView(context: Context) : View(context) {
         val connected = mode == "on"
         val ringBase = if (connected) 0xFF3DC871.toInt() else p.accent
 
-        // ---------- ۱) هاله‌ی بیرونی — کوچک و ظریف، همیشه داخل کادر ----------
+        // ---------- ۰) سایه‌ی افتاده زیر دکمه — حس عمق و نشستن روی صفحه ----------
+        val maxR = min(w, h) / 2f - dp(1.5f)
+        val shR = min(rMain * 1.28f, maxR)
+        fillP.shader = RadialGradient(
+            cx, cy + dp(9f), shR,
+            UI.alpha(0xFF1F1403.toInt(), 0.34f), Color.TRANSPARENT, Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(cx, cy + dp(9f), shR, fillP)
+        fillP.shader = null
+
+        // ---------- ۱) هاله‌ی بیرونی دولایه — کوچک و ظریف، همیشه داخل کادر ----------
         // (شعاع هاله نباید از نصف عرض View بیشتر شود وگرنه لبه‌ها بریده می‌شوند
         //  و به شکل «مربع سبز» دیده می‌شود؛ پس شعاع را کپ می‌کنیم)
-        val maxR = min(w, h) / 2f - dp(1.5f)
         val glowR = minOf(rMain + dp(20f), maxR)
         val glowA = when (mode) {
             "on" -> 0.30f + 0.07f * sin(phase * 2f * Math.PI).toFloat()
@@ -125,12 +134,20 @@ class PowerButtonView(context: Context) : View(context) {
             else -> 0.07f // نفس ملایم حتی در حالت خاموش — حس فلز گران‌بها
         }
         if (glowA > 0.01f) {
+            // لایه‌ی پهن و کم‌رنگ (مخملی)
             paint.shader = RadialGradient(
                 cx, cy, glowR,
-                UI.alpha(ringBase, glowA.coerceIn(0f, 1f)),
+                UI.alpha(ringBase, (glowA * 0.40f).coerceIn(0f, 1f)),
                 Color.TRANSPARENT, Shader.TileMode.CLAMP
             )
             canvas.drawCircle(cx, cy, glowR, paint)
+            // لایه‌ی نزدیک حلقه (گرم و متمرکز)
+            paint.shader = RadialGradient(
+                cx, cy, rMain + dp(8f),
+                UI.alpha(ringBase, glowA.coerceIn(0f, 1f)),
+                Color.TRANSPARENT, Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(cx, cy, rMain + dp(8f), paint)
             paint.shader = null
         }
 
@@ -198,6 +215,15 @@ class PowerButtonView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, rMain + dp(6.2f), stroke)
         canvas.drawCircle(cx, cy, rMain - dp(6.2f), stroke)
 
+        // دنباله‌ی دنباله‌دار در حال اتصال — قوس روشن چرخان روی حلقه‌ی اصلی
+        if (mode == "busy") {
+            stroke.shader = null
+            stroke.color = UI.alpha(0xFFFFE9A8.toInt(), 0.85f)
+            stroke.strokeWidth = dp(2.6f)
+            rect.set(cx - rMain, cy - rMain, cx + rMain, cy + rMain)
+            canvas.drawArc(rect, phase * 360f - 64f, 64f, false, stroke)
+        }
+
         // درخشش آینه‌ای چرخان روی حلقه — حس فلز صیقلی
         val specSweep = SweepGradient(
             cx, cy,
@@ -229,10 +255,15 @@ class PowerButtonView(context: Context) : View(context) {
         )
         canvas.drawCircle(cx, cy, rMain - dp(7f), fillP)
         fillP.shader = null
-        // دو حلقه‌ی حکاکی ظریف داخل صفحه
+        // نور لبه‌ی پایین صفحه — مقعر شدن صفحه‌ی داخلی (حس فرورفتگی فلزی)
         stroke.shader = null
-        stroke.color = UI.alpha(ringBase, 0.20f)
+        stroke.color = UI.alpha(ringBase, 0.16f)
+        stroke.strokeWidth = dp(2.4f)
+        rect.set(cx - (rMain - dp(9.5f)), cy - (rMain - dp(9.5f)), cx + (rMain - dp(9.5f)), cy + (rMain - dp(9.5f)))
+        canvas.drawArc(rect, 32f, 116f, false, stroke)
+        // دو حلقه‌ی حکاکی ظریف داخل صفحه
         stroke.strokeWidth = dp(1f)
+        stroke.color = UI.alpha(ringBase, 0.20f)
         canvas.drawCircle(cx, cy, rMain - dp(14f), stroke)
         stroke.color = UI.alpha(ringBase, 0.12f)
         canvas.drawCircle(cx, cy, rMain - dp(17.5f), stroke)
