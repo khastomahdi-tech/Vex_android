@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         /** لینک کانال تلگرام — دکمه‌ی تلگرام بالای صفحه به همین کانال می‌رود */
-        const val TELEGRAM_CHANNEL_URL = "https://t.me/vexclient"
+        const val TELEGRAM_CHANNEL_URL = "https://t.me/vex_vpnfree"
     }
 
     lateinit var store: ServersStore
@@ -75,8 +75,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var tgIcImg: ImageView
     private lateinit var gearBtn: FrameLayout
     private lateinit var gearIc: IconView
-    private lateinit var identIcon: ImageView
-    private lateinit var identIconBox: FrameLayout
     private lateinit var vexTv: TextView
     private lateinit var clientTv: TextView
 
@@ -225,24 +223,8 @@ class MainActivity : ComponentActivity() {
         header.addView(bgLion, FrameLayout.LayoutParams(
             UI.dp(ctx, 172), UI.dp(ctx, 96), Gravity.CENTER))
 
-        // عنوان مرکزی: آیکون دایره‌ای برنامه (آیکون اصلی/اولیه) + «Vex Client» انگلیسی
+        // عنوان مرکزی: فقط «Vex Client» انگلیسی — بدون هیچ آیکونی کنار متن
         val titleRow = UI.row(ctx).apply { gravity = Gravity.CENTER }
-        identIconBox = FrameLayout(ctx)
-        identIcon = ImageView(ctx).apply {
-            setImageResource(R.mipmap.ic_launcher)
-            scaleType = ImageView.ScaleType.FIT_CENTER // آیکون اصلی کامل داخل دایره — بدون برش
-            clipToOutline = true
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: android.graphics.Outline) {
-                    outline.setOval(0, 0, view.width, view.height)
-                }
-            }
-        }
-        identIconBox.addView(identIcon, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        titleRow.addView(identIconBox, LinearLayout.LayoutParams(
-            UI.dp(ctx, 44), UI.dp(ctx, 44)))
-
         vexTv = TextView(ctx).apply {
             text = "Vex"
             textSize = 21f
@@ -394,14 +376,7 @@ class MainActivity : ComponentActivity() {
             tgBtn.background = iconBtnBg()
             gearBtn.background = iconBtnBg()
             gearIc.iconColor = p.accent
-            // آیکون دایره‌ای با حلقه‌ی طلایی + متن Vex (تیره) و کلاینت (آبی)
-            identIconBox.background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(if (Themes.isLightBg(p)) 0xFFFFFFFF.toInt() else p.card2)
-                setStroke(UI.dp(this@MainActivity, 2), p.accent)
-            }
-            identIcon.setPadding(UI.dp(this@MainActivity, 4), UI.dp(this@MainActivity, 4),
-                UI.dp(this@MainActivity, 4), UI.dp(this@MainActivity, 4))
+            // متن Vex (تیره) و Client (آبی)
             vexTv.setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
             clientTv.setTextColor(p.accent)
         }
@@ -436,15 +411,48 @@ class MainActivity : ComponentActivity() {
                 connectionState = "connected"
                 // بازخورد لرزشی کوتاه هنگام اتصال موفق (اگر در تنظیمات روشن باشد)
                 if (store.settings.hapticOnConnect) vibrateConnected()
+                // گرفتن «آی‌پی خروجی» از داخل تونل
+                fetchExitIp()
             }
-            "stopped" -> connectionState = "stopped"
+            "stopped" -> {
+                connectionState = "stopped"
+                resetLiveStats()
+            }
             "error" -> {
                 connectionState = "stopped"
                 lastError = msg
+                resetLiveStats()
                 dialogs.showError(msg)
             }
         }
         renderAll()
+    }
+
+    /** خاموش‌کردن VPN → سرعت‌های لحظه‌ای و مجموع جلسه صفر می‌شوند + آی‌پی خروجی خالی */
+    private fun resetLiveStats() {
+        VexVpnService.snapDn = 0; VexVpnService.snapUp = 0
+        VexVpnService.snapTDn = 0; VexVpnService.snapTUp = 0
+        homeUi.onStats(0, 0, 0, 0)
+        statsUi.onStats(0, 0, 0, 0)
+        homeUi.clearExitIp()
+    }
+
+    private var exitIpThread: Thread? = null
+
+    /** گرفتن آی‌پی خروجی سرور — درخواست از داخل تونل می‌رود (فقط وقتی متصل است) */
+    private fun fetchExitIp() {
+        if (!store.settings.showExitIp) { homeUi.clearExitIp(); return }
+        exitIpThread?.interrupt()
+        exitIpThread = Thread {
+            val info = try { NetUtil.fetchExitInfo() } catch (_: Throwable) { null }
+            if (Thread.currentThread().isInterrupted) return@Thread
+            main.post {
+                if (connectionState == "connected") homeUi.setExitIp(info)
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
     }
 
     /** لرزش کوتاه اتصال موفق */
@@ -521,6 +529,8 @@ class MainActivity : ComponentActivity() {
         lastError = ""
         netState = 0
         statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
+        homeUi.onStats(0, 0, 0, 0)
+        homeUi.clearExitIp()
         renderAll()
         val i = Intent(this, VexVpnService::class.java)
             .setAction(VexVpnService.ACTION_START)

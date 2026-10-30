@@ -6,8 +6,92 @@ import java.net.Proxy
 import java.net.Socket
 import java.net.URL
 
+/** اطلاعات آی‌پی خروجی: آدرس عمومی + کشور + کد دوحرفی کشور (برای پرچم) */
+data class ExitInfo(val ip: String, val country: String, val code: String)
+
 /** ابزارهای شبکه‌ی واقعی: پینگ TCP و دریافت لینک اشتراک */
 object NetUtil {
+
+    /**
+     * گرفتن «آی‌پی خروجی» از سرویس‌های رایگان جئو-آی‌پی.
+     * وقتی VPN روشن است، این درخواست از داخل تونل می‌رود؛ پس آی‌پی برگشتی
+     * همان آی‌پی خروجی سروری است که به آن وصل شده‌ایم.
+     * چند منبع به‌ترتیب امتحان می‌شود تا اگر یکی از دسترس خارج بود بقیه جواب بدهند.
+     */
+    fun fetchExitInfo(): ExitInfo? {
+        // ۱) ipwho.is — رایگان، بدون کلید، HTTPS
+        try {
+            val body = fetchJson("https://ipwho.is/")
+            if (body.isNotBlank()) {
+                val j = org.json.JSONObject(body)
+                if (j.optBoolean("success", true)) {
+                    val ip = j.optString("ip").trim()
+                    if (ip.isNotEmpty()) return ExitInfo(
+                        ip,
+                        j.optString("country").trim().ifEmpty { "—" },
+                        j.optString("country_code").trim().uppercase()
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+        // ۲) ip-api.com — رایگان (HTTP)، بدون کلید
+        try {
+            val body = fetchJson("http://ip-api.com/json/?fields=status,query,country,countryCode")
+            if (body.isNotBlank()) {
+                val j = org.json.JSONObject(body)
+                if (j.optString("status") == "success") {
+                    val ip = j.optString("query").trim()
+                    if (ip.isNotEmpty()) return ExitInfo(
+                        ip,
+                        j.optString("country").trim().ifEmpty { "—" },
+                        j.optString("countryCode").trim().uppercase()
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+        // ۳) ipinfo.io — بدون توکن هم جواب می‌دهد (محدود)
+        try {
+            val body = fetchJson("https://ipinfo.io/json")
+            if (body.isNotBlank()) {
+                val j = org.json.JSONObject(body)
+                val ip = j.optString("ip").trim()
+                if (ip.isNotEmpty()) return ExitInfo(
+                    ip,
+                    j.optString("country").trim().ifEmpty { "—" },
+                    j.optString("country").trim().uppercase()
+                )
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /** درخواست GET ساده برای سرویس‌های جئو-آی‌پی */
+    private fun fetchJson(url: String): String {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 7000
+                readTimeout = 7000
+                instanceFollowRedirects = true
+                useCaches = false
+                setRequestProperty("User-Agent", "VEX-Client/3.9 (exit-ip)")
+                setRequestProperty("Accept", "application/json")
+            }
+            val code = conn.responseCode
+            if (code !in 200..299) "" else conn.inputStream?.bufferedReader()?.readText() ?: ""
+        } finally {
+            try { conn?.disconnect() } catch (_: Throwable) {}
+        }
+    }
+
+    /** پرچم اموجی از کد دوحرفی کشور (مثل IR → 🇮🇷) */
+    fun flagEmoji(code: String): String {
+        val c = code.trim().uppercase()
+        if (c.length != 2 || c.any { it !in 'A'..'Z' }) return "🌐"
+        return buildString {
+            for (ch in c) append(Character.toChars(0x1F1E6 + (ch - 'A')))
+        }
+    }
 
     /**
      * پینگ واقعی TCP (مانند v2rayNG): زمان کامل handshake به میلی‌ثانیه.

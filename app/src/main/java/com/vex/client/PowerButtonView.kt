@@ -114,28 +114,23 @@ class PowerButtonView(context: Context) : View(context) {
         val connected = mode == "on"
         val ringBase = if (connected) 0xFF3DC871.toInt() else p.accent
 
-        // ---------- ۱) هاله‌ی بیرونی ----------
+        // ---------- ۱) هاله‌ی بیرونی — کوچک و ظریف، همیشه داخل کادر ----------
+        // (شعاع هاله نباید از نصف عرض View بیشتر شود وگرنه لبه‌ها بریده می‌شوند
+        //  و به شکل «مربع سبز» دیده می‌شود؛ پس شعاع را کپ می‌کنیم)
+        val maxR = min(w, h) / 2f - dp(1.5f)
+        val glowR = minOf(rMain + dp(20f), maxR)
         val glowA = when (mode) {
-            "on" -> 0.40f + 0.10f * sin(phase * 2f * Math.PI).toFloat()
-            "busy" -> 0.20f + 0.22f * (0.5f + 0.5f * sin(phase * 2f * Math.PI).toFloat())
-            else -> 0.10f // نفس ملایم حتی در حالت خاموش — حس فلز گران‌بها
+            "on" -> 0.30f + 0.07f * sin(phase * 2f * Math.PI).toFloat()
+            "busy" -> 0.16f + 0.13f * (0.5f + 0.5f * sin(phase * 2f * Math.PI).toFloat())
+            else -> 0.07f // نفس ملایم حتی در حالت خاموش — حس فلز گران‌بها
         }
         if (glowA > 0.01f) {
             paint.shader = RadialGradient(
-                cx, cy, rMain * 1.62f,
+                cx, cy, glowR,
                 UI.alpha(ringBase, glowA.coerceIn(0f, 1f)),
                 Color.TRANSPARENT, Shader.TileMode.CLAMP
             )
-            canvas.drawCircle(cx, cy, rMain * 1.62f, paint)
-            paint.shader = null
-        }
-        // هاله‌ی دوم دوردست — عمق بیشتر در حالت روشن
-        if (mode != "off") {
-            paint.shader = RadialGradient(
-                cx, cy, rMain * 1.95f,
-                UI.alpha(ringBase, 0.12f), Color.TRANSPARENT, Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(cx, cy, rMain * 1.95f, paint)
+            canvas.drawCircle(cx, cy, glowR, paint)
             paint.shader = null
         }
 

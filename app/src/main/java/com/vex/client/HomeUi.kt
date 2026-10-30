@@ -53,6 +53,17 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var serverPing: TextView
     private lateinit var serverPingIc: IconView
 
+    // ---- کارت «آی‌پی خروجی» ----
+    private lateinit var exitWrap: LinearLayout
+    private lateinit var exitCard: LinearLayout
+    private lateinit var exitLabel: TextView
+    private lateinit var exitIc: IconView
+    private lateinit var exitIcBox: FrameLayout
+    private lateinit var exitFlag: TextView
+    private lateinit var exitCountry: TextView
+    private lateinit var exitIp: TextView
+    private var exitInfo: ExitInfo? = null
+
     private var p: Palette = Themes.royal()
 
     /** تیک هر ثانیه برای به‌روزرسانی تایمر مدت اتصال */
@@ -79,6 +90,7 @@ class HomeUi(private val act: MainActivity) {
         col.addView(buildPowerZone())
         col.addView(buildConnectionStatus())
         col.addView(buildStatsRow())
+        col.addView(buildExitIpCard())
         col.addView(buildServerCard())
 
         scroll.addView(col, FrameLayout.LayoutParams(
@@ -263,6 +275,128 @@ class HomeUi(private val act: MainActivity) {
         return wrapCard(row, topMarginDp = 6)
     }
 
+    // ---------------------------------------------------------- کارت آی‌پی خروجی
+
+    /**
+     * کارت «آی‌پی خروجی»: پس از اتصال، آی‌پی عمومی خروجی سرور + نام کشور + پرچم.
+     * درخواست از داخل تونل می‌رود؛ پس آی‌پی برگشتی همان خروجی واقعی سرور است.
+     */
+    private fun buildExitIpCard(): View {
+        val ctx = act
+        exitCard = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(UI.dp(ctx, 14), UI.dp(ctx, 11), UI.dp(ctx, 14), UI.dp(ctx, 12))
+        }
+
+        exitLabel = UI.label(ctx, "آی‌پی خروجی", 12f, p.muted)
+        val head = UI.row(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
+        exitLabel.layoutParams = LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val icBox = FrameLayout(ctx)
+        exitIc = IconView(ctx, "globe").apply { iconColor = p.accent; bold = true }
+        icBox.addView(exitIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 15), UI.dp(ctx, 15), Gravity.CENTER))
+        head.addView(exitLabel)
+        head.addView(icBox, LinearLayout.LayoutParams(
+            UI.dp(ctx, 30), UI.dp(ctx, 30)))
+        exitIcBox = icBox
+        exitCard.addView(head)
+
+        // ردیف مقدار: پرچم + کشور (راست) — آی‌پی (چپ، LTR)
+        val row = UI.row(ctx).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, UI.dp(ctx, 7), 0, 0)
+        }
+        exitFlag = TextView(ctx).apply {
+            text = "🌐"
+            textSize = 24f
+            gravity = Gravity.CENTER
+        }
+        row.addView(exitFlag, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = UI.dp(ctx, 10)
+        })
+
+        exitCountry = UI.label(ctx, "برای نمایش وصل شو", 15f, p.muted, bold = true).apply {
+            maxLines = 1
+        }
+        row.addView(exitCountry, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        exitIp = TextView(ctx).apply {
+            text = "—"
+            textSize = 14f
+            typeface = Fonts.bold(ctx)
+            textDirection = View.TEXT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            letterSpacing = 0.04f
+            maxLines = 1
+        }
+        row.addView(exitIp, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 8)
+        })
+        exitCard.addView(row)
+
+        exitWrap = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6))
+        }
+        exitWrap.addView(exitCard, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        exitWrap.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 8), 0, 0)
+        }
+        return exitWrap
+    }
+
+    /** نتیجه‌ی موفق آی‌پی خروجی از MainActivity می‌آید */
+    fun setExitIp(info: ExitInfo?) {
+        exitInfo = info
+        renderExitIp()
+    }
+
+    /** قطع اتصال → همه‌چیز خالی می‌شود */
+    fun clearExitIp() {
+        exitInfo = null
+        renderExitIp()
+    }
+
+    private fun renderExitIp() {
+        val info = exitInfo
+        when {
+            act.connectionState == "connected" && info != null -> {
+                exitFlag.text = NetUtil.flagEmoji(info.code)
+                exitCountry.text = info.country.ifEmpty { "نامشخص" }
+                exitCountry.setTextColor(p.text)
+                exitIp.text = info.ip
+                exitIp.setTextColor(p.good)
+            }
+            act.connectionState == "connected" -> {
+                exitFlag.text = "⏳"
+                exitCountry.text = "در حال دریافت آی‌پی خروجی…"
+                exitCountry.setTextColor(p.muted)
+                exitIp.text = "—"
+                exitIp.setTextColor(p.muted)
+            }
+            act.connectionState == "connecting" -> {
+                exitFlag.text = "🌐"
+                exitCountry.text = "در حال اتصال…"
+                exitCountry.setTextColor(p.mid)
+                exitIp.text = "—"
+                exitIp.setTextColor(p.muted)
+            }
+            else -> {
+                exitFlag.text = "🌐"
+                exitCountry.text = "برای نمایش آی‌پی خروجی وصل شو"
+                exitCountry.setTextColor(p.muted)
+                exitIp.text = "—"
+                exitIp.setTextColor(p.muted)
+            }
+        }
+    }
+
     // ---------------------------------------------------------- کارت سرور
 
     private fun buildServerCard(): View {
@@ -377,6 +511,28 @@ class HomeUi(private val act: MainActivity) {
         upIcBox.background = iconCircle()
         dnSpeed.setTextColor(p.text); upSpeed.setTextColor(p.text)
         dnTotal.setTextColor(p.muted); upTotal.setTextColor(p.muted)
+        // عمق ملایم کارت‌های آمار
+        dnOuter.elevation = UI.dp(ctx, 2f).toFloat()
+        upOuter.elevation = UI.dp(ctx, 2f).toFloat()
+
+        // کارت آی‌پی خروجی — قاب دوبل مثل کارت سرور
+        val exitGlow = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = UI.dp(ctx, 20).toFloat()
+            colors = intArrayOf(p.card2, p.card)
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            setGradientCenter(0.5f, 0.42f)
+            gradientRadius = UI.dp(ctx, 240).toFloat()
+            setStroke(UI.dp(ctx, 1), p.line)
+        }
+        exitCard.background = exitGlow
+        exitWrap.background = UI.card(ctx, p, 26, stroke = UI.alpha(p.line, 0.7f), fillColor = Color.TRANSPARENT)
+        exitWrap.elevation = UI.dp(ctx, 2f).toFloat()
+        exitLabel.setTextColor(p.muted)
+        exitIc.iconColor = p.accent
+        exitIcBox.background = iconCircle()
+        exitFlag.setTextColor(p.text)
+        renderExitIp()
 
         // کارت سرور — هاله‌ی شعاعی محو + قاب دوبل بیرونی
         val serverGlow = GradientDrawable().apply {
@@ -390,6 +546,7 @@ class HomeUi(private val act: MainActivity) {
         }
         serverCard.background = serverGlow
         serverWrap.background = UI.card(ctx, p, 26, stroke = UI.alpha(p.line, 0.7f), fillColor = Color.TRANSPARENT)
+        serverWrap.elevation = UI.dp(ctx, 2f).toFloat()
         serverLabel.setTextColor(p.muted)
         serverIp.setTextColor(p.muted)
         renderServerCard()
@@ -400,6 +557,7 @@ class HomeUi(private val act: MainActivity) {
     fun render() {
         renderStatus()
         renderServerCard()
+        renderExitIp()
     }
 
     /**

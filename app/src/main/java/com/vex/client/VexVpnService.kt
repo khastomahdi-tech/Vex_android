@@ -309,6 +309,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         synchronized(stateLock) { generation++ }
         uiState = "stopped"
         connectedAtMs = 0
+        // آمار لحظه‌ای و مجموع جلسه صفر می‌شود — طبق درخواست: با خاموش‌کردن پاور، همه‌چیز صفر
+        snapDn = 0; snapUp = 0; snapTDn = 0; snapTUp = 0
+        lastRx = -1L; lastTx = -1L; totalRx = 0L; totalTx = 0L
         timer?.cancel(); timer = null
         testThread?.interrupt(); testThread = null
         trafficThread?.interrupt(); trafficThread = null

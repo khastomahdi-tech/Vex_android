@@ -50,6 +50,7 @@ object ConfigBuilder {
         val useMux = j.optBoolean("mux", false)
         val muxPad = j.optBoolean("muxPadding", false)
         val tfo = j.optBoolean("tcpFastOpen", false)
+        val sniff = j.optBoolean("sniffing", true)
         val domainStrategy = j.optString("domainStrategy", "prefer_ipv4").trim()
         val dnsUser = j.optString("dns", "1.1.1.1").trim().ifEmpty { "1.1.1.1" }
         val dnsAddress = if (dnsUser.contains("://")) dnsUser else "tcp://$dnsUser"
@@ -63,8 +64,9 @@ object ConfigBuilder {
         if (tfo) outbound.put("tcp_fast_open", true)
 
         val rules = JSONArray()
+        // زیرکی ترافیک (Sniffing) — قابل خاموش‌کردن از تنظیمات مثل v2rayNG.
         // بدون sniff، قانون protocol=dns هیچ‌وقت match نمی‌شود؛ sniff اول می‌آید
-        rules.put(JSONObject().put("action", "sniff"))
+        if (sniff) rules.put(JSONObject().put("action", "sniff"))
         // همه‌ی درخواست‌های DNS داخل تونل به هسته برمی‌گردند (hijack)
         rules.put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
         if (bypassLan) rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))

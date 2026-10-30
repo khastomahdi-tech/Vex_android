@@ -15,7 +15,8 @@ import android.widget.TextView
 /**
  * صفحه‌ی تنظیمات VEX — ساختار دقیق و مرتب مثل V2RayNG:
  * هر بخش یک کارت مستقل با تیتر رنگی و آیکون است و ردیف‌ها با خط جداکننده از هم جدا می‌شوند.
- * بخش‌ها: اتصال / تونل / برنامه‌ها (per-app) / هسته / ظاهر / ابزارها / درباره
+ * بخش‌ها: اتصال / تونل / برنامه‌ها (per-app) / هسته / ابزارها / درباره
+ * (بخش «ظاهر» حذف شد — ظاهر برنامه همان قالب سلطنتی شیر و خورشید می‌ماند)
  * همه‌ی ردیف‌ها کاملاً کلیک‌پذیرند (کل ردیف سوییچ را می‌زند).
  */
 class SettingsUi(private val act: MainActivity) {
@@ -23,7 +24,6 @@ class SettingsUi(private val act: MainActivity) {
     lateinit var root: LinearLayout
         private set
 
-    private lateinit var themeChips: LinearLayout
     private lateinit var mtuEdit: EditText
     private lateinit var dnsEdit: EditText
     private val allSwitches = ArrayList<VexSwitch>(10)
@@ -72,6 +72,11 @@ class SettingsUi(private val act: MainActivity) {
         connCard.addView(switchRow("نمایش سرعت زنده در اعلان",
             "سرعت دانلود/آپلود هر ثانیه در نوتیفیکیشن نشان داده می‌شود", act.store.settings.showNotifSpeed) { v ->
             act.store.settings.showNotifSpeed = v; act.store.saveSettings()
+        })
+        connCard.addView(divider())
+        connCard.addView(switchRow("نمایش آی‌پی خروجی در صفحه‌ی خانه",
+            "پس از اتصال، آی‌پی عمومی سرور + کشور + پرچم نشان داده می‌شود", act.store.settings.showExitIp) { v ->
+            act.store.settings.showExitIp = v; act.store.saveSettings()
         })
         connCard.addView(divider())
         connCard.addView(switchRow("صفحه‌ی ورود (اسپلش)",
@@ -124,6 +129,11 @@ class SettingsUi(private val act: MainActivity) {
         dnsScroll.addView(dnsChipsRow)
         netCard.addView(dnsScroll)
 
+        netCard.addView(divider())
+        netCard.addView(switchRow("زیرکی ترافیک (Sniffing)",
+            "شناسایی نوع ترافیک برای روتینگ دقیق‌تر — مثل v2rayNG", act.store.settings.sniffing) { v ->
+            act.store.settings.sniffing = v; act.store.saveSettings()
+        })
         netCard.addView(divider())
         netCard.addView(switchRow("پروتکل IPv6", "فعال‌سازی اینترنت IPv6 از طریق تونل", act.store.settings.ipv6) { v ->
             act.store.settings.ipv6 = v; act.store.saveSettings()
@@ -248,19 +258,6 @@ class SettingsUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
         addCard(coreCard)
 
-        // ================= ظاهر =================
-        val themeCard = sectionCard("ظاهر", "home")
-        themeCard.addView(subLabel("انتخاب رنگ و حالت نمایش برنامه"))
-        themeCard.addView(divider(6))
-        themeChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
-        themeChips.addView(themeChip("روشن", "light"))
-        themeChips.addView(themeChip("تیره", "dark"))
-        themeChips.addView(themeChip("سیستم", "system"))
-        themeChips.addView(themeChip("سلطنتی", "royal"))
-        themeChips.addView(themeChip("شیر و خورشید", "shir"))
-        themeCard.addView(themeChips)
-        addCard(themeCard)
-
         // ================= ابزارها =================
         val toolsCard = sectionCard("ابزارها", "gear")
         val logBtn = softRowButton("مشاهده‌ی لاگ هسته (sing-box)")
@@ -271,6 +268,25 @@ class SettingsUi(private val act: MainActivity) {
         errBtn.setOnClickListener { act.showErrDetails() }
         toolsCard.addView(errBtn)
         toolsCard.addView(divider())
+        val pingSelBtn = softRowButton("پینگ سرور فعال")
+        pingSelBtn.setOnClickListener {
+            val cur = act.store.selected()
+            if (cur == null) UI.toast(act, "اول یک سرور انتخاب کن")
+            else act.pingServers(listOf(cur.id))
+        }
+        toolsCard.addView(pingSelBtn)
+        toolsCard.addView(divider())
+        val refreshFreeBtn = softRowButton("به‌روزرسانی سرورهای رایگان")
+        refreshFreeBtn.setOnClickListener { act.refreshFreeServers() }
+        toolsCard.addView(refreshFreeBtn)
+        toolsCard.addView(divider())
+        val clearLogBtn = softRowButton("پاک کردن لاگ هسته")
+        clearLogBtn.setOnClickListener {
+            VexVpnService.clearCoreLogs()
+            UI.toast(act, "لاگ هسته پاک شد")
+        }
+        toolsCard.addView(clearLogBtn)
+        toolsCard.addView(divider())
         val resetBtn = softRowButton("بازنشانی همه‌ی تنظیمات", tag = "bad")
         resetBtn.setOnClickListener { act.resetSettings() }
         toolsCard.addView(resetBtn)
@@ -278,13 +294,13 @@ class SettingsUi(private val act: MainActivity) {
 
         // ================= درباره =================
         val aboutCard = sectionCard("درباره", "globe")
-        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.8.0 (16)"))
+        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.9.0 (17)"))
         aboutCard.addView(divider())
         aboutCard.addView(infoRow("هسته‌ی پراکسی", "sing-box v1.11.15"))
         aboutCard.addView(divider())
         aboutCard.addView(infoRow("آمار ترافیک", "Clash API"))
         aboutCard.addView(divider())
-        val tgRow = infoRow("کانال تلگرام VEX", "@vexclient")
+        val tgRow = infoRow("کانال تلگرام VEX", "@vex_vpnfree")
         tgRow.setOnClickListener { act.toast("از دکمه‌ی تلگرام بالای صفحه استفاده کن") }
         aboutCard.addView(tgRow)
         addCard(aboutCard)
@@ -449,22 +465,6 @@ class SettingsUi(private val act: MainActivity) {
         return row
     }
 
-    private fun themeChip(text: String, key: String): View {
-        val ctx = act
-        val chip = UI.pill(ctx, text, p.card2, p.text)
-        chip.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 9), UI.dp(ctx, 14), UI.dp(ctx, 9))
-        chip.textSize = 13f
-        chip.typeface = Fonts.bold(ctx)
-        chip.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            marginEnd = UI.dp(ctx, 8)
-        }
-        chip.setOnClickListener { act.setTheme(key) }
-        chip.tag = key
-        return chip
-    }
-
-    /** چیپ انتخاب DNS آماده */
     private fun dnsChip(addr: String): View {
         val ctx = act
         val chip = UI.pill(ctx, addr, p.card2, p.text)
@@ -502,15 +502,6 @@ class SettingsUi(private val act: MainActivity) {
         recolorDividers(root, p)
         // آیکون‌های تیتر بخش‌ها
         recolorSectionIcons(root, p)
-        // چیپ‌های تم
-        for (i in 0 until themeChips.childCount) {
-            val chip = themeChips.getChildAt(i) as TextView
-            val active = chip.tag == act.store.settings.theme
-            chip.background = UI.card(ctx, p, 20,
-                fillColor = if (active) UI.alpha(p.accent, 0.2f) else p.card2,
-                stroke = if (active) p.accent else p.line)
-            chip.setTextColor(if (active) p.accent else p.text)
-        }
         renderPerAppMode()
         for (b in themedButtons) {
             b.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
@@ -556,7 +547,6 @@ class SettingsUi(private val act: MainActivity) {
         applyTheme(Themes.resolve(act, act.store.settings.theme))
         renderPerAppMode()
     }
-
     private fun commitMtu() {
         val v = mtuEdit.text.toString().trim().toIntOrNull() ?: 1500
         act.store.settings.mtu = v.coerceIn(1280, 9000)

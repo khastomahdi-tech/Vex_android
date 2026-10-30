@@ -20,11 +20,32 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object FreeServers {
 
-    /** منابع اشتراک عمومی — چند منبع موازی تا اگر یکی در دسترس نبود، بقیه جواب بدهند */
+    /**
+     * منابع اشتراک عمومی — چند منبع موازی تا اگر یکی در دسترس نبود، بقیه جواب بدهند.
+     * برای هر مخزن هم نسخه‌ی raw گیت‌هاب و هم آینه‌های CDN (jsdelivr / fastly / gitmirror)
+     * گذاشته‌شده تا حتی وقتی raw.githubusercontent فیلتر یا کند است، دریافت کار کند.
+     */
     private val SOURCES = listOf(
+        // آینه‌های jsdelivr (سریع و معمولاً بدون فیلتر)
+        "https://cdn.jsdelivr.net/gh/Epodonios/v2ray-configs@main/All_Configs_Sub.txt",
+        "https://fastly.jsdelivr.net/gh/Epodonios/v2ray-configs@main/All_Configs_Sub.txt",
+        "https://cdn.jsdelivr.net/gh/barry-far/V2ray-Configs@main/All_Configs_Sub.txt",
+        "https://fastly.jsdelivr.net/gh/barry-far/V2ray-Configs@main/All_Configs_Sub.txt",
+        "https://cdn.jsdelivr.net/gh/mahdibland/V2RayAggregator@master/sub/sub_merge.txt",
+        // آینه‌ی gitmirror
+        "https://raw.gitmirror.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
+        "https://raw.gitmirror.com/barry-far/V2ray-Configs/main/All_Configs_Sub.txt",
+        // منابع اصلی raw
         "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
         "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/All_Configs_Sub.txt",
-        "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"
+        "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt",
+        // منابع تجمیع‌کننده‌ی دیگر (تنوع بیشتر — اگر همه‌ی موارد بالا قطع بودند)
+        "https://cdn.jsdelivr.net/gh/freefq/free@master/v2",
+        "https://raw.githubusercontent.com/freefq/free/master/v2",
+        "https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub",
+        "https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
+        "https://cdn.jsdelivr.net/gh/aiboboxx/v2rayfree@main/vv",
+        "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/vv"
     )
 
     /** حداکثر کاندیدهایی که پینگ می‌گیریم (کنترل مصرف دیتا و باتری) */
@@ -64,8 +85,13 @@ object FreeServers {
                     } catch (_: Throwable) {}
                 }.apply { start() }
             }
-            // حداکثر ۲۵ ثانیه صبر — هر منبعی که رسید، همان می‌آید
-            for (t in threads) t.join(25_000)
+            // حداکثر ۴۰ ثانیه‌ی کل — هر منبعی که تا آن موقع رسید، همان می‌آید
+            val deadline = System.currentTimeMillis() + 40_000
+            for (t in threads) {
+                val remain = deadline - System.currentTimeMillis()
+                if (remain <= 0) break
+                try { t.join(remain) } catch (_: InterruptedException) { break }
+            }
 
             if (bodies.isEmpty()) {
                 onProgress("هیچ منبعی در دسترس نبود — اینترنت را بررسی کن")

@@ -36,7 +36,9 @@ data class VexSettings(
     var muxPadding: Boolean = false,    // پدینگ Mux (وقتی Mux روشن است)
     var showNotifSpeed: Boolean = true, // نمایش سرعت زنده در اعلان
     var hapticOnConnect: Boolean = true,// لرزش کوتاه هنگام اتصال موفق
-    var showIntro: Boolean = true       // نمایش اسپلش ورود (شیرهای سقوطی)
+    var showIntro: Boolean = true,      // نمایش اسپلش ورود (شیرهای سقوطی)
+    var showExitIp: Boolean = true,     // نمایش کارت «آی‌پی خروجی» در صفحه‌ی خانه
+    var sniffing: Boolean = true        // زیرکی ترافیک (Sniffing) مثل v2rayNG
 )
 
 /**
@@ -126,6 +128,8 @@ class ServersStore(context: Context) {
                 showNotifSpeed = o.optBoolean("showNotifSpeed", true),
                 hapticOnConnect = o.optBoolean("hapticOnConnect", true),
                 showIntro = o.optBoolean("showIntro", true),
+                showExitIp = o.optBoolean("showExitIp", true),
+                sniffing = o.optBoolean("sniffing", true),
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {
                     val arr = o.optJSONArray("perAppPackages")
@@ -184,6 +188,8 @@ class ServersStore(context: Context) {
             .put("showNotifSpeed", settings.showNotifSpeed)
             .put("hapticOnConnect", settings.hapticOnConnect)
             .put("showIntro", settings.showIntro)
+            .put("showExitIp", settings.showExitIp)
+            .put("sniffing", settings.sniffing)
             .toString()).apply()
     }
 
@@ -286,6 +292,7 @@ class ServersStore(context: Context) {
         .put("domainStrategy", settings.domainStrategy)
         .put("tcpFastOpen", settings.tcpFastOpen)
         .put("muxPadding", settings.muxPadding)
+        .put("sniffing", settings.sniffing)
         .toString()
 
     companion object {

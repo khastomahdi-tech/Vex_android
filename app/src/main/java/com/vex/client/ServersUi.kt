@@ -6,6 +6,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.CheckBox
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -310,8 +311,17 @@ class ServersUi(private val act: MainActivity) {
             contentDescription = desc
             setOnClickListener { onClick() }
         }
-        val ic = IconView(ctx, icon).apply { iconColor = tint; bold = true }
-        b.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 19), UI.dp(ctx, 19), Gravity.CENTER))
+        // مداد و سطل آشغال: آیکون وکتور (SVG) واقعی با رنگ‌آمیزی تم
+        if (icon == "pencil" || icon == "trash") {
+            val iv = ImageView(ctx).apply {
+                setImageResource(if (icon == "pencil") R.drawable.ic_pencil else R.drawable.ic_trash)
+                setColorFilter(tint)
+            }
+            b.addView(iv, FrameLayout.LayoutParams(UI.dp(ctx, 19), UI.dp(ctx, 19), Gravity.CENTER))
+        } else {
+            val ic = IconView(ctx, icon).apply { iconColor = tint; bold = true }
+            b.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 19), UI.dp(ctx, 19), Gravity.CENTER))
+        }
         b.background = UI.card(ctx, p, 17, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         return b
     }
