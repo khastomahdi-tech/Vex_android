@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Intent
 import android.util.Log
+import ca.psiphon.PsiphonTunnel
 import java.io.File
 
 /**
