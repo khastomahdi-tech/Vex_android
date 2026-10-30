@@ -108,17 +108,19 @@ jobs:
 
       - name: Prepare Psiphon AAR (strip duplicate gomobile runtime go.*)
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/app/libs"
           curl -fsSL --retry 3 -o /tmp/psi.aar \
             "https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/master/ca/psiphon/psiphontunnel/2.0.42/psiphontunnel-2.0.42.aar"
           ls -lh /tmp/psi.aar
+          # AAR استریپ‌شده در مخزن Maven محلی نصب می‌شود — مسیر استاندارد dependency
+          # (fileTree برای این AAR توسط کامپایلر Kotlin دیده نمی‌شد)
           python3 - <<'PY'
           import zipfile, io, os
           src = '/tmp/psi.aar'
-          dst = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs', 'psiphon.aar')
+          mv = os.path.join(os.environ['GITHUB_WORKSPACE'], 'local-maven',
+                            'ca', 'psiphon', 'psiphontunnel', '2.0.42')
+          os.makedirs(mv, exist_ok=True)
           zin = zipfile.ZipFile(src)
-          # classes.jar تازه و تمیز بساز — entryهای بازیافت‌شده‌ی ZipInfo (با flagهای
-          # data-descriptor) خوانش ZIP سخت‌گیر کامپایلر Kotlin را خراب می‌کنند
+          # classes.jar تازه و تمیز — entryهای بازیافت‌شده ZipInfo خوانش سخت‌گیر Kotlin را خراب می‌کنند
           inner = zipfile.ZipFile(io.BytesIO(zin.read('classes.jar')))
           buf = io.BytesIO()
           yo = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
@@ -129,6 +131,7 @@ jobs:
               yo.writestr(n, inner.read(n))
               kept += 1
           yo.close()
+          dst = os.path.join(mv, 'psiphontunnel-2.0.42.aar')
           zout = zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED)
           for n in zin.namelist():
               if n == 'classes.jar':
@@ -136,7 +139,19 @@ jobs:
               else:
                   zout.writestr(n, zin.read(n))
           zout.close()
-          print('psiphon.aar written:', os.path.getsize(dst), 'bytes;', kept, 'classes kept')
+          with open(os.path.join(mv, 'psiphontunnel-2.0.42.pom'), 'w') as f:
+              pom = (
+                  '<?xml version="1.0" encoding="UTF-8"?>\n'
+                  '<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"'
+                  ' xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
+                  '  <modelVersion>4.0.0</modelVersion>\n'
+                  '  <groupId>ca.psiphon</groupId>\n'
+                  '  <artifactId>psiphontunnel</artifactId>\n'
+                  '  <version>2.0.42</version>\n'
+                  '  <packaging>aar</packaging>\n'
+                  '</project>\n')
+              f.write(pom)
+          print('installed to local maven:', os.path.getsize(dst), 'bytes;', kept, 'classes kept')
           # self-check
           z = zipfile.ZipFile(dst)
           cj = zipfile.ZipFile(io.BytesIO(z.read('classes.jar')))
@@ -144,11 +159,10 @@ jobs:
           assert not any(n.startswith('go/') for n in cj.namelist()), 'go/* not stripped!'
           print('SELF-CHECK OK: PsiphonTunnel present, go/* stripped')
           PY
-          # اعتبارسنجی با ابزار واقعی جاوا — classes.jar باید کاملاً خوانا باشد
+          # اعتبارسنجی با ابزار واقعی جاوا
           cd /tmp && rm -rf psichk && mkdir psichk && cd psichk
-          "$JAVA_HOME/bin/jar" xf "$GITHUB_WORKSPACE/app/libs/psiphon.aar" classes.jar
-          echo "classes visible to JDK jar tool:"
-          "$JAVA_HOME/bin/jar" tf classes.jar | grep -E "ca/psiphon/PsiphonTunnel\.class|ca/psiphon/PsiphonTunnel\\\$HostService\.class" || true
+          "$JAVA_HOME/bin/jar" xf "$GITHUB_WORKSPACE/local-maven/ca/psiphon/psiphontunnel/2.0.42/psiphontunnel-2.0.42.aar" classes.jar
+          "$JAVA_HOME/bin/jar" tf classes.jar | grep -c "ca/psiphon/" || true
           cat > T.java <<'J'
           public class T { ca.psiphon.PsiphonTunnel.HostService h; }
           J
@@ -157,6 +171,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+
+      - name: "Debug: verify psiphon on compile classpath"
+        run: |
+          gradle :app:dependencies --configuration releaseCompileClasspath --no-daemon -q > /tmp/deps.txt || true
+          grep -iE "psiphon|libbox|app/libs" /tmp/deps.txt || echo "!! psiphon/libbox NOT on compile classpath"
 
       - name: Read version
         id: ver
