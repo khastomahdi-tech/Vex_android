@@ -13,7 +13,9 @@ import java.util.UUID
 /**
  * دروازه‌ی Vex — نسخه‌ی کلادفلر:
  *
- *  بک‌اند ربات تلگرام روی Cloudflare Pages (vex-gate.pages.dev) + دیتابیس D1 اجرا می‌شود:
+ *  بک‌اند ربات تلگرام روی Cloudflare Pages (دامنه‌ی شخصی demonvpn.shop + دامنه‌ی پیش‌فرض
+ *  vex-gate.pages.dev) + دیتابیس D1 اجرا می‌شود؛ اول دامنه‌ی شخصی امتحان می‌شود —
+ *  چون pages.dev در ایران SNI-فیلتر است و دامنه‌ی شخصی در دسترس کاربر بدون فیلترشکن هست.
  *
  *  ۱) hasInternet()   → بررسی واقعی دسترسی اینترنت (پیش از ورود به برنامه).
  *  ۲) gateStatus()    → وضعیت قفل/باز از سرور کلادفلر خوانده می‌شود:
@@ -29,8 +31,11 @@ import java.util.UUID
  */
 object TelegramGate {
 
-    /** بک‌اند کلادفلر (Pages) + کلید احراز برنامه */
-    private const val GATE_URL = "https://vex-gate.pages.dev"
+    /** بک‌اند کلادفلر (Pages): دامنه‌ی شخصی اول، pages.dev پشتیبان + کلید احراز برنامه */
+    private val GATE_HOSTS = arrayOf(
+        "https://demonvpn.shop",        // دامنه‌ی شخصی — بدون فیلترینگ
+        "https://vex-gate.pages.dev"    // دامنه‌ی پیش‌فرض Pages (پشتیبان)
+    )
     private const val APP_KEY = "vexk_8c3b1e664023f4df081d8dbb"
 
     /**
@@ -265,7 +270,7 @@ object TelegramGate {
      * (raw، بعد Contents API که base64 برمی‌گرداند).
      */
     private fun get(path: String): String? {
-        fetchFrom("$GATE_URL$path", withKey = true)?.let { return it }
+        for (host in GATE_HOSTS) fetchFrom("$host$path", withKey = true)?.let { return it }
         val f = ghFileFor(path) ?: return null
         fetchFrom("$GH_RAW/$f", withKey = false)?.let { return it }
         fetchFrom("$GH_API/$f", withKey = false)?.let { resp ->
@@ -303,10 +308,18 @@ object TelegramGate {
         }
     }
 
+    /** POST به دروازه: اول دامنه‌ی شخصی، اگر نشد pages.dev */
     private fun post(path: String, body: JSONObject): String? {
+        for (host in GATE_HOSTS) {
+            postOnce("$host$path", body)?.let { return it }
+        }
+        return null
+    }
+
+    private fun postOnce(url: String, body: JSONObject): String? {
         var c: HttpURLConnection? = null
         return try {
-            c = (URL("$GATE_URL$path").openConnection() as HttpURLConnection).apply {
+            c = (URL(url).openConnection() as HttpURLConnection).apply {
                 http(this, true)
                 requestMethod = "POST"
                 doOutput = true

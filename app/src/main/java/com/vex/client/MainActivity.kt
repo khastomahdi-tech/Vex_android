@@ -1199,7 +1199,7 @@ class MainActivity : ComponentActivity() {
                 "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
-                "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک vex-gate.pages.dev/apk نصب کن."
+                "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک demonvpn.shop/apk یا vex-gate.pages.dev/apk نصب کن."
                 else -> text = ""
             }
         }
