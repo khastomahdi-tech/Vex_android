@@ -36,7 +36,10 @@ class VexSwitch(context: Context) : View(context) {
         // ⚠️ بدون این، View کلیک‌پذیر نیست و لمس‌ها نادیده گرفته می‌شوند
         // (علت واقعی «کار نکردن دکمه‌های تنظیمات» همین بود)
         isClickable = true
-        isFocusable = true
+        // فوکوس‌پذیر نیست → مستطیل فوکوس دور سوییچ (درخواست کاربر) حذف می‌شود؛
+        // کل ردیف در تنظیمات هدف لمس است و سوییچ نیازی به فوکوس ندارد.
+        isFocusable = false
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
     private val track = Paint(Paint.ANTI_ALIAS_FLAG)

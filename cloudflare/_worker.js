@@ -1,5 +1,5 @@
 /**
- * Vex Gate v2 — Telegram bot backend for Vex Client
+ * Vex Gate v3 — Telegram bot backend for Vex Client
  * Cloudflare Pages + D1 (vex-gate-db)
  *
  * Endpoints:
@@ -7,16 +7,19 @@
  *   GET  /v1/state?did=...   → {"ok":true,"gate":"open"|"closed","reason":"..."}
  *   POST /v1/report          → install/open report → D1 + rich Telegram message to owner
  *   POST /v1/ack             → device ack lock/unlock → owner notified
+ *   POST /v1/traffic         → traffic delta report {did, type: free|private, up, down}
  *   GET  /v1/freeservers     → free servers managed from the bot → {"ok":true,"servers":[...]}
  *   GET  /                   → health
  *
  * /v1/* endpoints require header  X-Vex-Key: <APP_KEY>
  *
  * Bot (inline-button menu; owner = first chat that sends /start):
- *   📊 آمار · 👥 کاربران · 🖥 سرورهای رایگان · 🟢 وضعیت · 🔒 بستن · 🔓 باز کردن
+ *   📊 آمار · 👥 کاربران · 🖥 سرورهای رایگان · 📈 مصرف ترافیک · 🟢 وضعیت · 🔒 بستن · 🔓 باز کردن
  *   Free servers: add (paste configs) / list / delete one / delete all — D1-backed,
- *   pushed to every user's «سرورهای رایگان» tab (read-only in the app).
+ *   pushed to every user's «سرورهای رایگان» tab automatically (60s auto-refresh, read-only).
  *   /close [reason] locks the app; locked users see «دسترسی برنامه بسته شده است» + reason.
+ *   Traffic: app reports session deltas (free/private); bot shows totals + top users.
+ *   Install notification: exactly ONE per device (first install only — updates stay silent).
  */
 
 const DEFAULT_CLOSE_REASON =
@@ -59,6 +62,22 @@ export default {
       }
       if (path === "/v1/ack" && request.method === "POST") {
         return ack(request, env);
+      }
+      if (path === "/v1/traffic" && request.method === "POST") {
+        let b = {};
+        try { b = await request.json(); } catch (e) {}
+        const did = String(b.did || "").slice(0, 64);
+        if (!did) return json({ ok: false, error: "did required" }, 400);
+        const type = b.type === "free" ? "free" : "private";
+        const up = Math.max(0, Math.round(Number(b.up) || 0));
+        const dn = Math.max(0, Math.round(Number(b.down) || 0));
+        if (up || dn) {
+          await env.DB.prepare(
+            "INSERT INTO traffic (did, type, up, down, updated) VALUES (?1,?2,?3,?4,?5) " +
+            "ON CONFLICT(did,type) DO UPDATE SET up = up + ?3, down = down + ?4, updated = ?5"
+          ).bind(did, type, up, dn, Date.now()).run();
+        }
+        return json({ ok: true });
       }
       if (path === "/v1/freeservers" && request.method === "GET") {
         const rs = await env.DB.prepare(
@@ -106,27 +125,20 @@ async function report(request, env) {
   const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
   const gate = (await getSetting(env, "gate")) || "open";
 
-  // notify owner: new install (full details) or version update — silent for routine opens
+  // notify owner ONLY on brand-new install — exactly ONE message per device.
+  // routine opens and version updates stay completely silent (owner request).
   const owner = await getSetting(env, "owner");
-  if (owner) {
-    const isNew = !row;
-    const isUpdate = row && row.ver !== ver;
-    if (isNew || isUpdate) {
-      const flag = country ? flagEmoji(country) + " " : "";
-      const head = isNew
-        ? "🆕 <b>کاربر جدید Vex Client نصب کرد!</b>"
-        : "🔄 <b>کاربر قبلی برنامه را آپدیت کرد</b>";
-      let text = head + "\n" +
-        "🌐 IP: <code>" + esc(ip || "?") + "</code>" + (country ? "  " + flag + esc(country) : "") + "\n" +
-        "📱 گوشی: " + esc(model) + "\n" +
-        "🤖 سیستم: " + esc(android) + "\n" +
-        "🏷 نسخه: " + esc(ver) + "\n" +
-        "🌍 زبان: " + esc(lang) + "\n" +
-        "🔢 دفعات ورود: " + opens + "\n" +
-        "👥 کل کاربران: " + (total ? total.n : "?") + "\n" +
-        "🕐 " + new Date(now).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-      await tgSend(env, owner, text);
-    }
+  if (owner && !row) {
+    const flag = country ? flagEmoji(country) + " " : "";
+    const text = "🆕 <b>کاربر جدید Vex Client را نصب کرد!</b>" + "\n" +
+      "🌐 IP: <code>" + esc(ip || "?") + "</code>" + (country ? "  " + flag + esc(country) : "") + "\n" +
+      "📱 گوشی: " + esc(model) + "\n" +
+      "🤖 سیستم: " + esc(android) + "\n" +
+      "🏷 نسخه: " + esc(ver) + "\n" +
+      "🌍 زبان: " + esc(lang) + "\n" +
+      "👥 کل کاربران: " + (total ? total.n : "?") + "\n" +
+      "🕐 " + new Date(now).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+    await tgSend(env, owner, text);
   }
 
   return json({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null, users: total ? total.n : 0 });
@@ -176,7 +188,8 @@ async function handleUpdate(up, env) {
       await setSetting(env, "gate", "open");
       await tgSend(env, chatId,
         "👑 تو مدیر Vex شدی!\n\n" +
-        "هر کس Vex Client را نصب کند یا آپدیت کند، همین‌جا بهت خبر می‌دهم (IP، مدل گوشی، نسخه اندروید و…).\n\n" +
+        "هر کس برای اولین بار Vex Client را نصب کند، با تمام مشخصات (IP، مدل گوشی، نسخه‌ی اندروید و…) بهت خبر می‌دهم — فقط یک بار برای هر دستگاه، بدون اسپم.\n" +
+        "مصرف ترافیک همه‌ی کاربران (رایگان/شخصی) هم همین‌جا جمع می‌شود.\n\n" +
         "از منوی زیر همه‌کاره می‌توانی باشی 👇",
         mainMenu());
     } else if (chatId !== owner) {
@@ -214,6 +227,8 @@ async function handleUpdate(up, env) {
     await tgSend(env, chatId, "🔓 برنامه باز شد و برای همه قابل استفاده است.", mainMenu());
   } else if (lc.startsWith("/stats")) {
     await sendStats(chatId, env);
+  } else if (lc.startsWith("/traffic")) {
+    await sendTraffic(chatId, env);
   } else if (lc.startsWith("/users")) {
     await sendUsers(chatId, env);
   } else if (lc.startsWith("/fsadd")) {
@@ -234,6 +249,8 @@ async function handleCb(data, chatId, env) {
     await tgSend(env, chatId, "منوی مدیریت Vex:", mainMenu());
   } else if (data === "stats") {
     await sendStats(chatId, env);
+  } else if (data === "traffic") {
+    await sendTraffic(chatId, env);
   } else if (data === "users") {
     await sendUsers(chatId, env);
   } else if (data === "state") {
@@ -272,6 +289,7 @@ async function handleCb(data, chatId, env) {
 function mainMenu() {
   return kb([
     [{ text: "📊 آمار", callback_data: "stats" }, { text: "👥 کاربران", callback_data: "users" }],
+    [{ text: "📈 مصرف ترافیک", callback_data: "traffic" }],
     [{ text: "🖥 سرورهای رایگان", callback_data: "fs" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
     [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }]
@@ -290,26 +308,71 @@ function kb(rows) {
   return { inline_keyboard: rows };
 }
 
+async function trafficTotals(env) {
+  const tr = await env.DB.prepare(
+    "SELECT type, COALESCE(SUM(up + down),0) AS b FROM traffic GROUP BY type"
+  ).all();
+  let freeB = 0, privB = 0;
+  for (const r of (tr.results || [])) {
+    if (r.type === "free") freeB = Number(r.b) || 0; else privB = Number(r.b) || 0;
+  }
+  return { freeB, privB };
+}
+
 async function sendStats(chatId, env) {
   const t = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
   const today = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM users WHERE first_seen >= ?1"
   ).bind(Date.now() - 86400000).first();
+  const active = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM users WHERE last_seen >= ?1"
+  ).bind(Date.now() - 86400000).first();
   const op = await env.DB.prepare("SELECT COALESCE(SUM(opens),0) AS n FROM users").first();
   const fs = await countFs(env);
   const gate = (await getSetting(env, "gate")) || "open";
+  const tt = await trafficTotals(env);
   await tgSend(env, chatId,
     "📊 <b>آمار Vex Client</b>\n" +
     "👥 کل کاربران (نصب‌ها): <b>" + (t ? t.n : 0) + "</b>\n" +
     "🆕 نصب ۲۴ ساعت گذشته: " + (today ? today.n : 0) + "\n" +
+    "🟢 کاربران فعال ۲۴ ساعت گذشته: " + (active ? active.n : 0) + "\n" +
     "🔁 مجموع ورودها: " + (op ? op.n : 0) + "\n" +
     "🖥 سرورهای رایگان فعال: " + fs + "\n" +
-    "وضعیت برنامه: " + (gate === "closed" ? "🔒 بسته" : "🔓 باز"));
+    "🆓 مصرف سرورهای رایگان: " + fmtB(tt.freeB) + "\n" +
+    "🔑 مصرف سرورهای شخصی: " + fmtB(tt.privB) + "\n" +
+    "🧮 مصرف کل: <b>" + fmtB(tt.freeB + tt.privB) + "</b>\n" +
+    "وضعیت برنامه: " + (gate === "closed" ? "🔒 بسته" : "🔓 باز"), mainMenu());
+}
+
+async function sendTraffic(chatId, env) {
+  const tt = await trafficTotals(env);
+  const top = await env.DB.prepare(
+    "SELECT u.model AS model, u.country AS country, t.type AS type, (t.up + t.down) AS b " +
+    "FROM traffic t JOIN users u ON u.did = t.did ORDER BY b DESC LIMIT 8"
+  ).all();
+  let out = "📈 <b>مصرف ترافیک کاربران Vex</b>\n\n" +
+    "🆓 سرورهای رایگان: <b>" + fmtB(tt.freeB) + "</b>\n" +
+    "🔑 سرورهای شخصی (کاربران): <b>" + fmtB(tt.privB) + "</b>\n" +
+    "🧮 مصرف کل همه‌ی کاربران: <b>" + fmtB(tt.freeB + tt.privB) + "</b>";
+  if ((top.results || []).length) {
+    out += "\n\n🏆 <b>پرمصرف‌ترین کاربران</b>";
+    let i = 1;
+    for (const r of top.results) {
+      out += "\n" + i + ". " + (r.country ? flagEmoji(r.country) + " " : "") +
+        esc(r.model || "?") + " · " + (r.type === "free" ? "🆓" : "🔑") + " " + fmtB(r.b);
+      i++;
+    }
+  } else {
+    out += "\n\nهنوز مصرفی ثبت نشده — به‌محض اتصال کاربران، مصرفشان اینجا جمع می‌شود.";
+  }
+  await tgSend(env, chatId, out, mainMenu());
 }
 
 async function sendUsers(chatId, env) {
   const rs = await env.DB.prepare(
-    "SELECT model, android, ver, country, ip, opens, last_seen FROM users ORDER BY last_seen DESC LIMIT 20"
+    "SELECT u.model, u.android, u.ver, u.country, u.ip, u.opens, u.last_seen, " +
+    "COALESCE((SELECT SUM(t.up + t.down) FROM traffic t WHERE t.did = u.did), 0) AS bytes " +
+    "FROM users u ORDER BY u.last_seen DESC LIMIT 20"
   ).all();
   let out = "👥 <b>آخرین کاربران</b>\n";
   for (const r of (rs.results || [])) {
@@ -318,6 +381,7 @@ async function sendUsers(chatId, env) {
       " · " + esc(r.android || "?") +
       " · v" + esc(r.ver || "?") +
       " · " + (r.opens || 1) + "×" +
+      " · 📶 " + fmtB(r.bytes) +
       " · " + new Date(r.last_seen).toISOString().slice(5, 16).replace("T", " ");
   }
   if (!(rs.results || []).length) out += "\nهنوز کاری ثبت نشده";
@@ -398,7 +462,7 @@ async function addFreeServers(text, chatId, env) {
     (dup ? "\n♻️ " + dup + " تکرار رد شد" : "") +
     (bad ? "\n❌ " + bad + " نامعتبر بود" : "") +
     (names ? "\n" + names : "") +
-    "\n\n🖥 مجموع سرورهای رایگان فعال: <b>" + total + "</b>\nکاربران با لمس «به‌روزرسانی» در تب سرورهای رایگان آن‌ها را می‌گیرند.", fsMenuKb());
+    "\n\n🖥 مجموع سرورهای رایگان فعال: <b>" + total + "</b>\nلیست داخل برنامه‌ی همه‌ی کاربران هر ۱ دقیقه خودکار به‌روزرسانی می‌شود — بدون نیاز به دکمه و بدون امکان ویرایش/حذف از سمت آن‌ها.", fsMenuKb());
 }
 
 async function sendFsMenu(chatId, env) {
@@ -472,6 +536,14 @@ async function setSetting(env, k, v) {
 function flagEmoji(cc) {
   if (!cc || cc.length !== 2) return "";
   return String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+
+function fmtB(n) {
+  n = Number(n) || 0;
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i ? v.toFixed(2) : String(v)) + " " + u[i];
 }
 
 function esc(s) {

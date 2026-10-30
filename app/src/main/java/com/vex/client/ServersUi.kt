@@ -45,8 +45,6 @@ class ServersUi(private val act: MainActivity) {
 
     private lateinit var content: LinearLayout
     private lateinit var title: TextView
-    private lateinit var refreshBtn: FrameLayout
-    private lateinit var refreshIc: IconView
     private lateinit var timerBtn: FrameLayout
     private lateinit var timerIc: IconView
     private lateinit var tabMine: TextView
@@ -75,23 +73,11 @@ class ServersUi(private val act: MainActivity) {
         content = UI.col(ctx)
         content.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 110))
 
-        // ---- نوار بالا: عنوان + دریافت رایگان + پینگ همه
+        // ---- نوار بالا: عنوان + پینگ همه
         val top = UI.row(ctx)
         title = UI.label(ctx, "سرورها", 19f, p.text, bold = true)
         title.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         top.addView(title)
-
-        // دکمه‌ی دریافت/به‌روزرسانی سرورهای رایگان (فقط در تب رایگان دیده می‌شود)
-        refreshBtn = FrameLayout(ctx).apply {
-            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
-            visibility = View.GONE
-            setOnClickListener { act.refreshFreeServers() }
-        }
-        refreshIc = IconView(ctx, "globe").apply { bold = true }
-        refreshBtn.addView(refreshIc, FrameLayout.LayoutParams(
-            UI.dp(ctx, 22), UI.dp(ctx, 22), Gravity.CENTER))
-        top.addView(refreshBtn, LinearLayout.LayoutParams(
-            UI.dp(ctx, 46), UI.dp(ctx, 46)).apply { marginStart = UI.dp(ctx, 8) })
 
         // دکمه‌ی زمان‌سنج — پینگ همه‌ی سرورهای تب فعلی
         timerBtn = FrameLayout(ctx).apply {
@@ -225,9 +211,8 @@ class ServersUi(private val act: MainActivity) {
         tab = idx
         checked.clear()
         render()
-        // دریافت خودکار: اولین باز شدن تب رایگان و لیست خالی → خودکار از منابع عمومی بگیر
-        if (idx == 1 && act.store.freeServers.isEmpty() && act.store.freeLastFetch == 0L &&
-            !FreeServers.fetching) {
+        // اگر تب رایگان خالی است، همان لحظه از سرور مدیریت می‌گیریم (نه به‌روزرسانی دوره‌ای)
+        if (idx == 1 && act.store.freeServers.isEmpty() && !FreeServers.fetching) {
             act.refreshFreeServers()
         }
     }
@@ -272,11 +257,9 @@ class ServersUi(private val act: MainActivity) {
         p = np
         val ctx = act
         title.setTextColor(p.text)
-        // دکمه‌های گرد طلایی — هم‌سبک دکمه‌های صفحه‌ی خانه
+        // دکمه‌ی گرد طلایی — هم‌سبک دکمه‌های صفحه‌ی خانه
         timerBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
         timerIc.iconColor = p.accent
-        refreshBtn.background = UI.card(ctx, p, 15, stroke = p.line, fillColor = p.card2, strokeW = 1.5f)
-        refreshIc.iconColor = p.accent
         // نوار انتخاب
         bottomBar.background = UI.card(ctx, p, 20, stroke = p.accent, fillColor = p.bg2, strokeW = 1.5f)
         selCount.setTextColor(p.accent)
@@ -305,7 +288,6 @@ class ServersUi(private val act: MainActivity) {
         tabFree.setTextColor(if (tab == 1) p.accent else p.text)
 
         // متن راهنمای هر تب
-        refreshBtn.visibility = if (tab == 1) View.VISIBLE else View.GONE
         for (i in 0 until content.childCount) {
             val v = content.getChildAt(i)
             if (v is TextView && v.tag == "hint") {
@@ -315,7 +297,7 @@ class ServersUi(private val act: MainActivity) {
                     else
                         "حالت انتخاب: لمس = افزودن/حذف از انتخاب"
                 } else
-                    "لمس = اتصال · فقط سرورهای سالم و پینگ‌دار نمایش داده می‌شوند"
+                    "لمس = اتصال · لیست هر دقیقه خودکار به‌روزرسانی می‌شود"
             }
         }
     }
@@ -325,7 +307,7 @@ class ServersUi(private val act: MainActivity) {
         title.text = "سرورها (${act.store.servers.size})"
         val servers = act.store.servers
         if (servers.isEmpty()) {
-            emptyHint.text = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است.\nسرورهای رایگان فقط از طریق ربات Vex اضافه می‌شوند؛\nبرای دریافت تازه روی دکمه‌ی بالای صفحه بزن."
+            emptyHint.text = "هنوز سروری نداری.\nبا دکمه‌ی طلایی + سرور خودت را اضافه کن\n(لینک کانفیگ، QR، گالری یا فایل)."
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
             freeProgress.visibility = View.GONE
@@ -350,7 +332,7 @@ class ServersUi(private val act: MainActivity) {
         }
         freeProgress.visibility = View.GONE
         if (free.isEmpty()) {
-            emptyHint.text = "هنوز سرور رایگانی دریافت نشده.\nروی دکمه‌ی کره‌ی زمین بالای صفحه بزن تا به‌صورت خودکار\nاز منابع عمومی گرفته و پینگ شود."
+            emptyHint.text = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است.\nبه‌محض افزودن در ربات، خودکار همین‌جا ظاهر می‌شود."
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
         } else {

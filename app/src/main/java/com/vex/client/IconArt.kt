@@ -136,6 +136,36 @@ class IconView(context: Context, val icon: String) : View(context) {
                 canvas.drawOval(RectF(cx - r * 0.45f, cy - r, cx + r * 0.45f, cy + r), stroke)
                 canvas.drawLine(cx - r, cy, cx + r, cy, stroke)
             }
+            "sun" -> {
+                // خورشید: قرص مرکزی + ۸ پرتو — SVG دستی مطابق سبک بقیه‌ی آیکون‌ها
+                val r = 5.4f * u
+                canvas.drawCircle(cx, cy, r, stroke)
+                val rp = Paint(stroke)
+                rp.strokeWidth = sw * 1.35f
+                rp.strokeCap = Paint.Cap.ROUND
+                for (i in 0 until 8) {
+                    val a = i * (Math.PI / 4.0)
+                    val x1 = cx + (r * 1.42 * cos(a)).toFloat()
+                    val y1 = cy + (r * 1.42 * sin(a)).toFloat()
+                    val x2 = cx + (r * 1.92 * cos(a)).toFloat()
+                    val y2 = cy + (r * 1.92 * sin(a)).toFloat()
+                    canvas.drawLine(x1, y1, x2, y2, rp)
+                }
+            }
+            "backspace" -> {
+                // پاک‌کن کیبورد رمز: بدنه‌ی پنج‌ضلعی + ضربدر
+                val path = Path()
+                path.moveTo(9.4f * u, 7f * u)
+                path.lineTo(21f * u, 7f * u)
+                path.lineTo(21f * u, 17f * u)
+                path.lineTo(9.4f * u, 17f * u)
+                path.close()
+                canvas.drawPath(path, stroke)
+                canvas.drawLine(3.4f * u, 12f * u, 9.4f * u, 7f * u, stroke)
+                canvas.drawLine(3.4f * u, 12f * u, 9.4f * u, 17f * u, stroke)
+                canvas.drawLine(13.2f * u, 9.9f * u, 17.8f * u, 14.1f * u, stroke)
+                canvas.drawLine(17.8f * u, 9.9f * u, 13.2f * u, 14.1f * u, stroke)
+            }
             "gear" -> {
                 val r = 7.4f * u
                 val tp = Paint(stroke)

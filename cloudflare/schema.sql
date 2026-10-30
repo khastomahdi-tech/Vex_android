@@ -24,3 +24,12 @@ CREATE TABLE IF NOT EXISTS free_servers (
   added_at INTEGER,
   enabled INTEGER DEFAULT 1
 );
+-- مصرف ترافیک هر دستگاه (دلتای جمع‌شده) — تفکیک سرور رایگان / شخصی
+CREATE TABLE IF NOT EXISTS traffic (
+  did TEXT,
+  type TEXT,
+  up INTEGER DEFAULT 0,
+  down INTEGER DEFAULT 0,
+  updated INTEGER,
+  PRIMARY KEY (did, type)
+);

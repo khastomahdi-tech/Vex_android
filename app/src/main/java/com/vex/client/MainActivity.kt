@@ -83,11 +83,19 @@ class MainActivity : ComponentActivity() {
     /** دلیل بسته‌بودن برنامه (از ربات مدیر) */
     private var gateReason: String? = null
 
+    /** آیا قفل PIN این نشست باز شده است؟ */
+    private var pinUnlocked = false
+
+    /** سرور اتصال فعلی رایگان است یا شخصی؟ (برای تفکیک آمار مصرف) */
+    private var sessionIsFree = false
+
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
     private lateinit var tgIcImg: ImageView
     private lateinit var gearBtn: FrameLayout
     private lateinit var gearIc: IconView
+    private lateinit var sunBtn: FrameLayout
+    private lateinit var sunIc: IconView
     private lateinit var vexTv: TextView
     private lateinit var clientTv: TextView
 
@@ -180,6 +188,8 @@ class MainActivity : ComponentActivity() {
             // بررسی وضعیت ربات (کلادفلر) + ثبت نصب/ورود — پاسخ report هم وضعیت را می‌دهد
             val info = TelegramGate.notifyInstall(this) ?: TelegramGate.gateInfo()
             TelegramGate.ackIfChanged(info.gate, this)
+            // مصرف جمع‌شده‌ی قبلی (اگر مانده) به بک‌اند ربات گزارش می‌شود
+            TrafficStore.flushAsync(this)
             if (info.gate == TelegramGate.CLOSED) {
                 gateReason = info.reason
                 main.post {
@@ -200,6 +210,8 @@ class MainActivity : ComponentActivity() {
     private fun startGateWatch() {
         main.postDelayed({
             Thread {
+                // گزارش دوره‌ای مصرف به بک‌اند ربات (وقتی متصل است)
+                if (connectionState == "connected") TrafficStore.flushAsync(this@MainActivity)
                 val info = TelegramGate.gateInfo()
                 if (info.gate == TelegramGate.CLOSED) {
                     gateReason = info.reason
@@ -219,71 +231,92 @@ class MainActivity : ComponentActivity() {
 
     /** بازکردن رابط اصلی — بعد از قفل هم بدون ساخت مجدد برمی‌گردد */
     private fun enterApp() {
-        if (::root.isInitialized) {
+        if (!::root.isInitialized) {
+            store = ServersStore(this)
+            dialogs = DialogsHelper(this)
+
+            root = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_RTL
+            }
+            // هدر دیگر ثابت بالای صفحه نیست — داخل ستون اسکرول هر صفحه می‌نشیند
+            // تا با بالا/پایین کردن صفحه، هدر هم حرکت کند.
+            headerView = buildHeader()
+
+            val body = FrameLayout(this)
+            homeUi = HomeUi(this)
+            serversUi = ServersUi(this)
+            settingsUi = SettingsUi(this)
+            statsUi = StatsUi(this)
+            screenHome = homeUi.build()
+            screenServers = serversUi.build()
+            screenSettings = settingsUi.build()
+            screenStats = statsUi.build()
+            body.addView(screenHome, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            body.addView(screenServers, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            body.addView(screenStats, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            body.addView(screenSettings, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            body.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            root.addView(body)
+
+            root.addView(buildBottomNav())
             setContentView(root)
-            return
-        }
-        store = ServersStore(this)
-        dialogs = DialogsHelper(this)
 
-        root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_RTL
-        }
-        // هدر دیگر ثابت بالای صفحه نیست — داخل ستون اسکرول هر صفحه می‌نشیند
-        // تا با بالا/پایین کردن صفحه، هدر هم حرکت کند.
-        headerView = buildHeader()
+            // بازگردانی وضعیت فعلی سرویس (اتصال در پس‌زمینه)
+            connectionState = VexVpnService.uiState
+            netState = VexVpnService.netState
+            netMsg = VexVpnService.netMsg
+            netMs = VexVpnService.netMs
+            if (connectionState == "connected") {
+                sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
+            }
 
-        val body = FrameLayout(this)
-        homeUi = HomeUi(this)
-        serversUi = ServersUi(this)
-        settingsUi = SettingsUi(this)
-        statsUi = StatsUi(this)
-        screenHome = homeUi.build()
-        screenServers = serversUi.build()
-        screenSettings = settingsUi.build()
-        screenStats = statsUi.build()
-        body.addView(screenHome, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        body.addView(screenServers, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        body.addView(screenStats, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        body.addView(screenSettings, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        body.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        root.addView(body)
+            VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
+            VexVpnService.statsListener = { dn, up, tdn, tup -> main.post {
+                TrafficStore.addSession(tdn, tup, sessionIsFree)
+                homeUi.onStats(dn, up, tdn, tup)
+                statsUi.onStats(dn, up, tdn, tup)
+            } }
+            VexVpnService.netListener = { ok, ms, msg -> main.post { onNetResult(ok, ms, msg) } }
 
-        root.addView(buildBottomNav())
-        setContentView(root)
+            applyThemeAll()
+            renderAll()
+            homeUi.restoreStats()
 
-        // بازگردانی وضعیت فعلی سرویس (اتصال در پس‌زمینه)
-        connectionState = VexVpnService.uiState
-        netState = VexVpnService.netState
-        netMsg = VexVpnService.netMsg
-        netMs = VexVpnService.netMs
+            // شمارنده‌ی مصرف کل + به‌روزرسانی خودکار سرورهای رایگان
+            TrafficStore.init(this)
+            scheduleFreeAutoRefresh()
+            Thread { refreshFreeServers(silent = true) }.start()
 
-        VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
-        VexVpnService.statsListener = { dn, up, tdn, tup -> main.post {
-            homeUi.onStats(dn, up, tdn, tup)
-            statsUi.onStats(dn, up, tdn, tup)
-        } }
-        VexVpnService.netListener = { ok, ms, msg -> main.post { onNetResult(ok, ms, msg) } }
-
-        applyThemeAll()
-        renderAll()
-        homeUi.restoreStats()
-
-        // پیش‌نمایش ورود: دو شیر بالدار از بالا می‌افتند (لمس = رد کردن) — قابل خاموش کردن از تنظیمات
-        if (store.settings.showIntro) IntroSplash.show(this)
-
-        // اتصال خودکار
-        if (store.settings.autoConnect && connectionState == "stopped") {
-            store.selected()?.let { s ->
-                main.postDelayed({ if (connectionState == "stopped") requestStart(s) }, 350)
+            // اتصال خودکار
+            if (store.settings.autoConnect && connectionState == "stopped") {
+                store.selected()?.let { s ->
+                    main.postDelayed({ if (connectionState == "stopped") requestStart(s) }, 350)
+                }
             }
         }
+
+        // قفل PIN — اگر رمز گذاشته شده باشد، قبل از ورود کیبورد اختصاصی می‌آید
+        if (store.settings.pinHash.isNotEmpty() && !pinUnlocked) {
+            LockScreen.showLock(this) {
+                pinUnlocked = true
+                setContentView(root)
+                applyThemeAll()
+                renderAll()
+                homeUi.restoreStats()
+                if (store.settings.showIntro) IntroSplash.show(this)
+            }
+            return
+        }
+        setContentView(root)
+        applyThemeAll()
+        // پیش‌نمایش ورود: دو شیر بالدار از بالا می‌افتند (لمس = رد کردن) — قابل خاموش کردن از تنظیمات
+        if (store.settings.showIntro) IntroSplash.show(this)
     }
 
     override fun onDestroy() {
@@ -328,7 +361,7 @@ class MainActivity : ComponentActivity() {
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER))
 
-        // دکمه‌ی گیر تنظیمات (سمت راست هدر) — تنظیمات از نوار پایین حذف شده است
+        // دکمه‌ی گیر تنظیمات + دکمه‌ی خورشید (روز/شب) — سمت راست هدر، بدون هیچ قاب مربع
         gearBtn = FrameLayout(ctx).apply {
             setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
         }
@@ -336,8 +369,24 @@ class MainActivity : ComponentActivity() {
         gearBtn.addView(gearIc, FrameLayout.LayoutParams(
             UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
         gearBtn.setOnClickListener { gotoSettings() }
-        header.addView(gearBtn, FrameLayout.LayoutParams(
-            UI.dp(ctx, 46), UI.dp(ctx, 46), Gravity.RIGHT or Gravity.CENTER_VERTICAL))
+
+        sunBtn = FrameLayout(ctx).apply {
+            setPadding(UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11), UI.dp(ctx, 11))
+        }
+        sunIc = IconView(ctx, "sun").apply { bold = true }
+        sunBtn.addView(sunIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
+        sunBtn.setOnClickListener { toggleDayNight() }
+
+        val rightBox = UI.row(ctx)
+        // در RTL اولین فرزند سمت راست است: اول گیر، بعد خورشید کنارش
+        rightBox.addView(gearBtn, LinearLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46)))
+        rightBox.addView(sunBtn, LinearLayout.LayoutParams(
+            UI.dp(ctx, 46), UI.dp(ctx, 46)))
+        header.addView(rightBox, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.RIGHT or Gravity.CENTER_VERTICAL))
 
         // دکمه‌ی تلگرام (سمت چپ) — آیکون رسمی SVG تلگرام؛ رفتن به کانال تلگرام
         tgBtn = FrameLayout(ctx).apply {
@@ -475,18 +524,16 @@ class MainActivity : ComponentActivity() {
         // اول هدر داخل ستون اسکرول صفحه‌ی فعال سوار شود، بعد تم روی همه اعمال شود
         attachHeader(currentTab)
         root.setBackgroundColor(p.bg)
-        // هدر سلطنتی — شفاف روی پس‌زمینه، عناصر طلایی
+        // هدر سلطنتی — شفاف روی پس‌زمینه؛ دکمه‌ها بدون قاب مربع (درخواست کاربر)
         val header = root.findViewWithTag<FrameLayout>("header")
         header?.let {
-            fun iconBtnBg(): GradientDrawable = GradientDrawable().apply {
-                cornerRadius = UI.dp(this@MainActivity, 15).toFloat()
-                setColor(p.card2)
-                setStroke(UI.dp(this@MainActivity, 2), p.line)
-            }
-            tgBtn.background = iconBtnBg()
-            gearBtn.background = iconBtnBg()
+            tgBtn.background = null
+            gearBtn.background = null
+            sunBtn.background = null
             gearIc.iconColor = p.accent
-            // متن Vex (تیره) و Client (آبی)
+            // خورشید: در حالت روز پررنگ، در حالت شب کمی آرام‌تر
+            sunIc.iconColor = if (Themes.isLightBg(p)) p.accent else UI.alpha(p.accent, 0.85f)
+            // متن Vex (تیره) و Client (آبی/طلایی)
             vexTv.setTextColor(if (Themes.isLightBg(p)) 0xFF111111.toInt() else 0xFFF5F7FF.toInt())
             clientTv.setTextColor(p.accent)
         }
@@ -513,6 +560,29 @@ class MainActivity : ComponentActivity() {
         UI.toast(this, "تم اعمال شد")
     }
 
+    /**
+     * دکمه‌ی خورشید هدر: یک لمس = روز، لمس دوباره = شب.
+     * بین تم سلطنتیِ شب (پیش‌فرض) و سلطنتیِ روز جابه‌جا می‌شود؛
+     * اگر کاربر تم دیگری انتخاب کرده باشد، جفتِ روشن/تیره‌ی همان استفاده می‌شود.
+     */
+    fun toggleDayNight() {
+        val next = when (store.settings.theme) {
+            "royal_light" -> "royal"
+            "royal" -> "royal_light"
+            "light" -> "dark"
+            "dark" -> "light"
+            "shir" -> "royal_light"
+            else ->
+                if (Themes.isLightBg(Themes.resolve(this, store.settings.theme))) "royal"
+                else "royal_light"
+        }
+        store.settings.theme = next
+        store.saveSettings()
+        applyThemeAll()
+        UI.toast(this, if (Themes.isLightBg(Themes.resolve(this, next)))
+            "☀️ حالت روز فعال شد" else "🌙 حالت شب فعال شد")
+    }
+
     // ---------------- وضعیت سرویس ----------------
 
     private fun onServiceState(st: String, msg: String) {
@@ -523,19 +593,31 @@ class MainActivity : ComponentActivity() {
                 if (store.settings.hapticOnConnect) vibrateConnected()
                 // گرفتن «آی‌پی خروجی» از داخل تونل
                 fetchExitIp()
+                applyKeepScreenOn()
             }
             "stopped" -> {
                 connectionState = "stopped"
+                // آخرین دلتای جلسه به بک‌اند ربات گزارش می‌شود، بعد صفری می‌شود
+                TrafficStore.flushAsync(this)
                 resetLiveStats()
+                applyKeepScreenOn()
             }
             "error" -> {
                 connectionState = "stopped"
                 lastError = msg
+                TrafficStore.flushAsync(this)
                 resetLiveStats()
+                applyKeepScreenOn()
                 dialogs.showError(msg)
             }
         }
         renderAll()
+    }
+
+    /** روشن ماندن صفحه در حین اتصال (تنظیمات کاربر) */
+    fun applyKeepScreenOn() {
+        val on = store.settings.keepScreenOn && connectionState == "connected"
+        if (::homeUi.isInitialized) homeUi.root.keepScreenOn = on
     }
 
     /** خاموش‌کردن VPN → سرعت‌های لحظه‌ای و مجموع جلسه صفر می‌شوند + آی‌پی خروجی خالی */
@@ -640,6 +722,9 @@ class MainActivity : ComponentActivity() {
         connectionState = "connecting"
         lastError = ""
         netState = 0
+        // تفکیک آمار مصرف: این جلسه روی سرور رایگان است یا شخصی؟
+        sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
+        TrafficStore.resetSession()
         statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
         homeUi.onStats(0, 0, 0, 0)
         homeUi.clearExitIp()
@@ -837,26 +922,31 @@ class MainActivity : ComponentActivity() {
     // ---------------- سرورهای رایگان ----------------
 
     /**
-     * دریافت خودکار سرورهای رایگان از منابع اشتراک عمومی:
+     * دریافت سرورهای رایگان از بک‌اند ربات (فقط مدیر از ربات اضافه/حذف می‌کند):
      * دریافت موازی → پارس → پینگ موازی → فقط سرورهای سالم در لیست می‌نشینند.
-     * همه با نام یکسان «Vex Free Server N» — بدون امکان ویرایش/حذف/مشاهده‌ی مشخصات.
+     *  • silent = true → بی‌صدا و بدون پیام؛ برای به‌روزرسانی خودکار هر دقیقه.
+     *  • silent = false → با پیام پیشرفت و toast (دعوت دستی از تنظیمات/اول تب).
      */
-    fun refreshFreeServers() {
-        if (FreeServers.fetching) { UI.toast(this, "دریافت سرورهای رایگان در حال اجراست"); return }
+    fun refreshFreeServers(silent: Boolean = false) {
+        if (FreeServers.fetching) { if (!silent) UI.toast(this, "دریافت سرورهای رایگان در حال اجراست"); return }
         freeFetching = true
-        serversUi.freeProgressMsg = "در حال دریافت از سرور مدیریت…"
-        if (serversUi.tab == 1) serversUi.render()
+        if (silent) {
+            serversUi.freeProgressMsg = "به‌روزرسانی خودکار…"
+        } else {
+            serversUi.freeProgressMsg = "در حال دریافت از سرور مدیریت…"
+            if (serversUi.tab == 1) serversUi.render()
+        }
         Thread {
             val dtos = TelegramGate.fetchFreeServers()
             var alive: List<Server> = emptyList()
             if (dtos.isEmpty()) {
-                main.post {
+                if (!silent) main.post {
                     serversUi.freeProgressMsg = "هنوز سرور رایگانی از سمت مدیریت اضافه نشده است"
                     if (serversUi.tab == 1) serversUi.render()
                 }
             } else {
                 alive = FreeServers.aliveFromBot(dtos) { msg ->
-                    main.post {
+                    if (!silent) main.post {
                         serversUi.freeProgressMsg = msg
                         if (serversUi.tab == 1) serversUi.render()
                     }
@@ -865,11 +955,36 @@ class MainActivity : ComponentActivity() {
             freeFetching = false
             main.post {
                 store.replaceFreeServers(alive)
-                UI.toast(this, if (alive.isEmpty()) "سرور رایگان فعالی پیدا نشد" else "${alive.size} سرور رایگان آماده شد")
-                serversUi.render()
+                if (!silent) {
+                    UI.toast(this, if (alive.isEmpty()) "سرور رایگان فعالی پیدا نشد" else "${alive.size} سرور رایگان آماده شد")
+                    serversUi.render()
+                } else if (serversUi.tab == 1) {
+                    serversUi.render()
+                }
                 homeUi.renderServerCard()
+                applyKeepScreenOn()
             }
         }.start()
+    }
+
+    /** حلقه‌ی به‌روزرسانی خودکار سرورهای رایگان — کاربر نیازی به دکمه ندارد */
+    private val freeRefreshTask = object : Runnable {
+        override fun run() {
+            Thread { refreshFreeServers(silent = true) }.start()
+            scheduleFreeAutoRefresh()
+        }
+    }
+
+    private fun scheduleFreeAutoRefresh() {
+        val sec = store.settings.freeRefreshSec
+        if (sec <= 0) return // «فقط هنگام باز شدن»
+        main.postDelayed(freeRefreshTask, sec * 1000L)
+    }
+
+    /** بعد از تغییر بازه در تنظیمات، حلقه از نو چیده می‌شود */
+    fun restartFreeAutoRefresh() {
+        main.removeCallbacks(freeRefreshTask)
+        scheduleFreeAutoRefresh()
     }
 
     // ---------------- ابزار ----------------
@@ -881,7 +996,14 @@ class MainActivity : ComponentActivity() {
 
     fun resetSettings() {
         store.resetToDefaults()
-        // بازسازی کامل صفحه‌ی تنظیمات تا فیلدها (MTU/DNS) هم ریست شوند
+        UI.toast(this, "تنظیمات بازنشانی شد")
+        rebuildSettings()
+    }
+
+    /** ساخت دوباره‌ی کامل صفحه‌ی تنظیمات (بعد از تغییر رمز/ریست/…) */
+    fun rebuildSettings() {
+        if (!::root.isInitialized) return
+        setContentView(root)
         val parent = screenSettings.parent as? FrameLayout ?: return
         parent.removeView(screenSettings)
         settingsUi = SettingsUi(this)
@@ -889,7 +1011,6 @@ class MainActivity : ComponentActivity() {
         parent.addView(screenSettings, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         applyThemeAll()
-        UI.toast(this, "تنظیمات بازنشانی شد")
     }
 
     fun showErrDetails() {
@@ -1039,6 +1160,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onBackPressed() {
+        if (LockScreen.isActive) return // صفحه‌ی قفل/رمز: Back بی‌اثر
         if (currentTab != 0) switchTab(0) else super.onBackPressed()
     }
 }

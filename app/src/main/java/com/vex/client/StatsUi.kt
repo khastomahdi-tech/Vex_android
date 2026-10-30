@@ -30,6 +30,9 @@ class StatsUi(private val act: MainActivity) {
     private lateinit var dnTotal: TextView
     private lateinit var upTotal: TextView
     private lateinit var allTotal: TextView
+    private lateinit var lifeTotal: TextView
+    private lateinit var lifeFree: TextView
+    private lateinit var lifePriv: TextView
     private lateinit var peakText: TextView
     private lateinit var avgText: TextView
     private lateinit var graph: SpeedGraphView
@@ -161,6 +164,20 @@ class StatsUi(private val act: MainActivity) {
         totalCard.addView(hint)
         addCard(totalCard)
 
+        // ================= مصرف کل برنامه (همه‌ی جلسات) =================
+        val lifeCard = UI.col(ctx).apply {
+            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
+        }
+        lifeCard.addView(sectionLabel(ctx, "مصرف کل برنامه"))
+        val lifeHint = UI.label(ctx,
+            "مجموع مصرف همه‌ی اتصال‌ها از روز نصب — تفکیک سرور رایگان و شخصی", 11.5f, p.muted)
+        lifeHint.setPadding(0, UI.dp(ctx, 3), 0, 0)
+        lifeCard.addView(lifeHint)
+        lifeTotal = twoColRow(lifeCard, "مجموع کل (همه‌ی سرورها)")
+        lifeFree = twoColRow(lifeCard, "مصرف سرورهای رایگان")
+        lifePriv = twoColRow(lifeCard, "مصرف سرورهای شخصی (خودت)")
+        addCard(lifeCard)
+
         // ================= وضعیت جلسه =================
         val stateCard = UI.col(ctx).apply {
             setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
@@ -259,7 +276,18 @@ class StatsUi(private val act: MainActivity) {
         errBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
         errBtn.setTextColor(p.text)
         graph.palette = p
+        refreshTotals()
         render()
+    }
+
+    /** مصرف کل برنامه (همه‌ی جلسات، تفکیک رایگان/شخصی) — مجموع کل سبز است */
+    fun refreshTotals() {
+        lifeTotal.text = UI.fmtBytes(TrafficStore.totalAll())
+        lifeTotal.setTextColor(p.good)
+        lifeFree.text = UI.fmtBytes(TrafficStore.totalFree())
+        lifeFree.setTextColor(p.text)
+        lifePriv.text = UI.fmtBytes(TrafficStore.totalPrivate())
+        lifePriv.setTextColor(p.text)
     }
 
     fun render() {
@@ -305,6 +333,7 @@ class StatsUi(private val act: MainActivity) {
         else "—"
 
         graph.addSample(dn.toFloat(), up.toFloat())
+        refreshTotals()
         render()
     }
 

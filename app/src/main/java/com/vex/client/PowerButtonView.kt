@@ -151,6 +151,21 @@ class PowerButtonView(context: Context) : View(context) {
             paint.shader = null
         }
 
+        // ---------- ۱.۵) پالس سونار هنگام اتصال موفق — حلقه‌های آرام و expanding ----------
+        if (mode == "on") {
+            stroke.shader = null
+            stroke.strokeCap = Paint.Cap.ROUND
+            for (k in 0..1) {
+                val t = (phase + k * 0.5f) % 1f
+                val span = (maxR - rMain - dp(10f)).coerceAtLeast(dp(2f))
+                val pr = rMain + dp(10f) + t * span
+                val a = (1f - t) * 0.32f
+                stroke.color = UI.alpha(ringBase, a)
+                stroke.strokeWidth = dp(2.4f) - dp(1.2f) * t
+                if (stroke.strokeWidth > 0) canvas.drawCircle(cx, cy, pr, stroke)
+            }
+        }
+
         // ---------- ۲) حلقه‌های تزئینی بیرونی ----------
         // حلقه‌ی نقطه‌چین (حکاکی)
         stroke.shader = null
@@ -238,6 +253,17 @@ class PowerButtonView(context: Context) : View(context) {
         stroke.shader = null
         canvas.restore()
 
+        // درخشش دومِ آرام‌تر روی حلقه‌ی بیرونی — خلاف جهت چرخش (جلوه‌ی فلز زنده)
+        if (mode != "off") {
+            canvas.save()
+            canvas.rotate(-phase * 240f, cx, cy)
+            stroke.shader = specSweep
+            stroke.strokeWidth = dp(4f)
+            canvas.drawCircle(cx, cy, rMain + dp(19f), stroke)
+            stroke.shader = null
+            canvas.restore()
+        }
+
         // ---------- ۴) صفحه‌ی داخلی تیره ----------
         fillP.shader = if (connected) RadialGradient(
             cx - rMain * 0.25f, cy - rMain * 0.32f, rMain * 1.35f,
@@ -294,7 +320,7 @@ class PowerButtonView(context: Context) : View(context) {
             rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
             canvas.drawArc(rect, -55f, 270f, false, halo)
         }
-        glyph.strokeWidth = dp(5.8f)
+        glyph.strokeWidth = dp(6.4f)
         canvas.drawLine(cx, cy - gr, cx, cy - gr * 0.06f, glyph)
         rect.set(cx - gr, cy - gr, cx + gr, cy + gr)
         canvas.drawArc(rect, -55f, 270f, false, glyph)

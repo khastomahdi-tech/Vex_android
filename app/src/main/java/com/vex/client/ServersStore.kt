@@ -38,7 +38,12 @@ data class VexSettings(
     var hapticOnConnect: Boolean = true,// لرزش کوتاه هنگام اتصال موفق
     var showIntro: Boolean = true,      // نمایش اسپلش ورود (شیرهای سقوطی)
     var showExitIp: Boolean = true,     // نمایش کارت «آی‌پی خروجی» در صفحه‌ی خانه
-    var sniffing: Boolean = true        // زیرکی ترافیک (Sniffing) مثل v2rayNG
+    var sniffing: Boolean = true,       // زیرکی ترافیک (Sniffing) مثل v2rayNG
+    // --- امنیت و رفتار جدید (v3.14) ---
+    var pinHash: String = "",           // SHA-256 رمز قفل برنامه — خالی = بدون قفل
+    var pinLen: Int = 0,                // طول رمز (برای ارسال خودکار کیبورد اختصاصی)
+    var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
+    var freeRefreshSec: Int = 60        // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
 )
 
 /**
@@ -130,6 +135,10 @@ class ServersStore(context: Context) {
                 showIntro = o.optBoolean("showIntro", true),
                 showExitIp = o.optBoolean("showExitIp", true),
                 sniffing = o.optBoolean("sniffing", true),
+                pinHash = o.optString("pinHash", ""),
+                pinLen = o.optInt("pinLen", 0).coerceIn(0, 8),
+                keepScreenOn = o.optBoolean("keepScreenOn", false),
+                freeRefreshSec = when (o.optInt("freeRefreshSec", 60)) { 30 -> 30; 300 -> 300; 0 -> 0; else -> 60 },
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {
                     val arr = o.optJSONArray("perAppPackages")
@@ -190,12 +199,20 @@ class ServersStore(context: Context) {
             .put("showIntro", settings.showIntro)
             .put("showExitIp", settings.showExitIp)
             .put("sniffing", settings.sniffing)
+            .put("pinHash", settings.pinHash)
+            .put("pinLen", settings.pinLen)
+            .put("keepScreenOn", settings.keepScreenOn)
+            .put("freeRefreshSec", settings.freeRefreshSec)
             .toString()).apply()
     }
 
-    /** بازگرداندن تنظیمات به حالت پیش‌فرض */
+    /** بازگرداندن تنظیمات به حالت پیش‌فرض — رمز قفل برنامه عمداً حفظ می‌شود */
     fun resetToDefaults() {
+        val keepPin = settings.pinHash
+        val keepLen = settings.pinLen
         settings = VexSettings()
+        settings.pinHash = keepPin
+        settings.pinLen = keepLen
         saveSettings()
     }
 

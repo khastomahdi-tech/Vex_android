@@ -63,7 +63,7 @@ object TelegramGate {
                     readTimeout = 4000
                     instanceFollowRedirects = true
                     useCaches = false
-                    setRequestProperty("User-Agent", "VEX-Client/3.13 (connectivity)")
+                    setRequestProperty("User-Agent", "VEX-Client/3.14 (connectivity)")
                 }
                 if (c.responseCode in 200..399) return true
             } catch (_: Throwable) {
@@ -124,6 +124,27 @@ object TelegramGate {
         } catch (_: Throwable) {
             return null
         }
+    }
+
+    /**
+     * گزارش دلتای مصرف ترافیک به بک‌اند ربات (D1) — تفکیک سرور رایگان / شخصی.
+     * ربات مدیر مجموع مصرف همه‌ی کاربران را همین‌جا می‌بیند. بهترین تلاش؛ بی‌صدا.
+     */
+    fun reportTraffic(did: String, freeUp: Long, freeDn: Long, privUp: Long, privDn: Long) {
+        try {
+            if (freeUp > 0 || freeDn > 0) {
+                post("/v1/traffic", JSONObject().apply {
+                    put("did", did); put("type", "free")
+                    put("up", freeUp); put("down", freeDn)
+                })
+            }
+            if (privUp > 0 || privDn > 0) {
+                post("/v1/traffic", JSONObject().apply {
+                    put("did", did); put("type", "private")
+                    put("up", privUp); put("down", privDn)
+                })
+            }
+        } catch (_: Throwable) {}
     }
 
     // ------------------------------------------------ سرورهای رایگان ربات
@@ -192,7 +213,7 @@ object TelegramGate {
         c.readTimeout = 8000
         c.useCaches = false
         c.setRequestProperty("X-Vex-Key", APP_KEY)
-        c.setRequestProperty("User-Agent", "VEX-Client/3.11 (gate)")
+        c.setRequestProperty("User-Agent", "VEX-Client/3.14 (gate)")
     }
 
     private fun get(path: String): String? {

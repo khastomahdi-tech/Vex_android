@@ -83,7 +83,63 @@ class SettingsUi(private val act: MainActivity) {
             "نمایش انیمیشن شیرهای طلایی هنگام باز شدن برنامه", act.store.settings.showIntro) { v ->
             act.store.settings.showIntro = v; act.store.saveSettings()
         })
+        connCard.addView(divider())
+        connCard.addView(switchRow("روشن ماندن صفحه در حین اتصال",
+            "وقتی متصل است، صفحه‌ی گوشی خاموش نمی‌شود", act.store.settings.keepScreenOn) { v ->
+            act.store.settings.keepScreenOn = v; act.store.saveSettings(); act.applyKeepScreenOn()
+        })
         addCard(connCard)
+
+        // ================= امنیت =================
+        val secCard = sectionCard("امنیت", "check")
+        secCard.addView(switchRow("قفل برنامه با رمز (PIN)",
+            "با هر بار ورود، برنامه با کیبورد اختصاصی خودش رمز می‌خواهد",
+            act.store.settings.pinHash.isNotEmpty()) { v ->
+            if (v) {
+                LockScreen.showSetup(act,
+                    onDone = { hash, len ->
+                        act.store.settings.pinHash = hash
+                        act.store.settings.pinLen = len
+                        act.store.saveSettings()
+                        act.toast("قفل برنامه فعال شد 🎉")
+                        act.rebuildSettings()
+                    },
+                    onCancel = { act.rebuildSettings() })
+            } else {
+                LockScreen.showVerify(act, "برای برداشتن قفل، رمز را وارد کن",
+                    onOk = {
+                        act.store.settings.pinHash = ""
+                        act.store.settings.pinLen = 0
+                        act.store.saveSettings()
+                        act.toast("قفل برنامه برداشته شد")
+                        act.rebuildSettings()
+                    },
+                    onCancel = { act.rebuildSettings() })
+            }
+        })
+        secCard.addView(divider())
+        val chPinBtn = softRowButton("تغییر رمز برنامه")
+        chPinBtn.setOnClickListener {
+            if (act.store.settings.pinHash.isEmpty()) {
+                act.toast("اول قفل برنامه را فعال کن")
+            } else {
+                LockScreen.showVerify(act, "رمز فعلی را وارد کن",
+                    onOk = {
+                        LockScreen.showSetup(act,
+                            onDone = { hash, len ->
+                                act.store.settings.pinHash = hash
+                                act.store.settings.pinLen = len
+                                act.store.saveSettings()
+                                act.toast("رمز برنامه عوض شد")
+                                act.rebuildSettings()
+                            },
+                            onCancel = { act.rebuildSettings() })
+                    },
+                    onCancel = { act.rebuildSettings() })
+            }
+        }
+        secCard.addView(chPinBtn)
+        addCard(secCard)
 
         // ================= تونل =================
         val netCard = sectionCard("تونل", "globe")
@@ -276,9 +332,25 @@ class SettingsUi(private val act: MainActivity) {
         }
         toolsCard.addView(pingSelBtn)
         toolsCard.addView(divider())
-        val refreshFreeBtn = softRowButton("به‌روزرسانی سرورهای رایگان")
-        refreshFreeBtn.setOnClickListener { act.refreshFreeServers() }
-        toolsCard.addView(refreshFreeBtn)
+        toolsCard.addView(fieldLabel(ctx, "به‌روزرسانی خودکار سرورهای رایگان"))
+        val fsSpin = Spinner(ctx).apply {
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                arrayOf("هر ۳۰ ثانیه", "هر ۱ دقیقه", "هر ۵ دقیقه", "فقط هنگام باز شدن"))
+            setSelection(when (act.store.settings.freeRefreshSec) {
+                30 -> 0; 300 -> 2; 0 -> 3; else -> 1
+            })
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                    if (building) return
+                    act.store.settings.freeRefreshSec = when (pos) { 0 -> 30; 2 -> 300; 3 -> 0; else -> 60 }
+                    act.store.saveSettings()
+                    act.restartFreeAutoRefresh()
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+        }
+        toolsCard.addView(fsSpin, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
         toolsCard.addView(divider())
         val clearLogBtn = softRowButton("پاک کردن لاگ هسته")
         clearLogBtn.setOnClickListener {
@@ -287,6 +359,14 @@ class SettingsUi(private val act: MainActivity) {
         }
         toolsCard.addView(clearLogBtn)
         toolsCard.addView(divider())
+        val resetTrafficBtn = softRowButton("پاک کردن آمار مصرف کل")
+        resetTrafficBtn.setOnClickListener {
+            TrafficStore.resetAll()
+            act.statsUi.refreshTotals()
+            UI.toast(act, "آمار مصرف کل پاک شد")
+        }
+        toolsCard.addView(resetTrafficBtn)
+        toolsCard.addView(divider())
         val resetBtn = softRowButton("بازنشانی همه‌ی تنظیمات", tag = "bad")
         resetBtn.setOnClickListener { act.resetSettings() }
         toolsCard.addView(resetBtn)
@@ -294,7 +374,7 @@ class SettingsUi(private val act: MainActivity) {
 
         // ================= درباره =================
         val aboutCard = sectionCard("درباره", "globe")
-        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.9.0 (17)"))
+        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.14.0 (21)"))
         aboutCard.addView(divider())
         aboutCard.addView(infoRow("هسته‌ی پراکسی", "sing-box v1.11.15"))
         aboutCard.addView(divider())
@@ -396,7 +476,7 @@ class SettingsUi(private val act: MainActivity) {
         d.setBackgroundColor(UI.alpha(p.line, 0.65f))
         d.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 1)).apply {
-            setMargins(0, UI.dp(ctx, topPad), 0, 0)
+            setMargins(0, UI.dp(ctx, topPad), 0, UI.dp(ctx, 3))
         }
         return d
     }
@@ -404,11 +484,15 @@ class SettingsUi(private val act: MainActivity) {
     private fun fieldLabel(ctx: Context, text: String): TextView =
         UI.label(ctx, text, 12.5f, p.muted).apply {
             tag = "sub"
-            setPadding(0, UI.dp(ctx, 8), 0, 0)
+            setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2))
         }
 
     private fun subLabel(text: String): TextView =
-        UI.label(act, text, 12f, p.muted).apply { tag = "sub"; setPadding(0, UI.dp(act, 2), 0, 0) }
+        UI.label(act, text, 12f, p.muted).apply {
+            tag = "sub"
+            setPadding(0, UI.dp(act, 5), 0, 0)
+            setLineSpacing(UI.dp(act, 1.5f).toFloat(), 1f)
+        }
 
     /**
      * ردیف تنظیم: عنوان + توضیح + سوییچ در انتهای ردیف.
@@ -416,13 +500,17 @@ class SettingsUi(private val act: MainActivity) {
      */
     private fun switchRow(title: String, subtitle: String, value: Boolean, onChange: (Boolean) -> Unit): View {
         val ctx = act
-        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 2)) }
+        val row = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 12), 0, UI.dp(ctx, 5)) }
         val textCol = UI.col(ctx)
-        val tv = UI.label(ctx, title, 14.5f, p.text)
+        val tv = UI.label(ctx, title, 14.5f, p.text).apply {
+            setLineSpacing(UI.dp(ctx, 1.5f).toFloat(), 1f)
+        }
         val stv = subLabel(subtitle)
         textCol.addView(tv)
         textCol.addView(stv)
-        textCol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        textCol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = UI.dp(ctx, 6)
+        }
         val sw = VexSwitch(ctx).apply {
             isChecked = value
             onCheckedChange = { now -> onChange(now) }

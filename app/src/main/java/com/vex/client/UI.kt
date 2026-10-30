@@ -96,6 +96,20 @@ object Themes {
         bad = 0xFFE85D5D.toInt(), glow = 0x59E8B923, isShir = false
     )
 
+    /**
+     * تم «سلطنتی روشن» — حالت روزِ تم سلطنتی طلایی:
+     * پس‌زمینه‌ی کرم گرم، کارت‌های روشن با حاشیه‌ی طلایی ملایم و اکسنت طلایی.
+     * دکمه‌ی خورشید هدر بین این تم و تم سلطنتیِ شب جابه‌جا می‌شود.
+     */
+    fun royalLight() = Palette(
+        bg = 0xFFFBF4E2.toInt(), bg2 = 0xFFFFFCF3.toInt(),
+        card = 0xFFFFFFFF.toInt(), card2 = 0xFFF8EED7.toInt(),
+        line = 0xFFE6D5A6.toInt(), text = 0xFF2B220E.toInt(), muted = 0xFF8B7648.toInt(),
+        accent = 0xFFD9A521.toInt(), onAccent = 0xFF1A1304.toInt(),
+        good = 0xFF149A66.toInt(), mid = 0xFFC57F00.toInt(), slow = 0xFFD4531F.toInt(),
+        bad = 0xFFD62E56.toInt(), glow = 0x40D9A521, isShir = false
+    )
+
     /** رنگ طلاییِ کم‌رنگ برای آیکون‌های غیرفعال نوار پایین */
     val goldMuted: Int = 0xFFC9A94E.toInt()
 
@@ -113,14 +127,15 @@ object Themes {
         "dark" -> dark()
         "shir" -> shir()
         "royal" -> royal()
+        "royal_light" -> royalLight()
         // تم «سیستم» واقعاً از تیره/روشن اندروید پیروی می‌کند
         "system" -> {
             val mode = context.resources.configuration.uiMode and
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
             if (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES) dark() else light()
         }
-        // تم پیش‌فرض برنامه = روشن
-        else -> light()
+        // تم پیش‌فرض برنامه = سلطنتی طلایی (شب)
+        else -> royal()
     }
 }
 
