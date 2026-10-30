@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Outline
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -19,6 +20,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -338,14 +340,11 @@ class MainActivity : ComponentActivity() {
                 applyThemeAll()
                 renderAll()
                 homeUi.restoreStats()
-                if (store.settings.showIntro) IntroSplash.show(this)
             }
             return
         }
         setContentView(root)
         applyThemeAll()
-        // پیش‌نمایش ورود: دو شیر بالدار از بالا می‌افتند (لمس = رد کردن) — قابل خاموش کردن از تنظیمات
-        if (store.settings.showIntro) IntroSplash.show(this)
     }
 
     override fun onDestroy() {
@@ -1139,7 +1138,7 @@ class MainActivity : ComponentActivity() {
 
     // ---------------- دروازه‌ی ورود (قفل صفحه) ----------------
 
-    /** صفحه‌ی قفل ورود — چیدمان سلطنتی تیره با لوگوی طلایی */
+    /** صفحه‌ی قفل ورود — آیکون برنامه با گوشه‌های گرد + وضعیت اتصال */
     private fun buildGateView(): View {
         val ctx = this
         gateRoot = UI.col(ctx).apply { gravity = Gravity.CENTER }
@@ -1147,7 +1146,11 @@ class MainActivity : ComponentActivity() {
         return gateRoot
     }
 
-    /** حالت‌های قفل: checking (اسپینر) / no-internet / closed */
+    /**
+     * حالت‌های قفل: checking / no-internet / closed / tampered
+     * صفحه‌ی «در حال اتصال» فقط دو چیز دارد: آیکون برنامه (گوشه‌گرد) بالای صفحه
+     * و عبارت «در حال اتصال به برنامه» زیر آن — هیچ چیز دیگری.
+     */
     private fun setGateUi(state: String) {
         if (!gateBuilt) return
         val ctx = this
@@ -1157,57 +1160,36 @@ class MainActivity : ComponentActivity() {
         gateRoot.setBackgroundColor(p.bg)
         gateRoot.removeAllViews()
 
-        // لوگو: دایره‌ی ملایم اکسنت + آیکون (تمیز، بدون گرادیان طلایی)
-        val icBox = FrameLayout(ctx).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(UI.alpha(p.accent, 0.12f))
-                setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.35f))
+        // آیکون برنامه با گوشه‌های دایره‌مانند
+        val ic = ImageView(ctx).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, view.width * 0.26f)
+                }
             }
         }
-        val ic = IconView(ctx, if (state == "closed") "gear" else "globe").apply {
-            iconColor = p.accent; bold = true
-        }
-        icBox.addView(ic, FrameLayout.LayoutParams(UI.dp(ctx, 34), UI.dp(ctx, 34), Gravity.CENTER))
-        gateRoot.addView(icBox, LinearLayout.LayoutParams(
-            UI.dp(ctx, 86), UI.dp(ctx, 86)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        gateRoot.addView(ic, LinearLayout.LayoutParams(
+            UI.dp(ctx, 112), UI.dp(ctx, 112)).apply { gravity = Gravity.CENTER_HORIZONTAL })
 
-        // نام برنامه: Vex (روشن) + Client (آبی)
-        val nameRow = UI.row(ctx).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, UI.dp(ctx, 16), 0, 0)
-        }
-        nameRow.addView(TextView(ctx).apply {
-            text = "Vex"
-            textSize = 24f
-            typeface = Fonts.bold(ctx)
-            setTextColor(0xFFF5F7FF.toInt())
-        })
-        nameRow.addView(TextView(ctx).apply {
-            text = " Client"
-            textSize = 18f
-            typeface = Fonts.bold(ctx)
-            setTextColor(p.accent)
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.CENTER_VERTICAL
-        })
-        gateRoot.addView(nameRow, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // عنوان و پیام هر حالت
+        // وضعیت / پیام زیر آیکون
         val title = TextView(ctx).apply {
-            textSize = 17f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
-            setPadding(0, UI.dp(ctx, 26), 0, 0)
+            textSize = 16.5f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
+            setPadding(0, UI.dp(ctx, 28), 0, 0)
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
                 "closed" -> { text = "App Access Closed"; setTextColor(p.bad) }
                 "tampered" -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
-                else -> { text = "در حال بررسی اتصال…"; setTextColor(p.text) }
+                else -> { text = "در حال اتصال به برنامه"; setTextColor(p.text) }
             }
         }
         gateRoot.addView(title, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // حالت «در حال اتصال» همین‌جا تمام است — فقط آیکون و متن
+        if (state == "checking") return
 
         val msg = TextView(ctx).apply {
             textSize = 13.5f; gravity = Gravity.CENTER; setTextColor(p.muted)
@@ -1218,22 +1200,11 @@ class MainActivity : ComponentActivity() {
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک vex-gate.pages.dev/apk نصب کن."
-                else -> text = "چند لحظه صبر کن…"
+                else -> text = ""
             }
         }
         gateRoot.addView(msg, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // اسپینر حالت بررسی
-        if (state == "checking") {
-            val sp = android.widget.ProgressBar(ctx)
-            sp.indeterminateTintList = android.content.res.ColorStateList.valueOf(p.accent)
-            gateRoot.addView(sp, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = UI.dp(ctx, 24)
-            })
-        }
 
         // دکمه‌ها
         val btns = UI.row(ctx).apply { gravity = Gravity.CENTER; setPadding(0, UI.dp(ctx, 26), 0, 0) }

@@ -37,7 +37,6 @@ data class VexSettings(
     var muxPadding: Boolean = false,    // پدینگ Mux (وقتی Mux روشن است)
     var showNotifSpeed: Boolean = true, // نمایش سرعت زنده در اعلان
     var hapticOnConnect: Boolean = true,// لرزش کوتاه هنگام اتصال موفق
-    var showIntro: Boolean = true,      // نمایش اسپلش ورود (شیرهای سقوطی)
     var showExitIp: Boolean = true,     // نمایش کارت «آی‌پی خروجی» در صفحه‌ی خانه
     var sniffing: Boolean = true,       // زیرکی ترافیک (Sniffing) مثل v2rayNG
     // --- امنیت و رفتار جدید (v3.14) ---
@@ -135,7 +134,6 @@ class ServersStore(context: Context) {
                 muxPadding = o.optBoolean("muxPadding", false),
                 showNotifSpeed = o.optBoolean("showNotifSpeed", true),
                 hapticOnConnect = o.optBoolean("hapticOnConnect", true),
-                showIntro = o.optBoolean("showIntro", true),
                 showExitIp = o.optBoolean("showExitIp", true),
                 sniffing = o.optBoolean("sniffing", true),
                 pinHash = o.optString("pinHash", ""),
@@ -219,7 +217,6 @@ class ServersStore(context: Context) {
             .put("muxPadding", settings.muxPadding)
             .put("showNotifSpeed", settings.showNotifSpeed)
             .put("hapticOnConnect", settings.hapticOnConnect)
-            .put("showIntro", settings.showIntro)
             .put("showExitIp", settings.showExitIp)
             .put("sniffing", settings.sniffing)
             .put("pinHash", settings.pinHash)

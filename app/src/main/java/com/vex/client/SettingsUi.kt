@@ -79,11 +79,6 @@ class SettingsUi(private val act: MainActivity) {
             act.store.settings.showExitIp = v; act.store.saveSettings()
         })
         connCard.addView(divider())
-        connCard.addView(switchRow("صفحه‌ی ورود (اسپلش)",
-            "نمایش انیمیشن شیرهای طلایی هنگام باز شدن برنامه", act.store.settings.showIntro) { v ->
-            act.store.settings.showIntro = v; act.store.saveSettings()
-        })
-        connCard.addView(divider())
         connCard.addView(switchRow("روشن ماندن صفحه در حین اتصال",
             "وقتی متصل است، صفحه‌ی گوشی خاموش نمی‌شود", act.store.settings.keepScreenOn) { v ->
             act.store.settings.keepScreenOn = v; act.store.saveSettings(); act.applyKeepScreenOn()
