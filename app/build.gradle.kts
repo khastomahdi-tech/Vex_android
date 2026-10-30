@@ -61,7 +61,10 @@ android {
 }
 
 dependencies {
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+    // libbox.aar (هسته‌ی sing-box) از app/libs — JAR کلاس‌های سایفون مستثنا می‌شود
+    // (پایین با compileOnly داده می‌شود تا دوباره‌کاری در runtime پیش نیاید)
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"),
+        "exclude" to listOf("psiphon-classes.jar"))))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.0")
     // ضربان پس‌زمینه‌ی اعلان‌های مدیر — حتی وقتی برنامه بسته است (سیستم هر ۱۵ دقیقه بیدار می‌کند)
@@ -77,4 +80,7 @@ dependencies {
     // موتور سایفون (Psiphon tunnel core) — AAR استریپ‌شده (بدون go.* تکراری) از مخزن
     // maven محلی که در CI ساخته می‌شود؛ خود تونل در پروسه‌ی جدا «:psiphon» اجرا می‌شود
     implementation("ca.psiphon:psiphontunnel:2.0.42")
+    // کلاس‌های سایفون برای کامپایل — JAR مستقیم (AAR ترنسفورم‌شده گاهی به
+    // کامپایلر Kotlin نمی‌رسد؛ runtime فقط از AAR می‌آید → بدون دوباره‌کاری)
+    compileOnly(files("libs/psiphon-classes.jar"))
 }

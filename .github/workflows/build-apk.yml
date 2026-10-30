@@ -139,6 +139,12 @@ jobs:
               else:
                   zout.writestr(n, zin.read(n))
           zout.close()
+          # JAR کلاس‌ها برای کامپایل صریح (compileOnly) — ترنسفورم AGP برخی AARها را
+          # برای کامپایلر Kotlin نمی‌سازد؛ این JAR تضمین می‌کند کلاس‌ها حتماً دیده شوند
+          libs = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs')
+          os.makedirs(libs, exist_ok=True)
+          with open(os.path.join(libs, 'psiphon-classes.jar'), 'wb') as f:
+              f.write(buf.getvalue())
           with open(os.path.join(mv, 'psiphontunnel-2.0.42.pom'), 'w') as f:
               pom = (
                   '<?xml version="1.0" encoding="UTF-8"?>\n'
