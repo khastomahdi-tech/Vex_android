@@ -117,26 +117,42 @@ jobs:
           src = '/tmp/psi.aar'
           dst = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs', 'psiphon.aar')
           zin = zipfile.ZipFile(src)
+          # classes.jar تازه و تمیز بساز — entryهای بازیافت‌شده‌ی ZipInfo (با flagهای
+          # data-descriptor) خوانش ZIP سخت‌گیر کامپایلر Kotlin را خراب می‌کنند
+          inner = zipfile.ZipFile(io.BytesIO(zin.read('classes.jar')))
+          buf = io.BytesIO()
+          yo = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
+          kept = 0
+          for n in inner.namelist():
+              if n.startswith('go/'):
+                  continue
+              yo.writestr(n, inner.read(n))
+              kept += 1
+          yo.close()
           zout = zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED)
-          stripped = 0
-          for item in zin.infolist():
-              if item.filename == 'classes.jar':
-                  inner = zipfile.ZipFile(io.BytesIO(zin.read(item.filename)))
-                  buf = io.BytesIO()
-                  yo = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
-                  for it2 in inner.infolist():
-                      if it2.filename.startswith('go/'):
-                          stripped += 1
-                          continue
-                      yo.writestr(it2, inner.read(it2.filename))
-                  yo.close()
-                  zout.writestr(item, buf.getvalue())
+          for n in zin.namelist():
+              if n == 'classes.jar':
+                  zout.writestr('classes.jar', buf.getvalue())
               else:
-                  zout.writestr(item, zin.read(item.filename))
+                  zout.writestr(n, zin.read(n))
           zout.close()
-          print(f'psiphon.aar written: {os.path.getsize(dst)} bytes, {stripped} duplicate go.* classes stripped')
+          print('psiphon.aar written:', os.path.getsize(dst), 'bytes;', kept, 'classes kept')
+          # self-check
+          z = zipfile.ZipFile(dst)
+          cj = zipfile.ZipFile(io.BytesIO(z.read('classes.jar')))
+          assert 'ca/psiphon/PsiphonTunnel.class' in cj.namelist(), 'PsiphonTunnel missing!'
+          assert not any(n.startswith('go/') for n in cj.namelist()), 'go/* not stripped!'
+          print('SELF-CHECK OK: PsiphonTunnel present, go/* stripped')
           PY
-          ls -lh "$GITHUB_WORKSPACE/app/libs/"
+          # اعتبارسنجی با ابزار واقعی جاوا — classes.jar باید کاملاً خوانا باشد
+          cd /tmp && rm -rf psichk && mkdir psichk && cd psichk
+          "$JAVA_HOME/bin/jar" xf "$GITHUB_WORKSPACE/app/libs/psiphon.aar" classes.jar
+          echo "classes visible to JDK jar tool:"
+          "$JAVA_HOME/bin/jar" tf classes.jar | grep -E "ca/psiphon/PsiphonTunnel\.class|ca/psiphon/PsiphonTunnel\\\$HostService\.class" || true
+          cat > T.java <<'J'
+          public class T { ca.psiphon.PsiphonTunnel.HostService h; }
+          J
+          "$JAVA_HOME/bin/javac" -nowarn -cp classes.jar T.java && echo "JAVAC RESOLVES PsiphonTunnel OK"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
