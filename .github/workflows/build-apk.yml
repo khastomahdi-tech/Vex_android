@@ -106,21 +106,19 @@ jobs:
             ./experimental/libbox
           ls -lh "$GITHUB_WORKSPACE/app/libs/"
 
-      - name: Prepare Psiphon AAR (strip duplicate gomobile runtime go.*)
+      - name: Prepare Psiphon classes+native libs (strip duplicate gomobile runtime go.*)
         run: |
           curl -fsSL --retry 3 -o /tmp/psi.aar \
             "https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/master/ca/psiphon/psiphontunnel/2.0.42/psiphontunnel-2.0.42.aar"
           ls -lh /tmp/psi.aar
-          # AAR استریپ‌شده در مخزن Maven محلی نصب می‌شود — مسیر استاندارد dependency
-          # (fileTree برای این AAR توسط کامپایلر Kotlin دیده نمی‌شد)
+          # ۱) classes.jar بدون go/* تکراری → app/libs/psiphon-classes.jar (JAR ساده —
+          #    بدون هیچ ترنسفورم AAR، همیشه برای کامپایلر Kotlin دیده می‌شود)
+          # ۲) libgojni.so → app/src/main/jniLibs/<abi>/ (پکیجینگ مستقیم، بدون AAR)
           python3 - <<'PY'
           import zipfile, io, os
           src = '/tmp/psi.aar'
-          mv = os.path.join(os.environ['GITHUB_WORKSPACE'], 'local-maven',
-                            'ca', 'psiphon', 'psiphontunnel', '2.0.42')
-          os.makedirs(mv, exist_ok=True)
+          ws = os.environ['GITHUB_WORKSPACE']
           zin = zipfile.ZipFile(src)
-          # classes.jar تازه و تمیز — entryهای بازیافت‌شده ZipInfo خوانش سخت‌گیر Kotlin را خراب می‌کنند
           inner = zipfile.ZipFile(io.BytesIO(zin.read('classes.jar')))
           buf = io.BytesIO()
           yo = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
@@ -131,48 +129,31 @@ jobs:
               yo.writestr(n, inner.read(n))
               kept += 1
           yo.close()
-          dst = os.path.join(mv, 'psiphontunnel-2.0.42.aar')
-          zout = zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED)
-          for n in zin.namelist():
-              if n == 'classes.jar':
-                  zout.writestr('classes.jar', buf.getvalue())
-              else:
-                  zout.writestr(n, zin.read(n))
-          zout.close()
-          # JAR کلاس‌ها برای کامپایل صریح (compileOnly) — ترنسفورم AGP برخی AARها را
-          # برای کامپایلر Kotlin نمی‌سازد؛ این JAR تضمین می‌کند کلاس‌ها حتماً دیده شوند
-          libs = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs')
+          libs = os.path.join(ws, 'app', 'libs')
           os.makedirs(libs, exist_ok=True)
           with open(os.path.join(libs, 'psiphon-classes.jar'), 'wb') as f:
               f.write(buf.getvalue())
-          with open(os.path.join(mv, 'psiphontunnel-2.0.42.pom'), 'w') as f:
-              pom = (
-                  '<?xml version="1.0" encoding="UTF-8"?>\n'
-                  '<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"'
-                  ' xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
-                  '  <modelVersion>4.0.0</modelVersion>\n'
-                  '  <groupId>ca.psiphon</groupId>\n'
-                  '  <artifactId>psiphontunnel</artifactId>\n'
-                  '  <version>2.0.42</version>\n'
-                  '  <packaging>aar</packaging>\n'
-                  '</project>\n')
-              f.write(pom)
-          print('installed to local maven:', os.path.getsize(dst), 'bytes;', kept, 'classes kept')
+          for abi in ('arm64-v8a', 'armeabi-v7a'):
+              d = os.path.join(ws, 'app', 'src', 'main', 'jniLibs', abi)
+              os.makedirs(d, exist_ok=True)
+              with open(os.path.join(d, 'libgojni.so'), 'wb') as f:
+                  f.write(zin.read('jni/' + abi + '/libgojni.so'))
+          print('psiphon-classes.jar:', kept, 'classes; libgojni.so extracted for arm64+armv7')
           # self-check
-          z = zipfile.ZipFile(dst)
-          cj = zipfile.ZipFile(io.BytesIO(z.read('classes.jar')))
-          assert 'ca/psiphon/PsiphonTunnel.class' in cj.namelist(), 'PsiphonTunnel missing!'
-          assert not any(n.startswith('go/') for n in cj.namelist()), 'go/* not stripped!'
-          print('SELF-CHECK OK: PsiphonTunnel present, go/* stripped')
+          zc = zipfile.ZipFile(io.BytesIO(buf.getvalue()))
+          assert 'ca/psiphon/PsiphonTunnel.class' in zc.namelist(), 'PsiphonTunnel missing!'
+          assert not any(n.startswith('go/') for n in zc.namelist()), 'go/* not stripped!'
+          so = os.path.join(ws, 'app', 'src', 'main', 'jniLibs', 'arm64-v8a', 'libgojni.so')
+          assert os.path.getsize(so) > 10_000_000, 'libgojni.so too small'
+          print('SELF-CHECK OK')
           PY
           # اعتبارسنجی با ابزار واقعی جاوا
           cd /tmp && rm -rf psichk && mkdir psichk && cd psichk
-          "$JAVA_HOME/bin/jar" xf "$GITHUB_WORKSPACE/local-maven/ca/psiphon/psiphontunnel/2.0.42/psiphontunnel-2.0.42.aar" classes.jar
-          "$JAVA_HOME/bin/jar" tf classes.jar | grep -c "ca/psiphon/" || true
+          cp "$GITHUB_WORKSPACE/app/libs/psiphon-classes.jar" .
           cat > T.java <<'J'
           public class T { ca.psiphon.PsiphonTunnel.HostService h; }
           J
-          "$JAVA_HOME/bin/javac" -nowarn -cp classes.jar T.java && echo "JAVAC RESOLVES PsiphonTunnel OK"
+          "$JAVA_HOME/bin/javac" -nowarn -cp psiphon-classes.jar T.java && echo "JAVAC RESOLVES PsiphonTunnel OK"
 
       - uses: gradle/actions/setup-gradle@v4
         with:

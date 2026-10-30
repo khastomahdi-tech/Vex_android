@@ -51,3 +51,12 @@
     public static int v(...);
     public static int d(...);
 }
+
+# --- موتور سایفون (Psiphon tunnel core) — کلاس‌ها به‌صورت JAR ساده می‌آیند،
+#     پس قواعد keep قبلیِ داخل AAR دیگر اعمال نمی‌شود؛ اینجا معادلشان را می‌گذاریم ---
+-keep class psi.** { *; }
+-keep class ca.psiphon.** { *; }
+-keep class go.** { *; }
+-dontwarn psi.**
+-dontwarn ca.psiphon.**
+-dontwarn go.**

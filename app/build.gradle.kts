@@ -62,7 +62,7 @@ android {
 
 dependencies {
     // libbox.aar (هسته‌ی sing-box) از app/libs — JAR کلاس‌های سایفون مستثنا می‌شود
-    // (پایین با compileOnly داده می‌شود تا دوباره‌کاری در runtime پیش نیاید)
+    // (پایین با implementation صریح داده می‌شود)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"),
         "exclude" to listOf("psiphon-classes.jar"))))
     implementation("androidx.core:core-ktx:1.13.1")
@@ -77,10 +77,8 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
     // دیکودر QR به‌صورت آفلاین (مدل داخل APK؛ بدون نیاز به گوگل‌پلی)
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    // موتور سایفون (Psiphon tunnel core) — AAR استریپ‌شده (بدون go.* تکراری) از مخزن
-    // maven محلی که در CI ساخته می‌شود؛ خود تونل در پروسه‌ی جدا «:psiphon» اجرا می‌شود
-    implementation("ca.psiphon:psiphontunnel:2.0.42")
-    // کلاس‌های سایفون برای کامپایل — JAR مستقیم (AAR ترنسفورم‌شده گاهی به
-    // کامپایلر Kotlin نمی‌رسد؛ runtime فقط از AAR می‌آید → بدون دوباره‌کاری)
-    compileOnly(files("libs/psiphon-classes.jar"))
+    // موتور سایفون (Psiphon tunnel core) — کلاس‌های استریپ‌شده (بدون go.* تکراری) به‌صورت
+    // JAR ساده از CI + کتابخانه‌ی بومی libgojni.so مستقیماً در src/main/jniLibs؛
+    // تونل در پروسه‌ی جدا «:psiphon» اجرا می‌شود (بدون هیچ ترنسفورم AAR)
+    implementation(files("libs/psiphon-classes.jar"))
 }
