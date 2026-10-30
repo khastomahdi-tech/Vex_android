@@ -383,7 +383,7 @@ class SettingsUi(private val act: MainActivity) {
 
         // ================= درباره =================
         val aboutCard = sectionCard("درباره", "globe")
-        aboutCard.addView(infoRow("نسخه‌ی برنامه", "v3.14.0 (21)"))
+        aboutCard.addView(infoRow("نسخه‌ی برنامه", act.versionLabel()))
         aboutCard.addView(divider())
         aboutCard.addView(infoRow("هسته‌ی پراکسی", "sing-box v1.11.15"))
         aboutCard.addView(divider())

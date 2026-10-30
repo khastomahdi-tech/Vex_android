@@ -1017,12 +1017,13 @@ class MainActivity : ComponentActivity() {
                 }
             } else if (dtos != null && !silent) {
                 main.post {
-                    serversUi.freeProgressMsg = "سرور معتبری پیدا نشد"
+                    serversUi.freeProgressMsg = "هیچ سرور رایگانی ثبت نشده است"
                     if (serversUi.tab == 1) serversUi.render()
                 }
             }
             freeFetching = false
             main.post {
+                serversUi.freeNetFail = !fetchOk // به بخش رایگان بگو سرور مدیریت در دسترس بود یا نه
                 if (fetchOk) {
                     store.replaceFreeServers(alive)
                     // اگر به سرور رایگانی وصل بودیم که از پنل حذف شده → قطع فوری اتصال
@@ -1081,6 +1082,14 @@ class MainActivity : ComponentActivity() {
     // ---------------- ابزار ----------------
 
     fun toast(msg: String) = UI.toast(this, msg)
+
+    /** برچسب نسخه برای ردیف «نسخه‌ی برنامه» — واقعی از PackageInfo، نه هاردکد */
+    fun versionLabel(): String = try {
+        val pi = packageManager.getPackageInfo(packageName, 0)
+        val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode
+        else @Suppress("DEPRECATION") pi.versionCode.toLong()
+        "v${pi.versionName} ($code)"
+    } catch (_: Throwable) { "v?" }
 
     /** دسترسی به Handler اصلی برای کلاس‌های کمکی */
     fun mainHandler(): Handler = main

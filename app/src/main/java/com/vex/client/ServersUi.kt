@@ -332,7 +332,10 @@ class ServersUi(private val act: MainActivity) {
         }
         freeProgress.visibility = View.GONE
         if (free.isEmpty()) {
-            emptyHint.text = "سروری موجود نیست\nسرور معتبری پیدا نشد — هر دقیقه خودکار دوباره بررسی می‌شود"
+            emptyHint.text = if (freeNetFail)
+                "اتصال به سرور مدیریت برقرار نشد\nوقتی اینترنت وصل باشد، هر دقیقه خودکار دوباره بررسی می‌شود\n\n💡 اگر فیلترشکن روشن کنی یا سرور خودت را وصل کنی، لیست همین‌جا می‌آید"
+            else
+                "سروری موجود نیست\nهنوز سرور رایگانی از پنل مدیریت ثبت نشده\nهر دقیقه خودکار دوباره بررسی می‌شود"
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
         } else {
@@ -343,6 +346,9 @@ class ServersUi(private val act: MainActivity) {
     /** آخرین پیام پیشرفت دریافت سرورهای رایگان (از MainActivity پست می‌شود) */
     var freeProgressMsg: String = "در حال دریافت…"
         set(value) { field = value; if (::freeProgress.isInitialized) freeProgress.text = value }
+
+    /** آخرین تلاش دریافت، به سرور مدیریت نرسید؟ (برای پیام درستِ حالت خالی) */
+    var freeNetFail: Boolean = false
 
     // ---------------------------------------------------------- انتخاب با نگه‌داشتن
 

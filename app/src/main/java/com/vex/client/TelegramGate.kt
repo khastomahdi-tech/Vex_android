@@ -2,6 +2,7 @@ package com.vex.client
 
 import android.content.Context
 import android.os.Build
+import android.util.Base64
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -31,6 +32,16 @@ object TelegramGate {
     /** بک‌اند کلادفلر (Pages) + کلید احراز برنامه */
     private const val GATE_URL = "https://vex-gate.pages.dev"
     private const val APP_KEY = "vexk_8c3b1e664023f4df081d8dbb"
+
+    /**
+     * کانال پشتیبان گیت‌هاب — چون pages.dev در ایران فیلتر است، کاربرِ بدون فیلترشکن
+     * به دروازه‌ی مستقیم نمی‌رسد و سرورهای رایگان/اعلان‌ها/وضعیت قفل هیچ‌کدام نمی‌آیند.
+     * سرور با هر تغییر در ربات، اسنپ‌شات JSON را در ریپو می‌نویسد (gate/*.json) و اینجا
+     * وقتی مستقیم نشد از raw.githubusercontent.com (و بعد api.github.com) می‌خوانیم —
+     * گیت‌هاب از ایران در دسترس است.
+     */
+    private const val GH_RAW = "https://raw.githubusercontent.com/khastomahdi-tech/Vex_android/main/gate"
+    private const val GH_API = "https://api.github.com/repos/khastomahdi-tech/Vex_android/contents/gate"
 
     /** وضعیت دروازه */
     const val OPEN = "open"
@@ -66,7 +77,7 @@ object TelegramGate {
                     readTimeout = 4000
                     instanceFollowRedirects = true
                     useCaches = false
-                    setRequestProperty("User-Agent", "VEX-Client/3.16 (connectivity)")
+                    setRequestProperty("User-Agent", "VEX-Client/3.18 (connectivity)")
                 }
                 if (c.responseCode in 200..399) return true
             } catch (_: Throwable) {
@@ -88,9 +99,14 @@ object TelegramGate {
         val body = get("/v1/state") ?: return GateInfo(OPEN, null)
         return try {
             val o = JSONObject(body)
-            if (o.optBoolean("ok") && o.optString("gate") == CLOSED)
+            if (o.optBoolean("ok") && o.optString("gate") == CLOSED) {
+                val ts = o.optLong("ts", 0L)
+                // پاسخ مستقیم سرور ts ندارد (صفر) و همیشه معتبر است؛ فایل پشتیبان گیت‌هاب
+                // اگر بیش از ۱۵ دقیقه کهنه باشد قابل‌اعتماد نیست — دروازه باز فرض می‌شود
+                // تا هیچ کاربری با اسنپ‌شات قدیمی بی‌دلیل قفل نشود.
+                if (ts in 1..(System.currentTimeMillis() - 15 * 60_000L)) return GateInfo(OPEN, null)
                 GateInfo(CLOSED, o.optString("reason", null as String?))
-            else GateInfo(OPEN, null)
+            } else GateInfo(OPEN, null)
         } catch (_: Throwable) {
             GateInfo(OPEN, null)
         }
@@ -183,6 +199,7 @@ object TelegramGate {
      * خروجی null → شبکه/سرور نبود (شناسه‌ی آخرین نباید جلو برود)
      */
     fun fetchNotifications(since: Long): List<NotifDto>? {
+        // مسیر مستقیم since را سرور فیلتر می‌کند؛ مسیر پشتیبان همه را می‌دهد و محلی فیلتر می‌شود
         val body = get("/v1/notifications?since=$since") ?: return null
         return try {
             val o = JSONObject(body)
@@ -191,9 +208,11 @@ object TelegramGate {
             val out = ArrayList<NotifDto>(arr.length())
             for (i in 0 until arr.length()) {
                 val n = arr.optJSONObject(i) ?: continue
+                val nid = n.optLong("id", 0L)
+                if (nid <= since) continue // مسیر پشتیبان همه‌ی اعلان‌ها را می‌دهد — محلی فیلتر می‌کنیم
                 val t = n.optString("title", "").trim()
                 if (t.isEmpty()) continue
-                out.add(NotifDto(n.optLong("id", 0L), t, n.optString("body", "")))
+                out.add(NotifDto(nid, t, n.optString("body", "")))
             }
             out
         } catch (_: Throwable) {
@@ -232,19 +251,48 @@ object TelegramGate {
 
     // ------------------------------------------------ ابزار شبکه
 
-    private fun http(c: HttpURLConnection) {
+    /** فایل پشتیبانِ هر مسیر — null یعنی فقط مستقیم (POSTها پشتیبان ندارند) */
+    private fun ghFileFor(path: String): String? = when {
+        path.startsWith("/v1/freeservers") -> "freeservers.json"
+        path.startsWith("/v1/state") -> "state.json"
+        path.startsWith("/v1/notifications") -> "notifications.json"
+        else -> null
+    }
+
+    /**
+     * GET یک مسیر: اول دروازه‌ی مستقیم؛ اگر نشد فایل اسنپ‌شات گیت‌هاب
+     * (raw، بعد Contents API که base64 برمی‌گرداند).
+     */
+    private fun get(path: String): String? {
+        fetchFrom("$GATE_URL$path", withKey = true)?.let { return it }
+        val f = ghFileFor(path) ?: return null
+        fetchFrom("$GH_RAW/$f", withKey = false)?.let { return it }
+        fetchFrom("$GH_API/$f", withKey = false)?.let { resp ->
+            return try {
+                val o = JSONObject(resp)
+                if (o.optString("encoding") == "base64")
+                    String(Base64.decode(o.optString("content").replace("\n", ""), Base64.DEFAULT), Charsets.UTF_8)
+                else null
+            } catch (_: Throwable) {
+                null
+            }
+        }
+        return null
+    }
+
+    private fun http(c: HttpURLConnection, withKey: Boolean) {
         c.connectTimeout = 6000
         c.readTimeout = 8000
         c.useCaches = false
-        c.setRequestProperty("X-Vex-Key", APP_KEY)
-        c.setRequestProperty("User-Agent", "VEX-Client/3.16 (gate)")
+        if (withKey) c.setRequestProperty("X-Vex-Key", APP_KEY)
+        c.setRequestProperty("User-Agent", "VEX-Client/3.18 (gate)")
     }
 
-    private fun get(path: String): String? {
+    private fun fetchFrom(url: String, withKey: Boolean): String? {
         var c: HttpURLConnection? = null
         return try {
-            c = (URL("$GATE_URL$path").openConnection() as HttpURLConnection).apply {
-                http(this)
+            c = (URL(url).openConnection() as HttpURLConnection).apply {
+                http(this, withKey)
             }
             if (c.responseCode in 200..299) c.inputStream?.bufferedReader()?.readText() else null
         } catch (_: Throwable) {
@@ -258,7 +306,7 @@ object TelegramGate {
         var c: HttpURLConnection? = null
         return try {
             c = (URL("$GATE_URL$path").openConnection() as HttpURLConnection).apply {
-                http(this)
+                http(this, true)
                 requestMethod = "POST"
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")

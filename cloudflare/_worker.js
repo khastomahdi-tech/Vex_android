@@ -10,11 +10,18 @@
  *   POST /v1/traffic         → traffic delta report {did, type: free|private, up, down}
  *   GET  /v1/freeservers     → free servers managed from the bot → {"ok":true,"servers":[...]}
  *   GET  /v1/notifications?since=N → push notifications written by the bot (/notify)
+ *   POST /v1/syncsnap        → re-sync the GitHub fallback snapshots (state/freeservers/notifications)
  *   GET  /apk                → public APK download mirror (streams latest GitHub release asset;
  *                               reliable in Iran where GitHub download links get truncated)
  *   GET  /                   → health
  *
  * /v1/* endpoints require header  X-Vex-Key: <APP_KEY>
+ *
+ * GitHub FALLBACK channel: *.pages.dev is SNI-filtered in Iran, so users without a VPN
+ * could never reach the gate (no free servers, no notifications, no lock screen). Every
+ * bot mutation now also writes JSON snapshots into the repo (gate/*.json, gh_token/gh_repo
+ * live in the D1 settings table) and the app reads raw.githubusercontent.com when the
+ * direct gate is unreachable — GitHub is reachable from Iran.
  *
  * Bot (inline-button menu; owner = first chat that sends /start):
  *   📊 آمار · 👥 کاربران · 🖥 سرورهای رایگان · 📈 مصرف ترافیک · 🟢 وضعیت · 🔒 بستن · 🔓 باز کردن
@@ -29,7 +36,7 @@
  *   Free-server add supports «پیشوند | config» lines, wg:// links and full WG .conf text.
  */
 
-const SERVICE_V = 5;
+const SERVICE_V = 6;
 
 const DEFAULT_CLOSE_REASON = "The admin has closed the app for now. Please try again later.";
 const CLOSE_REASON_UPDATE = "We're updating the app. Please try again later.";
@@ -136,6 +143,15 @@ export default {
           "SELECT id, title, body FROM notifications WHERE id > ?1 ORDER BY id ASC LIMIT 20"
         ).bind(since).all();
         return json({ ok: true, list: rs.results || [] });
+      }
+      if (path === "/v1/syncsnap" && request.method === "POST") {
+        const st = await stateSnapshot(env);
+        const fs = await fsSnapshot(env);
+        const nt = await notifSnapshot(env);
+        await ghSync(env, "state.json", st);
+        await ghSync(env, "freeservers.json", fs);
+        await ghSync(env, "notifications.json", nt);
+        return json({ ok: true, servers: (fs.servers || []).length, notifs: (nt.list || []).length, gate: st.gate });
       }
       return json({ ok: false, error: "not found" }, 404);
     }
@@ -266,6 +282,7 @@ async function handleUpdate(up, env) {
       if (id) {
         const v = (!label || label === "-" || label === "clear") ? "" : label;
         await env.DB.prepare("UPDATE free_servers SET label = ?2 WHERE id = ?1").bind(id, v).run();
+        await ghSync(env, "freeservers.json", await fsSnapshot(env));
         await tgSend(env, chatId, v ? ("🏷 پیشوند سرور «" + v + "» ثبت شد — در برنامه‌ی کاربران کنار نام سرور نشان داده می‌شود.") : "🏷 پیشوند این سرور پاک شد.", fsMenuKb());
       }
       return;
@@ -287,6 +304,7 @@ async function handleUpdate(up, env) {
     await doClose(chatId, env, reason || null);
   } else if (lc.startsWith("/open")) {
     await setSetting(env, "gate", "open");
+    await ghSync(env, "state.json", await stateSnapshot(env));
     await tgSend(env, chatId, "🔓 برنامه باز شد و برای همه قابل استفاده است.", mainMenu());
   } else if (lc.startsWith("/stats")) {
     await sendStats(chatId, env);
@@ -357,6 +375,7 @@ async function handleCb(data, chatId, env) {
       "مثلاً: <code>App access closed. We are updating. Please try again later.</code>\n\nبرای لغو /cancel");
   } else if (data === "open") {
     await setSetting(env, "gate", "open");
+    await ghSync(env, "state.json", await stateSnapshot(env));
     await tgSend(env, chatId, "🔓 برنامه باز شد و برای همه قابل استفاده است.", mainMenu());
   } else if (data === "fs") {
     await sendFsMenu(chatId, env);
@@ -379,10 +398,14 @@ async function handleCb(data, chatId, env) {
       kb([[{ text: "✅ بله حذف همه", callback_data: "fs_delall_yes" }, { text: "❌ نه", callback_data: "fs" }]]));
   } else if (data === "fs_delall_yes") {
     await env.DB.prepare("DELETE FROM free_servers").run();
+    await ghSync(env, "freeservers.json", await fsSnapshot(env));
     await tgSend(env, chatId, "🗑 همه‌ی سرورهای رایگان حذف شدند.", fsMenuKb());
   } else if (data.startsWith("fs_del_")) {
     const id = parseInt(data.slice(7), 10);
-    if (id) await env.DB.prepare("DELETE FROM free_servers WHERE id = ?1").bind(id).run();
+    if (id) {
+      await env.DB.prepare("DELETE FROM free_servers WHERE id = ?1").bind(id).run();
+      await ghSync(env, "freeservers.json", await fsSnapshot(env));
+    }
     await sendFsList(chatId, env);
   }
 }
@@ -517,6 +540,7 @@ async function doClose(chatId, env, reason) {
   const r = (reason && reason.trim()) || DEFAULT_CLOSE_REASON;
   await setSetting(env, "gate", "closed");
   await setSetting(env, "close_reason", r);
+  await ghSync(env, "state.json", await stateSnapshot(env));
   await tgSend(env, chatId,
     "🔒 برنامه برای همه بسته شد.\n\n📝 کاربران این را می‌بینند:\n«" + r + "»\n\nبا دکمه‌ی 🔓 یا /open دوباره باز می‌شود.", mainMenu());
 }
@@ -655,6 +679,7 @@ async function addFreeServers(text, chatId, env) {
     }
   }
   const total = await countFs(env);
+  if (added) await ghSync(env, "freeservers.json", await fsSnapshot(env));
   await tgSend(env, chatId,
     "✅ " + added + " سرور اضافه شد" +
     (dup ? "\n♻️ " + dup + " تکرار رد شد" : "") +
@@ -678,6 +703,7 @@ async function snameCmd(rest, chatId, env) {
   const label = m[2].trim().slice(0, 40);
   const v = (!label || label === "-" || label === "clear") ? "" : label;
   await env.DB.prepare("UPDATE free_servers SET label = ?2 WHERE id = ?1").bind(id, v).run();
+  await ghSync(env, "freeservers.json", await fsSnapshot(env));
   await tgSend(env, chatId,
     v ? ("🏷 پیشوند سرور #" + id + " → «" + esc(v) + "» ثبت شد — کنار نامش در برنامه نشان داده می‌شود.")
       : ("🏷 پیشوند سرور #" + id + " پاک شد."), fsMenuKb());
@@ -704,6 +730,7 @@ async function doNotify(text, chatId, env) {
     "INSERT INTO notifications (title, body, created_at) VALUES (?1,?2,?3)"
   ).bind(title, body, Date.now()).run();
   const id = (r && r.meta && r.meta.last_row_id) ? r.meta.last_row_id : "?";
+  await ghSync(env, "notifications.json", await notifSnapshot(env));
   await tgSend(env, chatId,
     "📢 اعلان ثبت شد (شماره‌ی " + id + ")\n\n" +
     "🏷 عنوان: <b>" + esc(title) + "</b>\n" +
@@ -741,6 +768,69 @@ async function sendFsList(chatId, env) {
   }
   rows.push([{ text: "⬅️ بازگشت", callback_data: "fs" }]);
   await tgSend(env, chatId, out, kb(rows));
+}
+
+// ============================================================ GitHub fallback snapshots
+
+/** اسنپ‌شات وضعیت دروازه — همان شکل پاسخ /v1/state به‌علاوه‌ی ts */
+async function stateSnapshot(env) {
+  const gate = (await getSetting(env, "gate")) || "open";
+  const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
+  return { ok: true, gate, reason, ts: Date.now() };
+}
+
+/** اسنپ‌شات سرورهای رایگان — همان شکل پاسخ /v1/freeservers */
+async function fsSnapshot(env) {
+  const rs = await env.DB.prepare(
+    "SELECT id, name, label, proto, raw FROM free_servers WHERE enabled = 1 ORDER BY id"
+  ).all();
+  return { ok: true, servers: rs.results || [], ts: Date.now() };
+}
+
+/** اسنپ‌شات اعلان‌ها — ۵۰ مورد آخر صعودی؛ برنامه خودش since را محلی فیلتر می‌کند */
+async function notifSnapshot(env) {
+  const rs = await env.DB.prepare(
+    "SELECT id, title, body FROM notifications ORDER BY id DESC LIMIT 50"
+  ).all();
+  return { ok: true, list: (rs.results || []).reverse(), ts: Date.now() };
+}
+
+/**
+ * نوشتن یک اسنپ‌شات در ریپوی گیت‌هاب (gate/<file>) تا برنامه‌ی کاربرانی که به
+ * pages.dev دسترسی ندارند (ایران)، از raw.githubusercontent.com بخوانند.
+ * توکن/ریپو از D1 settings (gh_token / gh_repo) — شکستش هرگز ربات را نمی‌شکند.
+ */
+async function ghSync(env, file, obj) {
+  try {
+    const repo = env.GH_REPO || (await getSetting(env, "gh_repo"));
+    const token = env.GH_TOKEN || (await getSetting(env, "gh_token"));
+    if (!repo || !token) return;
+    const body = JSON.stringify(obj);
+    const api = "https://api.github.com/repos/" + repo + "/contents/gate/" + file;
+    const hdr = {
+      "authorization": "Bearer " + token,
+      "user-agent": "vex-gate",
+      "accept": "application/vnd.github+json",
+      "content-type": "application/json"
+    };
+    let sha = null;
+    try {
+      const g = await fetch(api + "?ref=main", { headers: hdr });
+      if (g.ok) { const j = await g.json(); sha = j.sha; }
+    } catch (e) {}
+    const payload = { message: "vex-gate snapshot: " + file + " [skip ci]", content: b64utf8(body), branch: "main" };
+    if (sha) payload.sha = sha;
+    await fetch(api, { method: "PUT", headers: hdr, body: JSON.stringify(payload) });
+  } catch (e) { /* best effort */ }
+}
+
+function b64utf8(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
 }
 
 // ============================================================ helpers
