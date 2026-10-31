@@ -59,7 +59,8 @@ object TrafficStore {
             if (isFree && srv > 0) {
                 try {
                     val m = JSONObject(prefs.getString("srvmap", "{}") ?: "{}")
-                    m.put(String(srv), m.optLong(String(srv), 0L) + d)
+                    val skey = srv.toString()
+                    m.put(skey, m.optLong(skey, 0L) + d)
                     prefs.edit().putString("srvmap", m.toString()).apply()
                 } catch (_: Throwable) {}
             }
