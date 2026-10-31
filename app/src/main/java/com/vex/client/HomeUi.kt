@@ -62,8 +62,9 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var exitFlag: TextView
     private lateinit var exitCountry: TextView
     private lateinit var exitIp: TextView
-    // ---- گزینش موتور اتصال (Vex / سایفون) ----
+    // ---- گزینش موتور اتصال (Vex / ترکیبی / سایفون) ----
     private lateinit var engVex: TextView
+    private lateinit var engHyb: TextView
     private lateinit var engPsi: TextView
     private var exitInfo: ExitInfo? = null
 
@@ -204,27 +205,32 @@ class HomeUi(private val act: MainActivity) {
 
     // ---------------------------------------------------------- موتور اتصال (Vex / سایفون)
 
-    /** دو قرص انتخاب موتور — «Vex» (سرورهای خود برنامه) یا «سایفون» (موتور رسمی Psiphon) */
+    /** سه قرص انتخاب موتور — «Vex» (سرورهای خود برنامه) · «ترکیبی» (Vex از داخل سایفون) · «سایفون» (موتور رسمی Psiphon) */
     private fun buildEngineBar(): View {
         val ctx = act
         val row = UI.row(ctx).apply { gravity = Gravity.CENTER }
 
         fun pill(tv: TextView) {
-            tv.textSize = 12.5f
+            tv.textSize = 12f
             tv.typeface = Fonts.bold(ctx)
-            tv.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 7), UI.dp(ctx, 18), UI.dp(ctx, 7))
+            tv.setPadding(UI.dp(ctx, 13), UI.dp(ctx, 7), UI.dp(ctx, 13), UI.dp(ctx, 7))
             tv.gravity = Gravity.CENTER
         }
 
         engVex = TextView(ctx).apply { text = "⚡ Vex"; pill(this) }
+        engHyb = TextView(ctx).apply { text = "🔗 ترکیبی"; pill(this) }
         engPsi = TextView(ctx).apply { text = "🧅 سایفون"; pill(this) }
 
         engVex.setOnClickListener { switchEngine("vex") }
+        engHyb.setOnClickListener { switchEngine("hybrid") }
         engPsi.setOnClickListener { switchEngine("psiphon") }
 
-        val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 6), 0, UI.dp(ctx, 6), 0) }
+        val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 5), 0, UI.dp(ctx, 5), 0) }
+        val gap2 = TextView(ctx).apply { setPadding(UI.dp(ctx, 5), 0, UI.dp(ctx, 5), 0) }
         row.addView(engVex)
         row.addView(gap)
+        row.addView(engHyb)
+        row.addView(gap2)
         row.addView(engPsi)
         row.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -245,27 +251,30 @@ class HomeUi(private val act: MainActivity) {
         renderServerCard()
         UI.toast(
             act,
-            if (which == "psiphon") "موتور سایفون فعال شد — بدون نیاز به سرور وصل می‌شود"
-            else "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
+            when (which) {
+                "hybrid" -> "حالت ترکیبی فعال شد — اتصال به سرور از داخل تونل سایفون عبور می‌کند؛ ضد فیلترینگ و سریع‌تر"
+                "psiphon" -> "موتور سایفون فعال شد — بدون نیاز به سرور وصل می‌شود"
+                else -> "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
+            }
         )
     }
 
-    /** ظاهر دو قرص بر اساس موتور فعال */
+    /** ظاهر سه قرص بر اساس موتور فعال */
     fun renderEngineBar() {
-        val psiphon = act.store.settings.engine == "psiphon"
+        val eng = act.store.settings.engine
         val selBg = UI.alpha(p.accent, 0.16f)
         val selStroke = UI.alpha(p.accent, 0.55f)
         val idleBg = UI.card(act, p, 20, fillColor = p.card2)
 
-        engVex.background = if (!psiphon) GradientDrawable().apply {
-            setColor(selBg); setStroke(UI.dp(act, 1), selStroke); cornerRadius = UI.dp(act, 20).toFloat()
-        } else idleBg
-        engVex.setTextColor(if (!psiphon) p.accent else p.muted)
-
-        engPsi.background = if (psiphon) GradientDrawable().apply {
-            setColor(selBg); setStroke(UI.dp(act, 1), selStroke); cornerRadius = UI.dp(act, 20).toFloat()
-        } else idleBg
-        engPsi.setTextColor(if (psiphon) p.accent else p.muted)
+        fun paint(tv: TextView, selected: Boolean) {
+            tv.background = if (selected) GradientDrawable().apply {
+                setColor(selBg); setStroke(UI.dp(act, 1), selStroke); cornerRadius = UI.dp(act, 20).toFloat()
+            } else idleBg
+            tv.setTextColor(if (selected) p.accent else p.muted)
+        }
+        paint(engVex, eng == "vex")
+        paint(engHyb, eng == "hybrid")
+        paint(engPsi, eng == "psiphon")
     }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر
@@ -716,6 +725,10 @@ class HomeUi(private val act: MainActivity) {
                 serverName.text = "اتصال با سایفون"
                 serverName.setTextColor(p.accent)
                 serverIp.text = "بدون نیاز به سرور — پاور را بزن"
+            } else if (act.store.settings.engine == "hybrid") {
+                serverName.text = "حالت ترکیبی (Vex + سایفون)"
+                serverName.setTextColor(p.accent)
+                serverIp.text = "اول یک سرور انتخاب کن — اتصالش از سایفون می‌گذرد"
             } else {
                 serverName.text = "سروری انتخاب نشده"
                 serverName.setTextColor(p.muted)

@@ -872,9 +872,12 @@ class MainActivity : ComponentActivity() {
         }
         val payload0 = store.connectionPayload(s)
         // موتور اتصال — «سایفون» ترافیک را به تونل رسمی Psiphon می‌فرستد، نه به سرور انتخابی
-        val payload = if (store.settings.engine == "psiphon")
-            try { org.json.JSONObject(payload0).put("engine", "psiphon").toString() } catch (_: Throwable) { payload0 }
-        else payload0
+        // «ترکیبی» — همان سرور انتخابی، ولی اتصال به آن از داخل تونل سایفون عبور می‌کند (سرعت/پایداری بیشتر)
+        val payload = when (store.settings.engine) {
+            "psiphon" -> try { org.json.JSONObject(payload0).put("engine", "psiphon").toString() } catch (_: Throwable) { payload0 }
+            "hybrid" -> try { org.json.JSONObject(payload0).put("engine", "hybrid").toString() } catch (_: Throwable) { payload0 }
+            else -> payload0
+        }
         // تنظیمات رفتاری سرویس (پیش از شروع)
         VexVpnService.autoReconnect = store.settings.autoReconnect
         VexVpnService.autoNetTest = store.settings.autoNetTest

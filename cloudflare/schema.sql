@@ -33,3 +33,13 @@ CREATE TABLE IF NOT EXISTS traffic (
   updated INTEGER,
   PRIMARY KEY (did, type)
 );
+-- کاربران تلگرامی ربات (سمت عمومی: منو/دانلود/پشتیبانی + مخاطبان پیام همگانی)
+CREATE TABLE IF NOT EXISTS bot_users (
+  chat_id TEXT PRIMARY KEY,
+  name TEXT,
+  username TEXT,
+  joined_at INTEGER,
+  last_seen INTEGER,
+  msgs INTEGER DEFAULT 0,
+  banned INTEGER DEFAULT 0
+);

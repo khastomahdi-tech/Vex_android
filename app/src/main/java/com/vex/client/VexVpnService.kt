@@ -155,11 +155,17 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
     private fun startVpn(config: String) {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
-        val usePsiphon = try { JSONObject(config).optString("engine") == "psiphon" } catch (_: Throwable) { false }
-        lastEnginePsiphon = usePsiphon
+        // موتور اتصال: «psiphon» = فقط سایفون · «hybrid» = ترکیبی (سرور Vex از داخل سایفون)
+        val engMode = try { JSONObject(config).optString("engine") } catch (_: Throwable) { "" }
+        val usePsiphonProc = engMode == "psiphon" || engMode == "hybrid"
+        lastEnginePsiphon = usePsiphonProc
         startForeground(NOTIF_ID, notif(
-            if (usePsiphon) "در حال اتصال... (سایفون)" else "در حال اتصال...",
-            if (usePsiphon) "راه‌اندازی موتور سایفون..." else "راه‌اندازی هسته..."))
+            when (engMode) {
+                "hybrid" -> "در حال اتصال... (ترکیبی Vex + سایفون)"
+                "psiphon" -> "در حال اتصال... (سایفون)"
+                else -> "در حال اتصال..."
+            },
+            if (usePsiphonProc) "راه‌اندازی موتور سایفون..." else "راه‌اندازی هسته..."))
         uiState = "connecting"
         tileListener?.invoke("connecting")
         netState = 0; netMsg = ""; netMs = -1
@@ -174,7 +180,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     workingDir = getExternalFilesDir(null) ?: File(filesDir, "work"),
                     tempDir = cacheDir
                 )
-                val coreConfig = if (usePsiphon) {
+                val coreConfig = if (usePsiphonProc) {
                     // موتور سایفون در پروسه‌ی جدا «:psiphon» بالا می‌آید و پورت SOCKS محلی‌اش
                     // را در فایل مشترک می‌نویسد؛ هسته‌ی sing-box ترافیک را به آن می‌فرستد
                     // (tun → sing-box → سایفون). هیچ کتابخانه‌ی بومی مشترکی در این پروسه لود نمی‌شود.
@@ -186,7 +192,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     )
                     val port = awaitPsiphonPort(gen)
                     if (port == 0) throw Exception("اتصال سایفون برقرار نشد — دوباره امتحان کن")
-                    ConfigBuilder.buildPsiphon(port, config)
+                    if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
+                    else ConfigBuilder.buildPsiphon(port, config)
                 } else {
                     ConfigBuilder.build(config)
                 }

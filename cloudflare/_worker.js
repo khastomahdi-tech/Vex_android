@@ -47,9 +47,23 @@
  *       → users running a blocked version see «این نسخه بسته شده است؛ بروزرسانی کنید» and cannot enter.
  *       Web panel has the same section under tab «🚫 نسخه‌ها».
  *   Free-server list rows now also have a per-server ⚫/🟢 enable/disable toggle.
+ *
+ * USER-FACING BOT (v11):
+ *   Non-owner users get a public menu: 📥 دانلود · 🟢 وضعیت سرویس · 🆘 پشتیبانی · ℹ️ راهنما
+ *   + /app /status /id /help. Every message from a user becomes a support ticket:
+ *   copied to the owner with a «📩 پاسخ» button → owner's reply is delivered back to the user.
+ *   Users are tracked in bot_users (D1) with join date, msg count, ban flag.
+ *
+ * OWNER ADDITIONS (v11):
+ *   📣 پیام همگانی /broadcast — chunked mass-send (copyMessage) to all bot users with a
+ *       progress report; chunk continuation via self-call /bcast-tick (fresh subrequest budget).
+ *   📢 پست کانال /chanpost — publish to @vex_vpnfree with auto download buttons.
+ *   🧑‍💬 کاربران ربات /tgu · 🧪 وضعیت بیلد /ci (GitHub Actions runs) · /reply · /ban · /unban.
+ *   /stats now includes a 7-day install bar chart (from devices.first_seen).
+ *   Unhandled bot errors are reported to the owner (max 1/min) instead of being swallowed.
  */
 
-const SERVICE_V = 10;
+const SERVICE_V = 11;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -111,7 +125,21 @@ export default {
       }
       let up = null;
       try { up = await request.json(); } catch (e) { return json({ ok: true }); }
-      try { await handleUpdate(up, env); } catch (e) { /* never fail the webhook */ }
+      try {
+        await handleUpdate(up, env, url.origin);
+      } catch (e) {
+        // never fail the webhook — but tell the owner what broke (max once per minute)
+        try { await botError(env, e); } catch (_e) {}
+      }
+      return json({ ok: true });
+    }
+
+    // ---------------- Broadcast tick — self-call between chunks (fresh subrequest budget) ----------------
+    if (path === "/bcast-tick" && request.method === "POST") {
+      const k = url.searchParams.get("k") || "";
+      const admin = env.APP_KEY || (await getSetting(env, "admin_key"));
+      if (!admin || k !== admin) return json({ ok: false, error: "forbidden" }, 403);
+      try { await bcastTick(env, url.origin); } catch (e) { try { await botError(env, e); } catch (_e) {} }
       return json({ ok: true });
     }
 
@@ -491,12 +519,18 @@ async function ack(request, env) {
 
 // ============================================================ telegram
 
-async function handleUpdate(up, env) {
+async function handleUpdate(up, env, origin) {
   // ---------- callback_query (inline buttons) ----------
   const cb = up && up.callback_query;
   if (cb && cb.data) {
     const chatId = String((cb.message && cb.message.chat && cb.message.chat.id) || cb.from.id);
     const owner = await getSetting(env, "owner");
+    // دکمه‌های عمومی کاربران (پیشوند u_) — برای همه آزاد است
+    if (cb.data.startsWith("u_")) {
+      await answerCb(env, cb.id);
+      await handleUserCb(cb.data.slice(2), chatId, env);
+      return;
+    }
     if (chatId !== owner) { await answerCb(env, cb.id, "دسترسی نداری"); return; }
     await answerCb(env, cb.id);
     await handleCb(cb.data, chatId, env);
@@ -511,6 +545,12 @@ async function handleUpdate(up, env) {
   const lc = text.toLowerCase();
 
   const owner = await getSetting(env, "owner");
+
+  // ---------- کاربران عادی (غیر مالک): منوی عمومی + پشتیبانی ----------
+  if (chatId !== owner) {
+    await handleUserMsg(msg, chatId, text, lc, env);
+    return;
+  }
 
   if (lc.startsWith("/start")) {
     if (!owner) {
@@ -530,12 +570,26 @@ async function handleUpdate(up, env) {
     return;
   }
 
-  if (chatId !== owner) return; // only the owner can use the bot
+  // (کاربران عادی بالا مسیریابی شدند — از اینجا به بعد فقط مالک)
 
-  // pending flows (add free server / close with reason)
+  // pending flows (add free server / close with reason / broadcast / channel / reply)
   const pend = await getSetting(env, "pend_" + chatId);
   if (!lc.startsWith("/") && pend) {
     await setSetting(env, "pend_" + chatId, "");
+    if (pend === "bcast") { await startBroadcast(env, chatId, chatId, msg.message_id, origin || "https://vex-gate.pages.dev"); return; }
+    if (pend === "chan") {
+      if (!text) { await tgSend(env, chatId, "متن پست خالی بود — فقط عکس بدون کپشن منتشر نمی‌کنم؛ متنش را با کپشن بفرست.", mainMenu()); return; }
+      await doChannelPost(text, chatId, env);
+      return;
+    }
+    if (pend.startsWith("reply_")) {
+      const uid = pend.slice(6);
+      const okk = await tgCopy(env, chatId, uid, msg.message_id);
+      await tgSend(env, chatId,
+        okk ? ("✅ پاسخت به کاربر <code>" + esc(uid) + "</code> تحویل شد.")
+            : ("⚠️ ارسال به کاربر <code>" + esc(uid) + "</code> ناموفق بود — احتمالاً ربات را بلاک کرده."), mainMenu());
+      return;
+    }
     if (pend === "add_fs") { await addFreeServers(text, chatId, env); return; }
     if (pend === "notify") { await doNotify(text, chatId, env); return; }
     if (pend.startsWith("sname_")) {
@@ -637,8 +691,63 @@ async function handleUpdate(up, env) {
       "⚙️ نسخه‌ی سرویس: v" + SERVICE_V, mainMenu());
   } else if (lc.startsWith("/reload")) {
     await syncSnaps(chatId, env);
+  } else if (lc.startsWith("/broadcast")) {
+    const rest = text.replace(/^\/broadcast\s*/i, "").trim();
+    if (!rest) {
+      await setSetting(env, "pend_" + chatId, "bcast");
+      await tgSend(env, chatId,
+        "📣 <b>پیام همگانی</b>\n\n" +
+        "پیامت را بفرست — عیناً (همان قالب؛ عکس/ویدیو/فایل هم می‌شود) برای همه‌ی کاربران ربات کپی می‌شود.\n" +
+        "پخش دسته‌دسته انجام می‌شود و در پایان گزارش ✅/❌ می‌گیری.\n\nبرای لغو /cancel", mainMenu());
+      return;
+    }
+    const sent = await tgSendRet(env, chatId, rest);
+    if (sent && sent.ok && sent.result && sent.result.message_id) {
+      await startBroadcast(env, chatId, chatId, sent.result.message_id, origin || "https://vex-gate.pages.dev");
+    } else {
+      await tgSend(env, chatId, "⚠️ شروع پخش ناموفق بود — دوباره امتحان کن.", mainMenu());
+    }
+  } else if (lc.startsWith("/chanpost") || lc.startsWith("/announce")) {
+    const rest = text.replace(/^\/(chanpost|announce)\s*/i, "").trim();
+    if (rest) { await doChannelPost(rest, chatId, env); return; }
+    await setSetting(env, "pend_" + chatId, "chan");
+    await tgSend(env, chatId,
+      "📢 <b>پست کانال</b>\n\n" +
+      "متن پست را بفرست — در @vex_vpnfree منتشر می‌شود و دکمه‌ی «📥 دانلود Vex» زیرش اضافه می‌شود.\n" +
+      "HTML (بولد/ایتالیک) پشتیبانی می‌شود.\n\nبرای لغو /cancel", mainMenu());
+  } else if (lc.startsWith("/reply")) {
+    const rest = text.replace(/^\/reply\s*/i, "").trim();
+    const sp = rest.indexOf(" ");
+    const uid = sp > 0 ? rest.slice(0, sp).trim() : "";
+    const body = sp > 0 ? rest.slice(sp + 1).trim() : "";
+    if (!/^\d+$/.test(uid) || !body) {
+      await tgSend(env, chatId, "شکل درست: <code>/reply 123456789 سلام!</code>\nیا روی دکمه‌ی «📩 پاسخ» زیر پیام پشتیبانی بزن.", mainMenu());
+      return;
+    }
+    const sent = await tgSendRet(env, uid, body);
+    await tgSend(env, chatId,
+      (sent && sent.ok) ? "✅ پاسخ ارسال شد." : "⚠️ ارسال ناموفق — شاید کاربر ربات را بلاک کرده باشد.", mainMenu());
+  } else if (lc.startsWith("/ban")) {
+    const uid = text.replace(/^\/ban\s*/i, "").trim().split(/\s+/)[0];
+    if (!/^\d+$/.test(uid)) { await tgSend(env, chatId, "شکل: <code>/ban 123456789</code>", mainMenu()); return; }
+    await ensureBotUsersTable(env);
+    await env.DB.prepare(
+      "INSERT INTO bot_users (chat_id, name, username, joined_at, last_seen, msgs, banned) VALUES (?1,'بن‌شده','',?2,?2,0,1) " +
+      "ON CONFLICT(chat_id) DO UPDATE SET banned = 1"
+    ).bind(uid, Date.now()).run();
+    await tgSend(env, chatId, "⛔️ کاربر <code>" + esc(uid) + "</code> از ربات بن شد.", mainMenu());
+  } else if (lc.startsWith("/unban")) {
+    const uid = text.replace(/^\/unban\s*/i, "").trim().split(/\s+/)[0];
+    if (!/^\d+$/.test(uid)) { await tgSend(env, chatId, "شکل: <code>/unban 123456789</code>", mainMenu()); return; }
+    await ensureBotUsersTable(env);
+    await env.DB.prepare("UPDATE bot_users SET banned = 0 WHERE chat_id = ?1").bind(uid).run();
+    await tgSend(env, chatId, "✅ کاربر <code>" + esc(uid) + "</code> آنبن شد.", mainMenu());
+  } else if (lc.startsWith("/ci")) {
+    await sendCi(chatId, env);
+  } else if (lc.startsWith("/tgu")) {
+    await sendBotUsers(chatId, env);
   } else if (lc.startsWith("/menu") || lc.startsWith("/help")) {
-    await tgSend(env, chatId, "منوی مدیریت Vex:", mainMenu());
+    await sendHelp(chatId, env);
   } else if (pend === null) {
     await tgSend(env, chatId, "از منوی زیر استفاده کن 👇", mainMenu());
   }
@@ -769,6 +878,31 @@ async function handleCb(data, chatId, env) {
       }
     }
     await sendFsList(chatId, env);
+  } else if (data === "bcast") {
+    await setSetting(env, "pend_" + chatId, "bcast");
+    await tgSend(env, chatId,
+      "📣 <b>پیام همگانی</b>\n\n" +
+      "پیامت را بفرست — عیناً (همان قالب؛ عکس/ویدیو/فایل هم می‌شود) برای همه‌ی کاربران ربات کپی می‌شود.\n" +
+      "پخش دسته‌دسته انجام می‌شود و در پایان گزارش ✅/❌ می‌گیری.\n\nبرای لغو /cancel", mainMenu());
+  } else if (data === "chan") {
+    await setSetting(env, "pend_" + chatId, "chan");
+    await tgSend(env, chatId,
+      "📢 <b>پست کانال</b>\n\n" +
+      "متن پست را بفرست — در @vex_vpnfree منتشر می‌شود و دکمه‌ی «📥 دانلود Vex» زیرش اضافه می‌شود.\n" +
+      "HTML (بولد/ایتالیک) پشتیبانی می‌شود.\n\nبرای لغو /cancel", mainMenu());
+  } else if (data === "ci") {
+    await sendCi(chatId, env);
+  } else if (data === "tgu") {
+    await sendBotUsers(chatId, env);
+  } else if (data === "help") {
+    await sendHelp(chatId, env);
+  } else if (data.startsWith("supr_")) {
+    const uid = data.slice(5).replace(/[^0-9]/g, "");
+    if (uid) {
+      await setSetting(env, "pend_" + chatId, "reply_" + uid);
+      await tgSend(env, chatId,
+        "✍️ پاسخ به کاربر <code>" + esc(uid) + "</code> را بنویس و بفرست (عکس/فایل هم می‌شود).\n\nبرای لغو /cancel", mainMenu());
+    }
   }
 }
 
@@ -778,12 +912,15 @@ function mainMenu() {
   return kb([
     [{ text: "📊 آمار", callback_data: "stats" }, { text: "👥 کاربران", callback_data: "users" }],
     [{ text: "📈 مصرف ترافیک", callback_data: "traffic" }, { text: "📥 نصب از گیت‌هاب", callback_data: "ghstats" }],
+    [{ text: "📣 پیام همگانی", callback_data: "bcast" }, { text: "📢 پست کانال", callback_data: "chan" }],
+    [{ text: "🧑‍💬 کاربران ربات", callback_data: "tgu" }, { text: "🧪 وضعیت بیلد", callback_data: "ci" }],
     [{ text: "🖥 سرورهای رایگان", callback_data: "fs" }],
     [{ text: "📢 ارسال اعلان", callback_data: "notify" }, { text: "📜 اعلان‌های اخیر", callback_data: "notifs" }],
     [{ text: "🟢 وضعیت برنامه", callback_data: "state" }],
     [{ text: "🔒 بستن برنامه", callback_data: "close" }, { text: "🔓 باز کردن", callback_data: "open" }],
     [{ text: "🚫 نسخه‌های بسته", callback_data: "vers" }, { text: "🔄 حداقل نسخه", callback_data: "minver" }],
-    [{ text: "🔄 همگام‌سازی", callback_data: "syncsnap" }, { text: "🌐 پنل مدیریت وب", url: "https://panel.demonvpn.shop" }]
+    [{ text: "❓ راهنما", callback_data: "help" }, { text: "🌐 پنل مدیریت وب", url: "https://panel.demonvpn.shop" }],
+    [{ text: "🔄 همگام‌سازی", callback_data: "syncsnap" }]
   ]);
 }
 
@@ -828,6 +965,9 @@ async function sendStats(chatId, env) {
   const active = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM users WHERE last_seen >= ?1"
   ).bind(Date.now() - 86400000).first();
+  const active7 = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM users WHERE last_seen >= ?1"
+  ).bind(Date.now() - 7 * 86400000).first();
   const op = await env.DB.prepare("SELECT COALESCE(SUM(opens),0) AS n FROM users").first();
   const fs = await countFs(env);
   const gate = (await getSetting(env, "gate")) || "open";
@@ -835,11 +975,29 @@ async function sendStats(chatId, env) {
   const nc = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications").first();
   const mv = Number(await getSetting(env, "min_ver")) || 0;
   const bl = await getBlocked(env);
+  // ---- نمودار نصب ۷ روز اخیر (میله‌ای متنی) ----
+  const dayMs = 86400000;
+  const today0 = Math.floor(Date.now() / dayMs) * dayMs;
+  const rs7 = await env.DB.prepare("SELECT first_seen FROM users WHERE first_seen >= ?1").bind(today0 - 6 * dayMs).all();
+  const days = [0, 0, 0, 0, 0, 0, 0];
+  for (const r of (rs7.results || [])) {
+    const d = Math.floor(Number(r.first_seen) / dayMs) * dayMs;
+    const idx = 6 - Math.round((today0 - d) / dayMs);
+    if (idx >= 0 && idx <= 6) days[idx]++;
+  }
+  const mx = Math.max(1, ...days);
+  let chart = "";
+  for (let i = 0; i < 7; i++) {
+    const barN = days[i] ? Math.max(1, Math.round((days[i] / mx) * 8)) : 0;
+    const dt = new Date(today0 - (6 - i) * dayMs);
+    chart += "\n<code>" + "▇".repeat(barN) + (barN ? "" : "·") + "</code> " + days[i] +
+      " · " + (dt.getUTCMonth() + 1) + "/" + dt.getUTCDate();
+  }
   await tgSend(env, chatId,
     "📊 <b>آمار Vex Client</b>\n" +
     "👥 کل کاربران (نصب‌ها): <b>" + (t ? t.n : 0) + "</b>\n" +
     "🆕 نصب ۲۴ ساعت گذشته: " + (today ? today.n : 0) + "\n" +
-    "🟢 کاربران فعال ۲۴ ساعت گذشته: " + (active ? active.n : 0) + "\n" +
+    "🟢 فعال ۲۴ ساعت: " + (active ? active.n : 0) + " · فعال ۷ روز: " + (active7 ? active7.n : 0) + "\n" +
     "🔁 مجموع ورودها: " + (op ? op.n : 0) + "\n" +
     "🖥 سرورهای رایگان فعال: " + fs + "\n" +
     "📢 اعلان‌های ارسال‌شده: " + (nc ? nc.n : 0) + "\n" +
@@ -848,7 +1006,8 @@ async function sendStats(chatId, env) {
     "🆓 مصرف سرورهای رایگان: " + fmtB(tt.freeB) + "\n" +
     "🔑 مصرف سرورهای شخصی: " + fmtB(tt.privB) + "\n" +
     "🧮 مصرف کل: <b>" + fmtB(tt.freeB + tt.privB) + "</b>\n" +
-    "وضعیت برنامه: " + (gate === "closed" ? "🔒 بسته" : "🔓 باز"), mainMenu());
+    "وضعیت برنامه: " + (gate === "closed" ? "🔒 بسته" : "🔓 باز") + "\n" +
+    "\n📈 <b>نصب ۷ روز اخیر:</b>" + chart, mainMenu());
 }
 
 /**
@@ -975,6 +1134,309 @@ async function doClose(chatId, env, reason) {
   await ghSync(env, "state.json", await stateSnapshot(env));
   await tgSend(env, chatId,
     "🔒 برنامه برای همه بسته شد.\n\n📝 کاربران این را می‌بینند:\n«" + r + "»\n\nبا دکمه‌ی 🔓 یا /open دوباره باز می‌شود.", mainMenu());
+}
+
+// ---------------- bot users (public side of the bot) ----------------
+
+let botUsersTableReady = false;
+async function ensureBotUsersTable(env) {
+  if (botUsersTableReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS bot_users (" +
+    "chat_id TEXT PRIMARY KEY, name TEXT, username TEXT, joined_at INTEGER, " +
+    "last_seen INTEGER, msgs INTEGER DEFAULT 0, banned INTEGER DEFAULT 0)"
+  ).run();
+  botUsersTableReady = true;
+}
+
+function userMenu() {
+  return kb([
+    [{ text: "📥 دانلود Vex", callback_data: "u_dl" }, { text: "🟢 وضعیت سرویس", callback_data: "u_status" }],
+    [{ text: "🆘 پشتیبانی", callback_data: "u_support" }, { text: "ℹ️ راهنما", callback_data: "u_help" }],
+    [{ text: "📣 کانال Vex", url: "https://t.me/vex_vpnfree" }]
+  ]);
+}
+
+async function handleUserMsg(msg, chatId, text, lc, env) {
+  await ensureBotUsersTable(env);
+  const from = msg.from || {};
+  const name = [from.first_name, from.last_name].filter(Boolean).join(" ").slice(0, 80) || "کاربر";
+  const row = await env.DB.prepare("SELECT banned FROM bot_users WHERE chat_id = ?1").bind(chatId).first();
+  if (!row) {
+    await env.DB.prepare(
+      "INSERT INTO bot_users (chat_id, name, username, joined_at, last_seen, msgs, banned) VALUES (?1,?2,?3,?4,?4,1,0)"
+    ).bind(chatId, name, String(from.username || "").slice(0, 64), Date.now()).run();
+    const owner = await getSetting(env, "owner");
+    if (owner) {
+      await tgSend(env, owner,
+        "👤 <b>کاربر جدید ربات</b>\n" + esc(name) +
+        (from.username ? " · @" + esc(from.username) : "") +
+        "\n🆔 <code>" + chatId + "</code>");
+    }
+  } else {
+    if (Number(row.banned) === 1) {
+      await tgSend(env, chatId, "⛔️ دسترسی شما به این ربات محدود شده است.");
+      return;
+    }
+    await env.DB.prepare("UPDATE bot_users SET last_seen = ?2, msgs = msgs + 1 WHERE chat_id = ?1")
+      .bind(chatId, Date.now()).run();
+  }
+
+  if (lc.startsWith("/start")) {
+    await setSetting(env, "pend_" + chatId, "");
+    await tgSend(env, chatId,
+      "سلام " + esc(name) + " 👋\n" +
+      "به ربات رسمی <b>Vex Client</b> خوش آمدی!\n\n" +
+      "🚀 <b>جدید در نسخه‌ی جدید:</b> حالت «ترکیبی» — اتصال به سرور از داخل تونل سایفون؛ ضد فیلترینگ، سریع‌تر و پایدارتر.\n\n" +
+      "از منوی زیر استفاده کن 👇",
+      userMenu());
+    return;
+  }
+  if (lc.startsWith("/app") || lc.startsWith("/download") || lc.startsWith("/get")) {
+    await sendDownload(chatId, env);
+    return;
+  }
+  if (lc.startsWith("/status")) { await sendUserStatus(chatId, env); return; }
+  if (lc.startsWith("/id")) {
+    await tgSend(env, chatId, "🆔 شناسه‌ی تلگرام تو: <code>" + chatId + "</code>", userMenu());
+    return;
+  }
+  if (lc.startsWith("/help") || lc.startsWith("/menu")) {
+    await sendUserHelp(chatId, env);
+    return;
+  }
+  if (lc.startsWith("/cancel")) {
+    await setSetting(env, "pend_" + chatId, "");
+    await tgSend(env, chatId, "لغو شد.", userMenu());
+    return;
+  }
+
+  // هر پیام دیگر = تیکت پشتیبانی → کپی به مدیر + دکمه‌ی پاسخ
+  const owner = await getSetting(env, "owner");
+  const pend = await getSetting(env, "pend_" + chatId);
+  if (pend) await setSetting(env, "pend_" + chatId, "");
+  if (!owner) {
+    await tgSend(env, chatId, "فعلاً پشتیبانی در دسترس نیست — بعداً دوباره امتحان کن.", userMenu());
+    return;
+  }
+  await tgSend(env, owner,
+    "📩 <b>پیام پشتیبانی</b>\n" +
+    "👤 " + esc(name) + (from.username ? " · @" + esc(from.username) : "") +
+    "\n🆔 <code>" + chatId + "</code>",
+    kb([[{ text: "📩 پاسخ", callback_data: "supr_" + chatId }]]));
+  await tgCopy(env, chatId, owner, msg.message_id);
+  await tgSend(env, chatId, "✅ پیامت رسید و به پشتیبانی ارسال شد — جواب را همین‌جا می‌گیری.", userMenu());
+}
+
+async function handleUserCb(a, chatId, env) {
+  if (a === "dl") await sendDownload(chatId, env);
+  else if (a === "status") await sendUserStatus(chatId, env);
+  else if (a === "help") await sendUserHelp(chatId, env);
+  else if (a === "menu") await tgSend(env, chatId, "منوی Vex:", userMenu());
+  else if (a === "id") await tgSend(env, chatId, "🆔 شناسه‌ی تلگرام تو: <code>" + chatId + "</code>", userMenu());
+  else if (a === "support") {
+    await setSetting(env, "pend_" + chatId, "support");
+    await tgSend(env, chatId,
+      "🆘 <b>پشتیبانی Vex</b>\n\n" +
+      "مشکل یا سؤالت را بنویس و بفرست — عکس و فایل هم می‌توانی بفرستی.\n" +
+      "جواب را همین‌جا در همین چت می‌گیری.\n\nبرای لغو /cancel", userMenu());
+  }
+}
+
+async function sendDownload(chatId, env) {
+  const s = await ghReleaseStats(env);
+  const ver = (s && s.ok && s.rows && s.rows.length) ? s.rows[0].tag : "";
+  await tgSend(env, chatId,
+    "📥 <b>دانلود Vex Client</b>" + (ver ? "\n📦 آخرین نسخه: <b>" + esc(ver) + "</b>" : "") +
+    "\n\nلینک مستقیم در ایران باز می‌شود (بدون فیلترشکن):\nhttps://demonvpn.shop/apk\n\n" +
+    "💡 بعد از نصب: یک سرور رایگان انتخاب کن و پاور را بزن — اگر سرعت/وصل‌شدن ضعیف بود، حالت «🔗 ترکیبی» را امتحان کن.",
+    kb([
+      [{ text: "⬇️ دانلود مستقیم APK", url: "https://demonvpn.shop/apk" }],
+      [{ text: "📦 صفحه‌ی Releases گیت‌هاب", url: "https://github.com/khastomahdi-tech/Vex_android/releases/latest" }],
+      [{ text: "⬅️ منوی اصلی", callback_data: "u_menu" }]
+    ]));
+}
+
+async function sendUserStatus(chatId, env) {
+  const gate = (await getSetting(env, "gate")) || "open";
+  const fs = await countFs(env);
+  const s = await ghReleaseStats(env);
+  const ver = (s && s.ok && s.rows && s.rows.length) ? s.rows[0].tag : "";
+  await tgSend(env, chatId,
+    "🟢 <b>وضعیت سرویس Vex</b>\n" +
+    "برنامه: " + (gate === "closed" ? "🔒 موقتاً بسته (در حال بروزرسانی)" : "✅ فعال و در دسترس") + "\n" +
+    "🖥 سرورهای رایگان فعال: <b>" + fs + "</b>\n" +
+    (ver ? "📦 آخرین نسخه: <b>" + esc(ver) + "</b>\n" : "") +
+    (gate === "closed"
+      ? "\n⏳ به‌زودی باز می‌شود — کمی صبر کن و دوباره وارد شو."
+      : "\n✅ همه‌چیز آماده است — پاور را بزن و وصل شو!"),
+    userMenu());
+}
+
+async function sendUserHelp(chatId, env) {
+  await tgSend(env, chatId,
+    "ℹ️ <b>راهنمای Vex Client</b>\n\n" +
+    "سه موتور اتصال داری:\n" +
+    "• <b>⚡ Vex</b> — اتصال مستقیم به سرور (پیش‌فرض)\n" +
+    "• <b>🔗 ترکیبی</b> — اتصال به سرور از داخل تونل سایفون؛ اگر سرور مستقیم وصل نمی‌شد یا کند بود، این را امتحان کن\n" +
+    "• <b>🧅 سایفون</b> — فقط سایفون، بدون نیاز به سرور\n\n" +
+    "دستورها:\n" +
+    "/app — لینک دانلود\n/status — وضعیت سرویس\n/id — شناسه‌ی تلگرام تو\n\n" +
+    "برای هر مشکل یا سؤال، همین‌جا پیام بفرست — مستقیم به پشتیبانی می‌رسد و جواب همین‌جا می‌آید.",
+    userMenu());
+}
+
+async function sendHelp(chatId, env) {
+  await tgSend(env, chatId,
+    "🤖 <b>راهنمای ربات Vex</b>\n\n" +
+    "همه‌ی کارها از دکمه‌های منوی اصلی انجام می‌شود. دستورها:\n\n" +
+    "<b>آمار:</b> /stats · /ghstats · /traffic · /users · /tgu · /ci\n" +
+    "<b>برنامه:</b> /close [reason] · /open · /minver n · /blocked\n" +
+    "<b>پیام‌رسانی:</b> /broadcast [متن] · /chanpost [متن] · /notify عنوان | متن\n" +
+    "<b>سرورها:</b> /fsadd · /sname id پیشوند\n" +
+    "<b>کاربران:</b> /reply id متن · /ban id · /unban id\n" +
+    "<b>سرویس:</b> /ping · /reload · /panel\n\n" +
+    "📩 پیام پشتیبانی کاربران با دکمه‌ی «📩 پاسخ» می‌آید؛ جواب بده، به خودشان می‌رسد.",
+    mainMenu());
+}
+
+async function sendCi(chatId, env) {
+  const repo = env.GH_REPO || (await getSetting(env, "gh_repo")) || DEFAULT_REPO;
+  const token = env.GH_TOKEN || (await getSetting(env, "gh_token"));
+  const hdr = { "user-agent": "vex-gate", "accept": "application/vnd.github+json" };
+  if (token) hdr.authorization = "Bearer " + token;
+  let runs = null;
+  try {
+    const res = await fetch("https://api.github.com/repos/" + repo + "/actions/runs?per_page=5", { headers: hdr });
+    if (res.ok) {
+      const j = await res.json();
+      if (j && Array.isArray(j.workflow_runs)) runs = j.workflow_runs;
+    }
+  } catch (e) {}
+  if (!runs) {
+    await tgSend(env, chatId, "⚠️ گرفتن وضعیت بیلد از گیت‌هاب ناموفق بود — چند لحظه بعد دوباره امتحان کن.", mainMenu());
+    return;
+  }
+  let out = "🧪 <b>وضعیت بیلد گیت‌هاب</b>\n\n";
+  for (const r of runs.slice(0, 5)) {
+    const ic = r.status !== "completed" ? "🔄 در حال اجرا"
+      : r.conclusion === "success" ? "✅ موفق"
+      : r.conclusion === "failure" ? "❌ ناموفق"
+      : "▫️ " + esc(String(r.conclusion || "?"));
+    out += "• " + ic + " — " + esc(String(r.display_title || r.name || "?")).slice(0, 44) +
+      "\n  <i>" + String(r.created_at || "").slice(0, 16).replace("T", " ") + " UTC</i>\n";
+  }
+  await tgSend(env, chatId, out,
+    kb([[{ text: "🔄 بروزرسانی", callback_data: "ci" }], [{ text: "⬅️ منوی اصلی", callback_data: "menu" }]]));
+}
+
+async function sendBotUsers(chatId, env) {
+  await ensureBotUsersTable(env);
+  const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM bot_users WHERE banned = 0").first();
+  const a24 = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM bot_users WHERE banned = 0 AND last_seen >= ?1"
+  ).bind(Date.now() - 86400000).first();
+  const ban = await env.DB.prepare("SELECT COUNT(*) AS n FROM bot_users WHERE banned = 1").first();
+  const rs = await env.DB.prepare(
+    "SELECT chat_id, name, username, joined_at, msgs FROM bot_users WHERE banned = 0 ORDER BY last_seen DESC LIMIT 12"
+  ).all();
+  let out = "🧑‍💬 <b>کاربران ربات</b>\n\n" +
+    "👥 کل: <b>" + (total ? total.n : 0) + "</b> · 🟢 فعال ۲۴ ساعت: " + (a24 ? a24.n : 0) +
+    " · ⛔️ بن‌شده: " + (ban ? ban.n : 0) + "\n\nآخرین کاربران:";
+  for (const r of (rs.results || [])) {
+    out += "\n• " + esc(r.name || "?") + (r.username ? " · @" + esc(r.username) : "") +
+      " · " + (r.msgs || 0) + " پیام · " + new Date(r.joined_at).toISOString().slice(0, 10);
+  }
+  if (!(rs.results || []).length) out += "\n(هنوز کسی /start نداده)";
+  out += "\n\n📣 پیام همگانی: دکمه‌ی «📣 پیام همگانی» یا /broadcast";
+  await tgSend(env, chatId, out, mainMenu());
+}
+
+// ---------------- پیام همگانی (پخش دسته‌ای) + پست کانال ----------------
+
+async function startBroadcast(env, ownerChat, fromChat, messageId, origin) {
+  await ensureBotUsersTable(env);
+  const tr = await env.DB.prepare("SELECT COUNT(*) AS n FROM bot_users WHERE banned = 0").first();
+  const total = tr ? tr.n : 0;
+  await setSetting(env, "bcast_src", fromChat + ":" + messageId);
+  await setSetting(env, "bcast_owner", ownerChat);
+  await setSetting(env, "bcast_cur", "0");
+  await setSetting(env, "bcast_ok", "0");
+  await setSetting(env, "bcast_fail", "0");
+  if (!total) {
+    await setSetting(env, "bcast_src", "");
+    await tgSend(env, ownerChat, "هنوز کاربری در ربات ثبت نشده — چیزی برای پخش نیست.", mainMenu());
+    return;
+  }
+  await tgSend(env, ownerChat, "📣 پخش به <b>" + total + "</b> کاربر ربات شروع شد — گزارش پس از پایان می‌آید.");
+  await bcastTick(env, origin || "https://vex-gate.pages.dev");
+}
+
+/** یک تکه ۲۰تایی می‌فرستد؛ اگر باقی مانده، خودش تیک بعدی را با فراخوانی /bcast-tick اجرا می‌کند */
+async function bcastTick(env, origin) {
+  const src = (await getSetting(env, "bcast_src")) || "";
+  if (!src) return;
+  const ci = src.indexOf(":");
+  const fromChat = src.slice(0, ci);
+  const mid = parseInt(src.slice(ci + 1), 10);
+  if (!mid) { await setSetting(env, "bcast_src", ""); return; }
+  const ownerChat = (await getSetting(env, "bcast_owner")) || fromChat;
+  const CHUNK = 20;
+  let cur = Number(await getSetting(env, "bcast_cur")) || 0;
+  let ok = Number(await getSetting(env, "bcast_ok")) || 0;
+  let fail = Number(await getSetting(env, "bcast_fail")) || 0;
+  const rs = await env.DB.prepare(
+    "SELECT chat_id FROM bot_users WHERE banned = 0 ORDER BY joined_at LIMIT ?1 OFFSET ?2"
+  ).bind(CHUNK, cur).all();
+  for (const row of (rs.results || [])) {
+    if (await tgCopy(env, fromChat, row.chat_id, mid)) ok++; else fail++;
+  }
+  cur += (rs.results || []).length;
+  await setSetting(env, "bcast_cur", String(cur));
+  await setSetting(env, "bcast_ok", String(ok));
+  await setSetting(env, "bcast_fail", String(fail));
+  const tr = await env.DB.prepare("SELECT COUNT(*) AS n FROM bot_users WHERE banned = 0").first();
+  const total = tr ? tr.n : 0;
+  if (cur < total && (rs.results || []).length > 0) {
+    const key = env.APP_KEY || (await getSetting(env, "admin_key")) || "";
+    try { await fetch(origin + "/bcast-tick?k=" + encodeURIComponent(key), { method: "POST" }); } catch (e) {}
+  } else {
+    await setSetting(env, "bcast_src", "");
+    await tgSend(env, ownerChat,
+      "📣 <b>پخش همگانی تمام شد</b>\n" +
+      "✅ موفق: " + ok + "\n❌ ناموفق: " + fail + "\n👥 کل: " + total +
+      "\n\n<i>ناموفق‌ها معمولاً کاربرانی هستند که ربات را بلاک کرده‌اند.</i>", mainMenu());
+  }
+}
+
+async function doChannelPost(text, chatId, env) {
+  const ch = (await getSetting(env, "channel")) || "@vex_vpnfree";
+  const mark = kb([[
+    { text: "📥 دانلود Vex", url: "https://demonvpn.shop/apk" },
+    { text: "🤖 ربات Vex", url: "https://t.me/Appmasegbot" }
+  ]]);
+  let r = await tgSendRet(env, ch, text, mark);
+  if (!r || !r.ok) r = await tgSendPlain(env, ch, text, mark); // HTML نامعتبر؟ بدون فرمت امتحان کن
+  if (r && r.ok) {
+    await tgSend(env, chatId, "📢 پست در کانال منتشر شد ✅\n\n" + esc(text).slice(0, 220), mainMenu());
+  } else {
+    await tgSend(env, chatId,
+      "⚠️ انتشار در کانال ناموفق بود — مطمئن شو ربات @" + String(ch).replace("@", "") + " ادمین کانال است.\n" +
+      (r && r.description ? "خطا: " + esc(r.description) : ""), mainMenu());
+  }
+}
+
+// ---------------- گزارش خطای ربات به مدیر ----------------
+
+async function botError(env, e) {
+  const owner = await getSetting(env, "owner");
+  if (!owner) return;
+  const last = Number(await getSetting(env, "err_ts")) || 0;
+  if (Date.now() - last < 60000) return;
+  await setSetting(env, "err_ts", String(Date.now()));
+  await tgSend(env, owner,
+    "⚠️ <b>خطای ربات</b>\n<code>" +
+    esc(String((e && (e.stack || e.message)) || e)).slice(0, 500) + "</code>");
 }
 
 // ---------------- free servers (bot-managed) ----------------
@@ -1224,7 +1686,7 @@ async function minverCmd(rest, chatId, env) {
       "الان: <b>" + (cur ? cur : "خاموش") + "</b>\n\n" +
       "اگر این عدد از versionCode کاربر بالاتر باشد، موقع ورود بنر «🔔 نسخه‌ی جدید منتشر شده» با دکمه‌ی دانلود می‌بیند.\n\n" +
       "تنظیم: <code>/minver 31</code>\nخاموش‌کردن: <code>/minver 0</code>\n\n" +
-      "💡 کد نسخه‌ی فعلی برنامه <b>31</b> است (نام نمایشی: 1). برای بستن یک نسخه‌ی مشخص، «🚫 نسخه‌های بسته» را ببین.", mainMenu());
+      "💡 کد نسخه‌ی فعلی برنامه <b>32</b> است (نام نمایشی: 1). برای بستن یک نسخه‌ی مشخص، «🚫 نسخه‌های بسته» را ببین.", mainMenu());
     return;
   }
   const n = Math.round(Number(rest));
@@ -1393,6 +1855,50 @@ async function tgSend(env, chat, text, replyMarkup) {
       body: JSON.stringify(body)
     });
   } catch (e) { /* best effort */ }
+}
+
+/** مثل tgSend ولی نتیجه‌ی JSON تلگرام را برمی‌گرداند (برای گرفتن message_id / ok) */
+async function tgSendRet(env, chat, text, replyMarkup) {
+  if (!env.BOT_TOKEN || !chat) return null;
+  const body = { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+  try {
+    const r = await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+/** ارسال بدون parse_mode — وقتی HTML نامعتبر است */
+async function tgSendPlain(env, chat, text, replyMarkup) {
+  if (!env.BOT_TOKEN || !chat) return null;
+  const body = { chat_id: chat, text, disable_web_page_preview: true };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+  try {
+    const r = await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+/** کپی یک پیام (متن/عکس/فایل) از یک چت به چت دیگر — برای پخش همگانی و پشتیبانی؛ ok بودن را برمی‌گرداند */
+async function tgCopy(env, fromChat, toChat, messageId) {
+  if (!env.BOT_TOKEN || !toChat || !messageId) return false;
+  try {
+    const r = await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/copyMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: toChat, from_chat_id: fromChat, message_id: messageId })
+    });
+    const j = await r.json();
+    return !!(j && j.ok);
+  } catch (e) { return false; }
 }
 
 async function answerCb(env, id, text) {

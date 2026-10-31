@@ -141,7 +141,11 @@ class ServersStore(context: Context) {
                 pinLen = o.optInt("pinLen", 0).coerceIn(0, 8),
                 keepScreenOn = o.optBoolean("keepScreenOn", false),
                 freeRefreshSec = when (o.optInt("freeRefreshSec", 60)) { 30 -> 30; 300 -> 300; 0 -> 0; else -> 60 },
-                engine = if (o.optString("engine", "vex") == "psiphon") "psiphon" else "vex",
+                engine = when (o.optString("engine", "vex")) {
+                    "psiphon" -> "psiphon"
+                    "hybrid" -> "hybrid"   // ترکیبی: سرور Vex از داخل تونل سایفون
+                    else -> "vex"
+                },
                 relockOnExit = o.optBoolean("relockOnExit", true),
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {

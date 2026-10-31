@@ -78,10 +78,46 @@ object ConfigBuilder {
     }
 
     /**
+     * موتور «ترکیبی» (Vex + سایفون) — همان چیزی که کاربر می‌خواهد:
+     * کانفیگ کامل سرورِ انتخابیِ Vex (vmess/vless/trojan/ss/…) ساخته می‌شود،
+     * ولی اتصال به سرور از داخل تونل سایفون عبور داده می‌شود:
+     *
+     *   tun → sing-box → [سرور Vex] ⇐ detour ⇒ SOCKS محلی سایفون (127.0.0.1:port) → اینترنت
+     *
+     * یعنی سایفون لایه‌ی زیرین می‌شود (عبور از فیلترینگ/تحریمِ IP سرور و جلوگیری از
+     * شناسایی الگوی اتصال) و سرور Vex لایه‌ی رویی — نتیجه: پایداری و سرعت بیشتر.
+     * زنجیره با «detour» استاندارد sing-box ساخته می‌شود (بدون دستکاری ترافیک).
+     */
+    fun buildHybrid(socksPort: Int, input: String): String {
+        require(socksPort > 0) { "پورت سایفون آماده نیست" }
+        val j = JSONObject(input)
+        globalAllowInsecure = j.optBoolean("allowInsecure", true)
+        val raw = j.optString("raw").trim()
+        val outbound = if (raw.startsWith("{")) fromManual(JSONObject(raw)) else fromLink(raw)
+        outbound.put("tag", "proxy")
+
+        val useMux = j.optBoolean("mux", false)
+        val muxPad = j.optBoolean("muxPadding", false)
+        applyMux(outbound, useMux, muxPad)
+
+        // حلقه‌ی دوم: پروکسی SOCKS5 محلی سایفون (در پروسه‌ی :psiphon بالا آمده)
+        val psiphonSocks = JSONObject()
+            .put("type", "socks")
+            .put("tag", "psiphon")
+            .put("server", "127.0.0.1")
+            .put("server_port", socksPort)
+            .put("version", "5")
+        // اتصال به سرور Vex از داخل سایفون عبور می‌کند
+        outbound.put("detour", "psiphon")
+        return assembleShell(outbound, j, listOf(psiphonSocks))
+    }
+
+    /**
      * پوسته‌ی مشترک کانفیگ: tun inbound + DNS + قوانین مسیریابی + outbound مشخص.
      * outbound باید tag="proxy" داشته باشد؛ تنظیمات mtu/bypassLan/ipv6/dns/... از j خوانده می‌شود.
+     * extraOutbounds: خروجی‌های اضافی (مثلاً SOCKS سایفون برای موتور ترکیبی) — بعد از proxy می‌آیند.
      */
-    private fun assembleShell(outbound: JSONObject, j: JSONObject): String {
+    private fun assembleShell(outbound: JSONObject, j: JSONObject, extraOutbounds: List<JSONObject> = emptyList()): String {
         val mtu = j.optInt("mtu", 1500).coerceIn(1280, 9000)
         val bypassLan = j.optBoolean("bypassLan", true)
         val ipv6 = j.optBoolean("ipv6", false)
@@ -147,9 +183,12 @@ object ConfigBuilder {
                 .put("final", "dns-remote")
                 .put("strategy", if (ipv6) "prefer_ipv4" else "ipv4_only"))
             .put("inbounds", inbounds)
-            .put("outbounds", JSONArray()
-                .put(outbound)
-                .put(JSONObject().put("type", "direct").put("tag", "direct")))
+            .put("outbounds", run {
+                val arr = JSONArray().put(outbound)
+                for (x in extraOutbounds) arr.put(x)
+                arr.put(JSONObject().put("type", "direct").put("tag", "direct"))
+                arr
+            })
             .put("route", JSONObject()
                 .put("rules", rules)
                 .put("final", "proxy")
