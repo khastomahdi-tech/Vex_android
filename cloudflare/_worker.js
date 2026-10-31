@@ -153,7 +153,9 @@ export default {
         const reason = gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null;
         const minVer = Number(await getSetting(env, "min_ver")) || 0;
         const blocked = await getBlocked(env);
-        return json({ ok: true, gate, reason, min_ver: minVer, blocked });
+        // لینک رباتی که دکمه‌ی «ورود به ربات» برنامه باز می‌کند — از تنظیمات D1 قابل تغییر است
+        const botUrl = (await getSetting(env, "app_bot_url")) || "https://t.me/Appmasegbot";
+        return json({ ok: true, gate, reason, min_ver: minVer, blocked, bot_url: botUrl });
       }
       if (path === "/v1/report" && request.method === "POST") {
         return report(request, env);
@@ -190,23 +192,31 @@ export default {
         ).bind(since).all();
         return json({ ok: true, list: rs.results || [] });
       }
-      // ---------------- اشتراک: فعال‌سازی کد ۱۶ رقمی ----------------
+      // ---------------- اشتراک: فعال‌سازی کد (۲۷ حرف انگلیسی / ۱۶ رقمِ قدیمی) ----------------
       if (path === "/v1/sub/activate" && request.method === "POST") {
         await ensureSubTables(env);
         let b = {};
         try { b = await request.json(); } catch (e) {}
-        const code = String(b.code || "").replace(/\D/g, "");
+        const code = normSubCode(b.code);
         const did = String(b.did || "").slice(0, 64);
         const device = String(b.device || "?").slice(0, 80);
         const now = Date.now();
         if (!did) return json({ ok: false, error: "did required" }, 400);
-        if (code.length !== 16) return json({ ok: false, error: "bad_code", server_time: now });
+        if (!validSubCode(code)) return json({ ok: false, error: "bad_code", server_time: now });
         const c = await env.DB.prepare(
           "SELECT code, created, expires, active FROM sub_codes WHERE code = ?1"
         ).bind(code).first();
         if (!c) return json({ ok: false, error: "not_found", server_time: now });
         if (!c.active) return json({ ok: false, error: "revoked", expires: c.expires, server_time: now });
         if (c.expires <= now) return json({ ok: false, error: "expired", expires: c.expires, server_time: now });
+        // هر کد فقط روی «یک دستگاه» فعال می‌شود — اگر دستگاه دیگری این کد را برداشته، رد می‌شود
+        const taken = await env.DB.prepare(
+          "SELECT did FROM sub_sessions WHERE code = ?1"
+        ).bind(code).all();
+        const trows = (taken && taken.results) || [];
+        if (trows.length && !trows.some((r) => r && r.did === did)) {
+          return json({ ok: false, error: "device_taken", expires: c.expires, server_time: now });
+        }
         // ثبت نشست همین دستگاه — اگر قبلاً با همین کد فعال شده، همان نشست تازه می‌شود
         await env.DB.prepare(
           "INSERT INTO sub_sessions (code, did, device, activated, last_seen) VALUES (?1,?2,?3,?4,?4) " +
@@ -224,10 +234,10 @@ export default {
         await ensureSubTables(env);
         let b = {};
         try { b = await request.json(); } catch (e) {}
-        const code = String(b.code || "").replace(/\D/g, "");
+        const code = normSubCode(b.code);
         const did = String(b.did || "").slice(0, 64);
         const now = Date.now();
-        if (!did || code.length !== 16) return json({ ok: false, error: "bad_request", server_time: now });
+        if (!did || !validSubCode(code)) return json({ ok: false, error: "bad_request", server_time: now });
         const c = await env.DB.prepare(
           "SELECT code, created, expires, active FROM sub_codes WHERE code = ?1"
         ).bind(code).first();
@@ -534,9 +544,9 @@ async function handleAdmin(path, url, request, env) {
     await ensureSubTables(env);
     let b = {}; try { b = await request.json(); } catch (e) {}
     const chatId = String(b.chat_id || "").slice(0, 40);
-    const code0 = String(b.code || "").replace(/\D/g, "");
+    const code0 = normSubCode(b.code);
     let c = null;
-    if (code0.length === 16) c = await subCodeInfo(env, code0);
+    if (validSubCode(code0)) c = await subCodeInfo(env, code0);
     else if (chatId) {
       const row = await env.DB.prepare(
         "SELECT code FROM sub_codes WHERE chat_id = ?1 AND active = 1 ORDER BY created DESC LIMIT 1"
@@ -553,8 +563,8 @@ async function handleAdmin(path, url, request, env) {
   if (path === "/admin/sub/kick" && request.method === "POST") {
     await ensureSubTables(env);
     let b = {}; try { b = await request.json(); } catch (e) {}
-    const code = String(b.code || "").replace(/\D/g, "");
-    if (code.length !== 16) return J({ ok: false, error: "code required" }, 400);
+    const code = normSubCode(b.code);
+    if (!validSubCode(code)) return J({ ok: false, error: "code required" }, 400);
     const d = await env.DB.prepare("DELETE FROM sub_sessions WHERE code = ?1").bind(code).run();
     return J({ ok: true, removed: (d.meta && d.meta.changes) || 0 });
   }
@@ -1281,13 +1291,29 @@ async function ensureSubTables(env) {
   subTablesReady = true;
 }
 
-/** کد ۱۶ رقمی تصادفی (با تضمین شروع غیرصفر) */
+/** پاک‌سازی ورودی کد اشتراک: حروف انگلیسی بزرگ + ارقام؛ خط‌تیره/فاصله/ارقام فارسی حذف یا تبدیل می‌شود */
+function normSubCode(s) {
+  let out = "";
+  const src = String(s || "");
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch >= "A" && ch <= "Z") out += ch;
+    else if (ch >= "a" && ch <= "z") out += ch.toUpperCase();
+    else if (ch >= "0" && ch <= "9") out += ch;
+    else if (ch >= "۰" && ch <= "۹") out += String(ch.charCodeAt(0) - 1776);
+    else if (ch >= "٠" && ch <= "٩") out += String(ch.charCodeAt(0) - 1632);
+  }
+  return out;
+}
+/** کد معتبر: ۲۷ حرف انگلیسی (فرمت جدید) یا ۱۶ رقم (کدهای قدیمی — برای قطع نشدن اشتراک‌های جاری) */
+function validSubCode(c) { return c.length === 27 || c.length === 16; }
+
+/** کد تصادفی ۲۷ حرفی از حروف انگلیسی بزرگ */
 function genSubCode() {
-  const a = new Uint8Array(16);
+  const a = new Uint8Array(27);
   crypto.getRandomValues(a);
   let s = "";
-  for (let i = 0; i < 16; i++) s += String(a[i] % 10);
-  if (s[0] === "0") s = "1" + s.slice(1);
+  for (let i = 0; i < 27; i++) s += String.fromCharCode(65 + (a[i] % 26));
   return s;
 }
 

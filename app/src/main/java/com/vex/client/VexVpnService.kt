@@ -420,7 +420,6 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      */
     private fun startFreeWatch(gen: Int) {
         freeWatchThread?.interrupt()
-        var subTick = 0
         freeWatchThread = thread(name = "vex-freewatch") {
             while (true) {
                 // ۶۰ ثانیه انتظار — در قطعه‌های ۱ ثانیه‌ای تا قطع فوری در stopVpn
@@ -429,7 +428,6 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     try { Thread.sleep(1000) } catch (_: InterruptedException) { return@thread }
                 }
                 synchronized(stateLock) { if (gen != generation) return@thread }
-                subTick++
                 // ۱) گزارش دوره‌ای مصرف (واترمارک — فقط تازه‌ها می‌روند)
                 try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
                 // ۲) اعلان‌های همگانی مدیر — حتی وقتی رابط برنامه بسته است،
@@ -442,31 +440,29 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         break
                     }
                 } catch (_: Throwable) {}
-                // ۳.۵) اشتراک حذف/منقضی شده؟ هر ۵ دقیقه چک می‌شود — کیک از ربات
-                //      یعنی همه‌ی دستگاه‌های آن کد وسط اتصال هم قطع می‌شوند
-                if (subTick % 5 == 0) {
-                    try {
-                        val sc = SubStore.code(applicationContext)
-                        if (sc.length == 16) {
-                            val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(applicationContext))
-                            if (sub.kicked || sub.expired || sub.notFound) {
-                                SubStore.clear(applicationContext)
-                                Handler(Looper.getMainLooper()).post {
-                                    try {
-                                        android.widget.Toast.makeText(
-                                            applicationContext,
-                                            if (sub.kicked) "اشتراک شما حذف شد — اتصال قطع شد"
-                                            else "اشتراک شما منقضی شده است — اتصال قطع شد",
-                                            android.widget.Toast.LENGTH_LONG
-                                        ).show()
-                                    } catch (_: Throwable) {}
-                                }
-                                stopVpn()
-                                break
+                // ۳.۵) اشتراک حذف/منقضی شده؟ هر ۶۰ ثانیه چک می‌شود — کیک از ربات
+                //      یعنی همه‌ی دستگاه‌های آن کد حداکثر تا یک دقیقه بعد وسط اتصال قطع می‌شوند
+                try {
+                    val sc = SubStore.code(applicationContext)
+                    if (SubStore.valid(sc)) {
+                        val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(applicationContext))
+                        if (sub.kicked || sub.expired || sub.notFound) {
+                            SubStore.clear(applicationContext)
+                            Handler(Looper.getMainLooper()).post {
+                                try {
+                                    android.widget.Toast.makeText(
+                                        applicationContext,
+                                        if (sub.kicked) "نشست شما حذف شد — اتصال قطع شد"
+                                        else "کد اشتراک شما منقضی شده است — اتصال قطع شد",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (_: Throwable) {}
                             }
+                            stopVpn()
+                            break
                         }
-                    } catch (_: Throwable) {}
-                }
+                    }
+                } catch (_: Throwable) {}
                 // ۴) حذف سرور رایگان → قطع خودکار
                 try {
                     val raw = lastPayload?.let {

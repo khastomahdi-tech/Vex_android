@@ -111,6 +111,7 @@ object TelegramGate {
         val body = get("/v1/state") ?: return GateInfo(OPEN, null)
         return try {
             val o = JSONObject(body)
+            rememberBotUrl(o)
             val mv = o.optInt("min_ver", 0)
             val blocked = parseBlocked(o)
             if (o.optBoolean("ok") && o.optString("gate") == CLOSED) {
@@ -283,7 +284,23 @@ object TelegramGate {
         return did
     }
 
-    // ------------------------------------------------ اشتراک (کد ۱۶ رقمی از ربات)
+    // ------------------------------------------------ اشتراک (کد ۲۷ حرفیِ انگلیسی از ربات)
+
+    /**
+     * لینک رباتی که دکمه‌ی «ورود به ربات» باز می‌کند — از سرور (bot_url در پاسخ دروازه)
+     * تازه می‌شود؛ اگر سرور چیزی نفرستاد، همین مقدار پیش‌فرض استفاده می‌شود.
+     */
+    var lastBotUrl: String = "https://t.me/Appmasegbot"
+        private set
+
+    private fun rememberBotUrl(o: JSONObject) {
+        try {
+            val u = o.optString("bot_url", "").trim()
+            if (u.startsWith("https://t.me/") || u.startsWith("http://t.me/") || u.startsWith("tg://")) {
+                lastBotUrl = u
+            }
+        } catch (_: Throwable) {}
+    }
 
     /**
      * نتیجه‌ی فعال‌سازی/بررسی اشتراک.
@@ -305,6 +322,8 @@ object TelegramGate {
         val expired: Boolean get() = error == "expired"
         val notFound: Boolean get() = error == "not_found" || error == "revoked"
         val badCode: Boolean get() = error == "bad_code" || error == "bad_request"
+        /** این کد قبلاً روی دستگاه دیگری فعال شده است (هر کد فقط یک دستگاه) */
+        val deviceTaken: Boolean get() = error == "device_taken"
         /** آیا این یک ردِ صریح سرور است (نه خطای شبکه)؟ */
         val rejected: Boolean get() = error != null
     }
@@ -313,6 +332,7 @@ object TelegramGate {
         if (res == null) return SubInfo(false, null)
         return try {
             val o = JSONObject(res)
+            rememberBotUrl(o)
             SubInfo(
                 ok = o.optBoolean("ok"),
                 error = if (o.has("error")) o.optString("error") else null,

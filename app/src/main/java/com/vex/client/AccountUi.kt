@@ -102,13 +102,22 @@ class AccountUi(private val act: MainActivity) {
             setMargins(0, UI.dp(ctx, 10), 0, 0)
         })
         hintTv = UI.label(ctx,
-            "کد اشتراک ۱۶ رقمی را از ربات تلگرام می‌گیری. برای کد جدید، تمدید یا حذف دستگاه‌ها به همان ربات مراجعه کن.",
+            "کد اشتراک ۲۷ حرفیِ انگلیسی را از ربات تلگرام می‌گیری؛ هر کد فقط روی یک دستگاه فعال می‌شود. برای کد جدید، تمدید یا حذف نشست‌ها به همان ربات مراجعه کن.",
             12.5f, p.muted).apply {
             gravity = Gravity.CENTER
             setLineSpacing(UI.dp(ctx, 2).toFloat(), 1f)
             setPadding(0, UI.dp(ctx, 12), 0, 0)
         }
         actCard.addView(hintTv)
+        val botBtn = UI.softButton(ctx, "🤖 ورود به ربات", p).apply {
+            setPadding(UI.dp(ctx, 18), UI.dp(ctx, 12), UI.dp(ctx, 18), UI.dp(ctx, 12))
+        }
+        botBtnRef = botBtn
+        botBtn.setOnClickListener { act.openVexBot() }
+        actCard.addView(botBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 10), 0, 0)
+        })
         addCard(actCard)
 
         scroll.addView(root, LinearLayout.LayoutParams(
@@ -180,7 +189,16 @@ class AccountUi(private val act: MainActivity) {
         }
         refreshBtn.background = UI.card(ctx, p, fillColor = p.card2, stroke = p.line)
         refreshBtn.setTextColor(p.text)
+        botBtnBg()
         render()
+    }
+
+    private var botBtnRef: TextView? = null
+    private fun botBtnBg() {
+        botBtnRef?.let {
+            it.background = UI.card(act, p, fillColor = p.card2, stroke = p.line)
+            it.setTextColor(p.text)
+        }
     }
 
     /** ورود به تب — رندر + دریافت تازه‌ی وضعیت از سرور */
@@ -199,7 +217,7 @@ class AccountUi(private val act: MainActivity) {
         val expired = exp in 1 until now
 
         when {
-            code.length != 16 -> {
+            !SubStore.valid(code) -> {
                 badge.text = "اشتراک فعال نیست"
                 badge.setTextColor(p.mid)
                 remainBig.text = "—"
@@ -225,7 +243,7 @@ class AccountUi(private val act: MainActivity) {
             }
         }
 
-        codeVal.text = if (code.length == 16) codeFmt(code) else "—"
+        codeVal.text = if (SubStore.valid(code)) codeFmt(code) else "—"
         createdVal.text = faDigits(jalali(SubStore.activatedAt(ctx)))
         expiresVal.text = faDigits(jalali(exp))
         deviceVal.text = SubStore.device(ctx).ifEmpty { "—" }
@@ -236,7 +254,7 @@ class AccountUi(private val act: MainActivity) {
     fun refreshAsync(showResult: Boolean) {
         Thread {
             val code = SubStore.code(act)
-            if (code.length != 16) {
+            if (!SubStore.valid(code)) {
                 if (showResult) act.mainHandler().post { UI.toast(act, "هنوز اشتراک فعالی نداری") }
                 return@Thread
             }
@@ -254,11 +272,11 @@ class AccountUi(private val act: MainActivity) {
                     SubStore.clear(act)
                     last = null
                     if (showResult || act.currentTab == 4) {
-                        UI.toast(act, if (info.kicked) "اشتراک شما حذف شد" else "اشتراک شما منقضی شده است")
+                        UI.toast(act, if (info.kicked) "نشست شما حذف شد" else "کد اشتراک شما منقضی شده است")
                     }
                     act.onSubscriptionLost(
-                        if (info.kicked) "اشتراک شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
-                        else "اشتراک شما منقضی شده است. برای ادامه، کد اشتراک تازه وارد کن."
+                        if (info.kicked) "نشست شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
+                        else "کد اشتراک شما منقضی شده است. برای گرفتن کد جدید، وارد ربات شو."
                     )
                     return@post
                 } else {
@@ -284,8 +302,10 @@ class AccountUi(private val act: MainActivity) {
         }
     }
 
-    /** ۱۲۳۴-۵۶۷۸-۹۰۱۲-۳۴۵۶ */
-    private fun codeFmt(c: String): String = c.replace(Regex("(\\d{4})(?=\\d)"), "$1-")
+    /** ۱۲۳۴-۵۶۷۸-۹۰۱۲-۳۴۵۶ یا XXXXXXXXX-XXXXXXXXX-XXXXXXXXX */
+    private fun codeFmt(c: String): String =
+        if (c.any { it in 'A'..'Z' }) c.replace(Regex("([A-Z]{9})(?=[A-Z])"), "$1-")
+        else c.replace(Regex("(\\d{4})(?=\\d)"), "$1-")
 
     /** ارقام فارسی */
     private fun faDigits(s: String): String {

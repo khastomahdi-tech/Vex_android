@@ -256,9 +256,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
-                // ---- اشتراک: بدون کدِ فعالِ ۱۶ رقمی، برنامه وارد نمی‌شود ----
+                // ---- اشتراک: بدون کدِ فعال (۲۷ حرف انگلیسی / ۱۶ رقمِ قدیمی)، برنامه وارد نمی‌شود ----
                 val sc = SubStore.code(this)
-                if (sc.length != 16) {
+                if (!SubStore.valid(sc)) {
                     subLockReason = null
                     main.post { if (!isFinishing) setGateUi("subscription") }
                     return@Thread
@@ -268,8 +268,8 @@ class MainActivity : ComponentActivity() {
                     // فقط ردِ صریح سرور بیرون می‌اندازد؛ خطای شبکه (error=null) باز است
                     SubStore.clear(this)
                     subLockReason = when {
-                        sub.kicked -> "اشتراک شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
-                        sub.expired -> "اشتراک شما منقضی شده است. برای ادامه، یک کد اشتراک تازه وارد کن."
+                        sub.kicked -> "نشست شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
+                        sub.expired -> "کد اشتراک شما منقضی شده است. برای گرفتن کد جدید، وارد ربات شو."
                         else -> "این کد اشتراک دیگر معتبر نیست. یک کد معتبر وارد کن."
                     }
                     main.post { if (!isFinishing) setGateUi("subscription") }
@@ -309,13 +309,13 @@ class MainActivity : ComponentActivity() {
                 } else {
                     // ---- چک دوره‌ای اشتراک: حذف/انقضا وسط کار هم بیرون می‌اندازد ----
                     val sc = SubStore.code(this@MainActivity)
-                    if (sc.length == 16) {
+                    if (SubStore.valid(sc)) {
                         val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(this@MainActivity))
                         if (sub.kicked || sub.expired || sub.notFound) {
                             SubStore.clear(this@MainActivity)
                             subLockReason = when {
-                                sub.kicked -> "اشتراک شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
-                                sub.expired -> "اشتراک شما منقضی شده است. برای ادامه، یک کد اشتراک تازه وارد کن."
+                                sub.kicked -> "نشست شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
+                                sub.expired -> "کد اشتراک شما منقضی شده است. برای گرفتن کد جدید، وارد ربات شو."
                                 else -> "این کد اشتراک دیگر معتبر نیست. یک کد معتبر وارد کن."
                             }
                             main.post {
@@ -692,7 +692,11 @@ class MainActivity : ComponentActivity() {
 
     /** بازکردن کانال تلگرام: اول اپ تلگرام (tg://) و اگر نبود مرورگر */
     private fun openTelegramChannel() {
-        val url = TELEGRAM_CHANNEL_URL
+        openTelegramLink(TELEGRAM_CHANNEL_URL)
+    }
+
+    /** بازکردن هر لینک تلگرامی (ربات/کانال): اول اپ تلگرام (tg://) و اگر نبود مرورگر */
+    private fun openTelegramLink(url: String) {
         val domain = url.substringAfter("t.me/").trimStart('/').substringBefore('?').substringBefore('/')
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tg://resolve?domain=$domain")))
@@ -703,6 +707,11 @@ class MainActivity : ComponentActivity() {
         } catch (_: Throwable) {
             UI.toast(this, "تلگرام در دسترس نیست")
         }
+    }
+
+    /** دکمه‌ی «ورود به ربات» — رباتی که کد اشتراک می‌دهد (لینکش از سرور می‌آید) */
+    fun openVexBot() {
+        openTelegramLink(TelegramGate.lastBotUrl)
     }
 
     // ---------------- تم / رندر ----------------
@@ -1392,7 +1401,7 @@ class MainActivity : ComponentActivity() {
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
                 "subscription" -> subLockReason?.takeIf { it.isNotBlank() }
-                        ?: "برای استفاده از Vex باید کد اشتراک داشته باشی.\nکد ۱۶ رقمی را از ربات تلگرام بگیر و همین‌جا وارد کن."
+                        ?: "برای استفاده از Vex باید کد اشتراک داشته باشی.\nکد ۲۷ حرفیِ انگلیسی را از ربات تلگرام بگیر و همین‌جا وارد کن.\n(کدهای ۱۶ رقمیِ قدیمی هم پذیرفته می‌شوند)"
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک demonvpn.shop/apk یا vex-gate.pages.dev/apk نصب کن."
                 else -> text = ""
             }
@@ -1432,13 +1441,15 @@ class MainActivity : ComponentActivity() {
             setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
         }
         val input = android.widget.EditText(ctx).apply {
-            hint = "XXXX-XXXX-XXXX-XXXX"
-            textSize = 17f
+            hint = "XXXXXXXXX-XXXXXXXXX-XXXXXXXXX"
+            textSize = 15f
             typeface = Fonts.bold(ctx)
             gravity = Gravity.CENTER
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
+                    android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setSingleLine(true)
-            filters = arrayOf(android.text.InputFilter.LengthFilter(19))
+            filters = arrayOf(android.text.InputFilter.LengthFilter(35))
             setTextColor(p.text)
             setHintTextColor(p.muted)
             textDirection = View.TEXT_DIRECTION_LTR
@@ -1467,8 +1478,8 @@ class MainActivity : ComponentActivity() {
         val go = UI.primaryButton(ctx, "فعال‌سازی اشتراک", p)
         go.setOnClickListener {
             val code = SubStore.normalize(input.text.toString())
-            if (code.length != 16) {
-                err.text = "کد اشتراک باید ۱۶ رقم باشد"
+            if (!SubStore.valid(code)) {
+                err.text = "کد اشتراک باید ۲۷ حرف انگلیسی باشد"
                 err.visibility = View.VISIBLE
                 return@setOnClickListener
             }
@@ -1489,16 +1500,20 @@ class MainActivity : ComponentActivity() {
                             enterApp()
                             startGateWatch()
                         }
+                        info.deviceTaken -> {
+                            err.text = "این کد قبلاً روی دستگاه دیگری فعال شده است؛\nهر کد فقط روی یک دستگاه کار می‌کند. از ربات «حذف تمام نشست‌ها» را بزن و دوباره تلاش کن"
+                            err.visibility = View.VISIBLE
+                        }
                         info.notFound -> {
                             err.text = "این کد پیدا نشد؛ از ربات کد معتبر بگیر و دوباره وارد کن"
                             err.visibility = View.VISIBLE
                         }
                         info.expired -> {
-                            err.text = "این کد منقضی شده است؛ از ربات کد تازه بگیر"
+                            err.text = "کد اشتراک شما منقضی شده است؛ از ربات کد جدید بگیر"
                             err.visibility = View.VISIBLE
                         }
                         info.badCode -> {
-                            err.text = "کد اشتراک باید ۱۶ رقم باشد"
+                            err.text = "کد اشتراک باید ۲۷ حرف انگلیسی باشد"
                             err.visibility = View.VISIBLE
                         }
                         info.error != null -> {
@@ -1519,6 +1534,15 @@ class MainActivity : ComponentActivity() {
             UI.dp(ctx, 230), UI.dp(ctx, 48)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
             setMargins(0, UI.dp(ctx, 18), 0, 0)
+        })
+
+        // ورود به ربات — برای گرفتن کد اشتراک جدید (لینک ربات از سرور می‌آید)
+        val bot = UI.softButton(ctx, "🤖 ورود به ربات", p)
+        bot.setOnClickListener { openVexBot() }
+        gateRoot.addView(bot, LinearLayout.LayoutParams(
+            UI.dp(ctx, 230), UI.dp(ctx, 44)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setMargins(0, UI.dp(ctx, 10), 0, 0)
         })
 
         val tg = UI.softButton(ctx, "کانال تلگرام Vex", p)
