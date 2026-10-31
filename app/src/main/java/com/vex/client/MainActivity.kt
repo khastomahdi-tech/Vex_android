@@ -414,7 +414,7 @@ class MainActivity : ComponentActivity() {
             if (connectionState == "connected") {
                 val sel = store.selected()
                 sessionIsFree = sel != null && store.isFree(sel)
-                sessionSrv = if (sel != null && sessionIsFree) sel.id else 0L
+                sessionSrv = if (sel != null && sessionIsFree) sel.id.toLong() else 0L
             }
 
             VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
@@ -1043,7 +1043,7 @@ class MainActivity : ComponentActivity() {
         // شناسه‌ی سرور رایگان هم نگه داشته می‌شود تا مصرف «هر سرور» جداگانه گزارش شود
         val sel = store.selected()
         sessionIsFree = sel != null && store.isFree(sel)
-        sessionSrv = if (sel != null && sessionIsFree && sel.id > 0) sel.id else 0L
+        sessionSrv = if (sel != null && sessionIsFree && sel.id > 0) sel.id.toLong() else 0L
         TrafficStore.resetSession()
         statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
         homeUi.onStats(0, 0, 0, 0)
