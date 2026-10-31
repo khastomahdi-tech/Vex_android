@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- کلید آبی مطابق طرح مرجع: سرِ گرد سوراخ‌دار + میله و دو دندانه -->
+    <path
+        android:fillColor="#3574F0"
+        android:fillType="evenOdd"
+        android:pathData="M7,7 a5,5 0 1,0 0,10 a5,5 0 1,0 0,-10 Z M7,10 a2,2 0 1,1 0,4 a2,2 0 1,1 0,-4 Z M11.2,10.7 L21,10.7 A0.9,0.9 0 0,1 21.9,11.6 L21.9,12.9 A0.9,0.9 0 0,1 21,13.8 L11.2,13.8 Z M15.4,13.8 L17.4,13.8 A0.7,0.7 0 0,1 18.1,14.5 L18.1,16.6 A0.7,0.7 0 0,1 17.4,17.3 L16.1,17.3 A0.7,0.7 0 0,1 15.4,16.6 Z M18.9,13.8 L20.9,13.8 A0.7,0.7 0 0,1 21.6,14.5 L21.6,16.6 A0.7,0.7 0 0,1 20.9,17.3 L19.6,17.3 A0.7,0.7 0 0,1 18.9,16.6 Z" />
+</vector>

@@ -1363,6 +1363,12 @@ class MainActivity : ComponentActivity() {
         gateRoot.setBackgroundColor(p.bg)
         gateRoot.removeAllViews()
 
+        // صفحه‌ی «تأیید حساب کاربری» — طرح جدید مستقل مطابق مرجع (بدون آیکون و عنوان قدیمی)
+        if (state == "subscription") {
+            buildSubscriptionForm(ctx, p)
+            return
+        }
+
         // آیکون برنامه با گوشه‌های دایره‌مانند
         val ic = ImageView(ctx).apply {
             setImageResource(R.mipmap.ic_launcher)
@@ -1387,7 +1393,6 @@ class MainActivity : ComponentActivity() {
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
                 "closed" -> { text = "App Access Closed"; setTextColor(p.bad) }
-                "subscription" -> { text = "فعال‌سازی اشتراک Vex"; setTextColor(p.text) }
                 else -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
             }
         }
@@ -1402,20 +1407,12 @@ class MainActivity : ComponentActivity() {
                 "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
-                "subscription" -> subLockReason?.takeIf { it.isNotBlank() }
-                        ?: "برای استفاده از Vex باید توکن اشتراک داشته باشی.\nتوکن ۳۰ حرفیِ انگلیسی را از ربات تلگرام بگیر و همین‌جا تایپ یا پیست کن."
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک demonvpn.shop/apk یا vex-gate.pages.dev/apk نصب کن."
                 else -> text = ""
             }
         }
         gateRoot.addView(msg, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // ---- فرم ورود کد اشتراک ----
-        if (state == "subscription") {
-            buildSubscriptionForm(ctx, p)
-            return
-        }
 
         // دکمه‌ها
         val btns = UI.row(ctx).apply { gravity = Gravity.CENTER; setPadding(0, UI.dp(ctx, 26), 0, 0) }
@@ -1437,77 +1434,137 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** فرم «کد اشتراک را وارد کن» — دروازه‌ی اولین ورود و ورودِ بعد از کیک/انقضا
-     *  طرح جدید: پس‌زمینه‌ی سفید، آیکون اثر انگشت کنار کادر با متن راهنمای Keys،
-     *  کد را می‌شود تایپ کرد یا از کلیپ‌بورد پیست کرد. */
+    /** صفحه‌ی «تأیید حساب کاربری» — دقیقاً مو‌به‌مو مطابق طرح مرجع:
+     *  عنوان بالا، دایره‌ی روشن‌آبی با آیکون کلید، «تأیید از طریق تلگرام»،
+     *  توضیح کوتاه، کادر کد با آیکون اثر انگشت، دکمه‌ی آبی «ورود» و
+     *  دکمه‌ی «دریافت کد اشتراک» با آیکون تلگرام (ربات توکن @Appvexvpnbot).
+     *  متن «برای تلگرام به پروکسی نیاز دارید؟» و دکمه‌ی کانال طبق درخواست حذف شدند. */
     private fun buildSubscriptionForm(ctx: MainActivity, p: Palette) {
-        val card = UI.col(ctx).apply {
-            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
+        val navy = 0xFF17233D.toInt()
+        val gray = 0xFF5F6B7A.toInt()
+        val blue = 0xFF2F6BE4.toInt()
+        val blueSoft = 0xFFE4EDFC.toInt()
+        val hintGray = 0xFF98A2B3.toInt()
+        val errRed = 0xFFD14343.toInt()
+        val white = 0xFFFFFFFF.toInt()
+
+        fun box(fill: Int, stroke: Int, strokeDp: Float, radiusDp: Float): GradientDrawable {
+            val d = GradientDrawable()
+            d.shape = GradientDrawable.RECTANGLE
+            d.setColor(fill)
+            if (strokeDp > 0f) d.setStroke(Math.max(1, UI.dp(ctx, strokeDp)), stroke)
+            d.cornerRadius = UI.dp(ctx, radiusDp).toFloat()
+            return d
         }
-        // ---- ردیف ورود کد: [اثر انگشت] [کادر Keys] ----
-        val row = LinearLayout(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
-        val fp = android.widget.ImageView(ctx).apply {
-            setImageResource(R.drawable.ic_fingerprint)
-            setColorFilter(p.accent)
+
+        val col = UI.col(ctx).apply {
+            setPadding(UI.dp(ctx, 20), UI.dp(ctx, 22), UI.dp(ctx, 20), UI.dp(ctx, 16))
+        }
+
+        // ---- عنوان بالا ----
+        col.addView(TextView(ctx).apply {
+            text = "تأیید حساب کاربری"
+            textSize = 20f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
+            setTextColor(navy)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // ---- دایره‌ی روشن‌آبی با آیکون کلید ----
+        val circle = LinearLayout(ctx).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(blueSoft)
+            }
+        }
+        circle.addView(ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_key_blue)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        row.addView(fp, LinearLayout.LayoutParams(UI.dp(ctx, 40), UI.dp(ctx, 40)).apply {
-            marginEnd = UI.dp(ctx, 8)
+        }, LinearLayout.LayoutParams(UI.dp(ctx, 96), UI.dp(ctx, 96)))
+        val circleWrap = LinearLayout(ctx).apply { gravity = Gravity.CENTER }
+        circleWrap.addView(circle, LinearLayout.LayoutParams(UI.dp(ctx, 188), UI.dp(ctx, 188)))
+        col.addView(circleWrap, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 44), 0, 0)
         })
+
+        // ---- «تأیید از طریق تلگرام» ----
+        col.addView(TextView(ctx).apply {
+            text = "تأیید از طریق تلگرام"
+            textSize = 25f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
+            setTextColor(navy)
+            setPadding(0, UI.dp(ctx, 28), 0, 0)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // ---- توضیح ----
+        col.addView(TextView(ctx).apply {
+            text = "کد اشتراک را از ربات تلگرام دریافت کرده و در کادر زیر وارد کنید."
+            textSize = 15f; gravity = Gravity.CENTER; setTextColor(gray)
+            setLineSpacing(UI.dp(ctx, 3).toFloat(), 1f)
+            setPadding(UI.dp(ctx, 6), UI.dp(ctx, 10), UI.dp(ctx, 6), 0)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // ---- پیام خطا (کیک/انقضا/کد نامعتبر) — پیش‌فرض مخفی ----
+        val err = TextView(ctx).apply {
+            textSize = 13f; gravity = Gravity.CENTER; setTextColor(errRed)
+            setLineSpacing(UI.dp(ctx, 2).toFloat(), 1f)
+            setPadding(UI.dp(ctx, 4), UI.dp(ctx, 12), UI.dp(ctx, 4), 0)
+            visibility = View.GONE
+        }
+        col.addView(err, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        subLockReason?.takeIf { it.isNotBlank() }?.let {
+            err.text = it
+            err.visibility = View.VISIBLE
+        }
+
+        // ---- کادر کد: [اثر انگشت] [کادر ورود] — اثر انگشت سمت راست داخل کادر ----
+        val row = LinearLayout(ctx).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = box(white, 0xFFD8DEE9.toInt(), 1.2f, 16f)
+            setPadding(UI.dp(ctx, 16), 0, UI.dp(ctx, 16), 0)
+        }
+        row.addView(ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_fingerprint)
+            setColorFilter(blue)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(UI.dp(ctx, 26), UI.dp(ctx, 26)))
         val input = android.widget.EditText(ctx).apply {
-            hint = "Keys"
+            hint = "کد اشتراک را وارد کنید"
             textSize = 15f
             typeface = Fonts.bold(ctx)
-            gravity = Gravity.CENTER_VERTICAL or Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                    android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
                     android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setSingleLine(true)
             filters = arrayOf(android.text.InputFilter.LengthFilter(35))
-            setTextColor(p.text)
-            setHintTextColor(p.muted)
-            textDirection = View.TEXT_DIRECTION_LTR
+            setTextColor(navy)
+            setHintTextColor(hintGray)
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-            // تایپ با کیبورد و پیست هر دو آزاد است؛ متن کدِ پیست‌شده هم پاک‌سازی می‌شود
             setTextIsSelectable(false)
+            setPadding(UI.dp(ctx, 12), 0, UI.dp(ctx, 4), 0)
         }
         row.addView(input, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 48)))
-        // کادر روشن با حاشیه‌ی ملایم روی پس‌زمینه‌ی سفید
-        row.background = UI.card(ctx, p, fillColor = 0xFFFFFFFF.toInt(), stroke = p.line)
-        row.setPadding(UI.dp(ctx, 8), UI.dp(ctx, 4), UI.dp(ctx, 8), UI.dp(ctx, 4))
-        card.addView(row, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 56)))
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 52)))
+        col.addView(row, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 56)).apply {
+            setMargins(0, UI.dp(ctx, 30), 0, 0)
+        })
 
-        val pasteNote = UI.label(ctx, "می‌توانی کد را تایپ کنی یا از تلگرام کپی و همین‌جا پیست کنی", 12f, p.muted).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, UI.dp(ctx, 8), 0, 0)
+        // ---- دکمه‌ی آبی «ورود» ----
+        val go = TextView(ctx).apply {
+            text = "ورود"
+            textSize = 16.5f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
+            setTextColor(white)
+            background = box(blue, 0, 0f, 16f)
         }
-        card.addView(pasteNote, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        val err = TextView(ctx).apply {
-            textSize = 13f; gravity = Gravity.CENTER; setTextColor(p.bad)
-            setPadding(0, UI.dp(ctx, 8), 0, 0)
-            visibility = View.GONE
-        }
-        card.addView(err, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        val wrap = LinearLayout(ctx).apply { setPadding(0, UI.dp(ctx, 16), 0, 0) }
-        card.background = UI.card(ctx, p, fillColor = p.card, stroke = p.line)
-        wrap.addView(card, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        wrap.setPadding(UI.dp(ctx, 10), 0, UI.dp(ctx, 10), 0)
-        gateRoot.addView(wrap, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        val go = UI.primaryButton(ctx, "فعال‌سازی اشتراک", p)
         go.setOnClickListener {
             val code = SubStore.normalize(input.text.toString())
             if (!SubStore.valid(code)) {
-                err.text = "توکن اشتراک باید ۳۰ حرف انگلیسی باشد"
+                err.text = "کد اشتراک باید ۳۰ حرف انگلیسی باشد"
                 err.visibility = View.VISIBLE
                 return@setOnClickListener
             }
@@ -1541,7 +1598,7 @@ class MainActivity : ComponentActivity() {
                             err.visibility = View.VISIBLE
                         }
                         info.badCode -> {
-                            err.text = "توکن اشتراک باید ۳۰ حرف انگلیسی باشد"
+                            err.text = "کد اشتراک باید ۳۰ حرف انگلیسی باشد"
                             err.visibility = View.VISIBLE
                         }
                         info.error != null -> {
@@ -1553,33 +1610,40 @@ class MainActivity : ComponentActivity() {
                             err.visibility = View.VISIBLE
                         }
                     }
-                    go.text = "فعال‌سازی اشتراک"
+                    go.text = "ورود"
                     go.isEnabled = true
                 }
             }.start()
         }
-        gateRoot.addView(go, LinearLayout.LayoutParams(
-            UI.dp(ctx, 230), UI.dp(ctx, 48)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            setMargins(0, UI.dp(ctx, 18), 0, 0)
+        col.addView(go, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 54)).apply {
+            setMargins(0, UI.dp(ctx, 26), 0, 0)
         })
 
-        // ورود به ربات و دریافت توکن — ربات توکن برنامه (@Appvexvpnbot)
-        val bot = UI.softButton(ctx, "🤖 ورود به روبات و دریافت کلید", p)
-        bot.setOnClickListener { openVexBot() }
-        gateRoot.addView(bot, LinearLayout.LayoutParams(
-            UI.dp(ctx, 230), UI.dp(ctx, 44)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            setMargins(0, UI.dp(ctx, 10), 0, 0)
+        // ---- دکمه‌ی «دریافت کد اشتراک» با آیکون تلگرام — ربات توکن برنامه (@Appvexvpnbot) ----
+        val tgBtn = LinearLayout(ctx).apply {
+            gravity = Gravity.CENTER
+            background = box(white, 0xFFC9D9F4.toInt(), 1.2f, 16f)
+        }
+        tgBtn.addView(ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_telegram)
+            setColorFilter(blue)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(UI.dp(ctx, 22), UI.dp(ctx, 22)))
+        tgBtn.addView(TextView(ctx).apply {
+            text = "دریافت کد اشتراک"
+            textSize = 15f; typeface = Fonts.bold(ctx); setTextColor(navy)
+            setPadding(UI.dp(ctx, 9), 0, 0, 0)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        tgBtn.setOnClickListener { openVexBot() }
+        col.addView(tgBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 52)).apply {
+            setMargins(0, UI.dp(ctx, 14), 0, 0)
         })
 
-        val tg = UI.softButton(ctx, "کانال تلگرام Vex", p)
-        tg.setOnClickListener { openTelegramChannel() }
-        gateRoot.addView(tg, LinearLayout.LayoutParams(
-            UI.dp(ctx, 230), UI.dp(ctx, 44)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            setMargins(0, UI.dp(ctx, 10), 0, 0)
-        })
+        gateRoot.addView(col, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
     /** اشتراک حذف/منقضی شد (از تب حساب یا چک دوره‌ای) → تونل قطع و صفحه‌ی ورود کد می‌آید */
