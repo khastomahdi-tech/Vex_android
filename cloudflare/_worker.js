@@ -63,7 +63,7 @@
  *   Unhandled bot errors are reported to the owner (max 1/min) instead of being swallowed.
  */
 
-const SERVICE_V = 11;
+const SERVICE_V = 12;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -190,6 +190,59 @@ export default {
         ).bind(since).all();
         return json({ ok: true, list: rs.results || [] });
       }
+      // ---------------- اشتراک: فعال‌سازی کد ۱۶ رقمی ----------------
+      if (path === "/v1/sub/activate" && request.method === "POST") {
+        await ensureSubTables(env);
+        let b = {};
+        try { b = await request.json(); } catch (e) {}
+        const code = String(b.code || "").replace(/\D/g, "");
+        const did = String(b.did || "").slice(0, 64);
+        const device = String(b.device || "?").slice(0, 80);
+        const now = Date.now();
+        if (!did) return json({ ok: false, error: "did required" }, 400);
+        if (code.length !== 16) return json({ ok: false, error: "bad_code", server_time: now });
+        const c = await env.DB.prepare(
+          "SELECT code, created, expires, active FROM sub_codes WHERE code = ?1"
+        ).bind(code).first();
+        if (!c) return json({ ok: false, error: "not_found", server_time: now });
+        if (!c.active) return json({ ok: false, error: "revoked", expires: c.expires, server_time: now });
+        if (c.expires <= now) return json({ ok: false, error: "expired", expires: c.expires, server_time: now });
+        // ثبت نشست همین دستگاه — اگر قبلاً با همین کد فعال شده، همان نشست تازه می‌شود
+        await env.DB.prepare(
+          "INSERT INTO sub_sessions (code, did, device, activated, last_seen) VALUES (?1,?2,?3,?4,?4) " +
+          "ON CONFLICT(code,did) DO UPDATE SET device = excluded.device, last_seen = excluded.last_seen"
+        ).bind(code, did, device, now).run();
+        const sn = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1"
+        ).bind(code).first();
+        return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device, sessions: sn ? sn.n : 0 });
+      }
+
+      // ---------------- اشتراک: بررسی وضعیت (کیک/انقضا را هم تشخیص می‌دهد) ----------------
+      // فقط خواندنی است — هیچ write ای روی D1 نمی‌زند تا فشار بی‌دلیل نیاید
+      if (path === "/v1/sub/status" && request.method === "POST") {
+        await ensureSubTables(env);
+        let b = {};
+        try { b = await request.json(); } catch (e) {}
+        const code = String(b.code || "").replace(/\D/g, "");
+        const did = String(b.did || "").slice(0, 64);
+        const now = Date.now();
+        if (!did || code.length !== 16) return json({ ok: false, error: "bad_request", server_time: now });
+        const c = await env.DB.prepare(
+          "SELECT code, created, expires, active FROM sub_codes WHERE code = ?1"
+        ).bind(code).first();
+        if (!c) return json({ ok: false, error: "not_found", server_time: now });
+        if (c.expires <= now) return json({ ok: false, error: "expired", expires: c.expires, server_time: now });
+        const s = await env.DB.prepare(
+          "SELECT did, device, activated FROM sub_sessions WHERE code = ?1 AND did = ?2"
+        ).bind(code, did).first();
+        if (!s) return json({ ok: false, error: "kicked", expires: c.expires, server_time: now });
+        const sn = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1"
+        ).bind(code).first();
+        return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device: s.device, activated: s.activated, sessions: sn ? sn.n : 0 });
+      }
+
       if (path === "/v1/syncsnap" && request.method === "POST") {
         const st = await stateSnapshot(env);
         const fs = await fsSnapshot(env);
@@ -444,6 +497,66 @@ async function handleAdmin(path, url, request, env) {
     await env.DB.prepare("DELETE FROM notifications WHERE id = ?1").bind(id).run();
     await ghSync(env, "notifications.json", await notifSnapshot(env));
     return J({ ok: true });
+  }
+
+  // ---------------- اشتراک: ساخت/مشاهده/حذف نشست‌های کد اشتراک ----------------
+  // ربات تلگرامیِ جدا (Botttt) با کلید ادمین اینجا کد ۱۶ رقمیِ ۱۰ روزه می‌سازد.
+  if (path === "/admin/sub/create" && request.method === "POST") {
+    await ensureSubTables(env);
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const chatId = String(b.chat_id || "").slice(0, 40);
+    const days = Math.min(3650, Math.max(1, Math.round(Number(b.days) || 10)));
+    if (!chatId) return J({ ok: false, error: "chat_id required" }, 400);
+    const now = Date.now();
+    // کدِ فعالِ قبلیِ همین کاربر → همان برگردانده می‌شود (هر کاربر فقط یک کد فعال)
+    const ex = await env.DB.prepare(
+      "SELECT code, created, expires FROM sub_codes WHERE chat_id = ?1 AND active = 1 AND expires > ?2 ORDER BY created DESC LIMIT 1"
+    ).bind(chatId, now).first();
+    if (ex) {
+      const sn = await env.DB.prepare("SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1").bind(ex.code).first();
+      return J({ ok: true, code: ex.code, days, created: ex.created, expires: ex.expires, sessions: sn ? sn.n : 0, existed: true });
+    }
+    let code = "", done = false;
+    for (let i = 0; i < 6 && !done; i++) {
+      code = genSubCode();
+      try {
+        await env.DB.prepare(
+          "INSERT INTO sub_codes (code, chat_id, days, created, expires) VALUES (?1,?2,?3,?4,?5)"
+        ).bind(code, chatId, days, now, now + days * 86400000).run();
+        done = true;
+      } catch (e) { done = false; }
+    }
+    if (!done) return J({ ok: false, error: "code generation failed" }, 500);
+    return J({ ok: true, code, days, created: now, expires: now + days * 86400000, sessions: 0, existed: false });
+  }
+
+  if (path === "/admin/sub/info" && request.method === "POST") {
+    await ensureSubTables(env);
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const chatId = String(b.chat_id || "").slice(0, 40);
+    const code0 = String(b.code || "").replace(/\D/g, "");
+    let c = null;
+    if (code0.length === 16) c = await subCodeInfo(env, code0);
+    else if (chatId) {
+      const row = await env.DB.prepare(
+        "SELECT code FROM sub_codes WHERE chat_id = ?1 AND active = 1 ORDER BY created DESC LIMIT 1"
+      ).bind(chatId).first();
+      if (row) c = await subCodeInfo(env, row.code);
+    }
+    if (!c) return J({ ok: false, error: "not_found" }, 404);
+    const ss = await env.DB.prepare(
+      "SELECT did, device, activated, last_seen FROM sub_sessions WHERE code = ?1 ORDER BY activated DESC LIMIT 50"
+    ).bind(c.code).all();
+    return J(Object.assign({}, c, { session_list: ss.results || [] }));
+  }
+
+  if (path === "/admin/sub/kick" && request.method === "POST") {
+    await ensureSubTables(env);
+    let b = {}; try { b = await request.json(); } catch (e) {}
+    const code = String(b.code || "").replace(/\D/g, "");
+    if (code.length !== 16) return J({ ok: false, error: "code required" }, 400);
+    const d = await env.DB.prepare("DELETE FROM sub_sessions WHERE code = ?1").bind(code).run();
+    return J({ ok: true, removed: (d.meta && d.meta.changes) || 0 });
   }
 
   return J({ ok: false, error: "not found" }, 404);
@@ -1147,6 +1260,51 @@ async function ensureBotUsersTable(env) {
     "last_seen INTEGER, msgs INTEGER DEFAULT 0, banned INTEGER DEFAULT 0)"
   ).run();
   botUsersTableReady = true;
+}
+
+// ============================================================ اشتراک (subscription)
+
+// کدهای اشتراک ۱۶ رقمی + نشست‌های هر کد (هر دستگاهی که با کد فعال شده باشد)
+let subTablesReady = false;
+async function ensureSubTables(env) {
+  if (subTablesReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS sub_codes (" +
+    "code TEXT PRIMARY KEY, chat_id TEXT, days INTEGER DEFAULT 10, " +
+    "created INTEGER, expires INTEGER, active INTEGER DEFAULT 1)"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS sub_sessions (" +
+    "code TEXT, did TEXT, device TEXT, activated INTEGER, last_seen INTEGER, " +
+    "PRIMARY KEY (code, did))"
+  ).run();
+  subTablesReady = true;
+}
+
+/** کد ۱۶ رقمی تصادفی (با تضمین شروع غیرصفر) */
+function genSubCode() {
+  const a = new Uint8Array(16);
+  crypto.getRandomValues(a);
+  let s = "";
+  for (let i = 0; i < 16; i++) s += String(a[i] % 10);
+  if (s[0] === "0") s = "1" + s.slice(1);
+  return s;
+}
+
+/** خواندن یک کد + تعداد نشست‌های فعالش */
+async function subCodeInfo(env, code) {
+  const c = await env.DB.prepare(
+    "SELECT code, chat_id, days, created, expires, active FROM sub_codes WHERE code = ?1"
+  ).bind(code).first();
+  if (!c) return null;
+  const sn = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1"
+  ).bind(code).first();
+  return {
+    code: c.code, chat_id: c.chat_id, days: c.days || 10,
+    created: c.created, expires: c.expires, active: !!c.active,
+    sessions: sn ? sn.n : 0
+  };
 }
 
 function userMenu() {

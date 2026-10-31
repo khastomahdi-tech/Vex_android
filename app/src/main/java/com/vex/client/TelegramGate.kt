@@ -283,6 +283,67 @@ object TelegramGate {
         return did
     }
 
+    // ------------------------------------------------ اشتراک (کد ۱۶ رقمی از ربات)
+
+    /**
+     * نتیجه‌ی فعال‌سازی/بررسی اشتراک.
+     * ok=false با یک دلیل مشخص می‌آید (kicked / expired / not_found / bad_code)؛
+     * اگر پاسخی از سرور نیامد (خطای شبکه) error=null برمی‌گردد — یعنی fail-open:
+     * نبودِ سرور نباید کاربر را قفل کند، فقط ردِ صریحِ سرور قفل می‌کند.
+     */
+    data class SubInfo(
+        val ok: Boolean,
+        val error: String? = null,
+        val code: String = "",
+        val createdAt: Long = 0L,
+        val expires: Long = 0L,
+        val serverTime: Long = 0L,
+        val device: String = "",
+        val sessions: Int = 0
+    ) {
+        val kicked: Boolean get() = error == "kicked"
+        val expired: Boolean get() = error == "expired"
+        val notFound: Boolean get() = error == "not_found" || error == "revoked"
+        val badCode: Boolean get() = error == "bad_code" || error == "bad_request"
+        /** آیا این یک ردِ صریح سرور است (نه خطای شبکه)؟ */
+        val rejected: Boolean get() = error != null
+    }
+
+    private fun parseSub(res: String?): SubInfo {
+        if (res == null) return SubInfo(false, null)
+        return try {
+            val o = JSONObject(res)
+            SubInfo(
+                ok = o.optBoolean("ok"),
+                error = if (o.has("error")) o.optString("error") else null,
+                code = o.optString("code", ""),
+                createdAt = o.optLong("created", 0L),
+                expires = o.optLong("expires", 0L),
+                serverTime = o.optLong("server_time", 0L),
+                device = o.optString("device", ""),
+                sessions = o.optInt("sessions", 0)
+            )
+        } catch (_: Throwable) {
+            SubInfo(false, null)
+        }
+    }
+
+    /** فعال‌سازی کد اشتراک برای همین دستگاه (نشست ثبت می‌شود) */
+    fun subActivate(code: String, device: String, did: String): SubInfo {
+        val res = post("/v1/sub/activate", JSONObject().apply {
+            put("did", did); put("code", code); put("device", device)
+        })
+        return parseSub(res)
+    }
+
+    /** بررسی وضعیت اشتراک — kicked یعنی مدیر «حذف تمام نشست‌ها» را زده است */
+    fun subStatus(code: String, did: String): SubInfo {
+        val res = post("/v1/sub/status", JSONObject().apply {
+            put("did", did); put("code", code)
+        })
+        return parseSub(res)
+    }
+
     // ------------------------------------------------ ابزار شبکه
 
     /** فایل پشتیبانِ هر مسیر — null یعنی فقط مستقیم (POSTها پشتیبان ندارند) */

@@ -66,6 +66,8 @@ class MainActivity : ComponentActivity() {
         private set
     lateinit var statsUi: StatsUi
         private set
+    lateinit var accountUi: AccountUi
+        private set
     lateinit var dialogs: DialogsHelper
         private set
 
@@ -81,6 +83,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var screenServers: View
     private lateinit var screenSettings: View
     private lateinit var screenStats: View
+    private lateinit var screenAccount: View
 
     // ---- هدر (داخل ستون اسکرول هر صفحه سوار می‌شود) ----
     private lateinit var headerView: View
@@ -103,6 +106,9 @@ class MainActivity : ComponentActivity() {
     /** نسخه‌ی حداقل مدیر (min_ver) — اگر از نسخه‌ی فعلی بالاتر بود، بنر «نسخه‌ی جدید» می‌آید */
     private var pendingUpdateVer = 0
 
+    /** دلیل قفلِ صفحه‌ی اشتراک (حذف شدن / منقضی شدن / کد نامعتبر) */
+    private var subLockReason: String? = null
+
     // ---- اجزای هدر ----
     private lateinit var tgBtn: FrameLayout
     private lateinit var tgIcImg: ImageView
@@ -114,9 +120,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var clientTv: TextView
 
     // ---- اجزای نوار پایین ----
-    private class NavItem(val item: LinearLayout, val icon: IconView, val label: TextView)
+    private class NavItem(val item: LinearLayout, val icon: IconView, val label: TextView, val tab: Int)
     private val navItems = ArrayList<NavItem>(4)
-    private var currentTab = 0
+    var currentTab = 0
+        private set
 
     /** آیا در حال دریافت سرورهای رایگان هستیم؟ (برای رندر صفحه‌ی سرورها) */
     var freeFetching = false
@@ -249,6 +256,30 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
+                // ---- اشتراک: بدون کدِ فعالِ ۱۶ رقمی، برنامه وارد نمی‌شود ----
+                val sc = SubStore.code(this)
+                if (sc.length != 16) {
+                    subLockReason = null
+                    main.post { if (!isFinishing) setGateUi("subscription") }
+                    return@Thread
+                }
+                val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(this))
+                if (sub.kicked || sub.expired || sub.notFound) {
+                    // فقط ردِ صریح سرور بیرون می‌اندازد؛ خطای شبکه (error=null) باز است
+                    SubStore.clear(this)
+                    subLockReason = when {
+                        sub.kicked -> "اشتراک شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
+                        sub.expired -> "اشتراک شما منقضی شده است. برای ادامه، یک کد اشتراک تازه وارد کن."
+                        else -> "این کد اشتراک دیگر معتبر نیست. یک کد معتبر وارد کن."
+                    }
+                    main.post { if (!isFinishing) setGateUi("subscription") }
+                    return@Thread
+                }
+                if (sub.ok) {
+                    // انقضای تازه از سرور ذخیره می‌شود تا زمان باقی‌مانده دقیق بماند
+                    SubStore.save(this, sub.code, sub.createdAt, sub.expires,
+                        sub.device.ifEmpty { SubStore.device(this) })
+                }
                 main.post { if (!isFinishing) enterApp() }
             }
             startGateWatch()
@@ -276,6 +307,26 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } else {
+                    // ---- چک دوره‌ای اشتراک: حذف/انقضا وسط کار هم بیرون می‌اندازد ----
+                    val sc = SubStore.code(this@MainActivity)
+                    if (sc.length == 16) {
+                        val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(this@MainActivity))
+                        if (sub.kicked || sub.expired || sub.notFound) {
+                            SubStore.clear(this@MainActivity)
+                            subLockReason = when {
+                                sub.kicked -> "اشتراک شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
+                                sub.expired -> "اشتراک شما منقضی شده است. برای ادامه، یک کد اشتراک تازه وارد کن."
+                                else -> "این کد اشتراک دیگر معتبر نیست. یک کد معتبر وارد کن."
+                            }
+                            main.post {
+                                if (!isFinishing) {
+                                    requestStop()
+                                    setGateUi("subscription")
+                                }
+                            }
+                            return@Thread
+                        }
+                    }
                     main.post { startGateWatch() }
                 }
             }.start()
@@ -325,6 +376,10 @@ class MainActivity : ComponentActivity() {
             body.addView(screenStats, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             body.addView(screenSettings, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            accountUi = AccountUi(this)
+            screenAccount = accountUi.build()
+            body.addView(screenAccount, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             body.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
@@ -524,7 +579,7 @@ class MainActivity : ComponentActivity() {
         return header
     }
 
-    /** نوار پایین سه‌تیکه با آیکون: خانه / سرورها / آمار */
+        /** نوار پایین چهارتیکه با آیکون: خانه / سرورها / آمار / حساب */
     private fun buildBottomNav(): View {
         val ctx = this
         val bar = UI.row(ctx)
@@ -539,7 +594,8 @@ class MainActivity : ComponentActivity() {
         val defs = listOf(
             Triple("خانه", "home", 0),
             Triple("سرورها", "list", 1),
-            Triple("آمار", "chart", 2)
+            Triple("آمار", "chart", 2),
+            Triple("حساب کاربری", "user", 4)
         )
         for ((lbl, ic, idx) in defs) {
             val item = UI.col(ctx).apply {
@@ -559,7 +615,7 @@ class MainActivity : ComponentActivity() {
                 setMargins(UI.dp(ctx, 2), 0, UI.dp(ctx, 2), 0)
             }
             bar.addView(item)
-            navItems.add(NavItem(item, iv, tv))
+            navItems.add(NavItem(item, iv, tv, idx))
         }
         return bar
     }
@@ -570,8 +626,9 @@ class MainActivity : ComponentActivity() {
         screenServers.visibility = if (idx == 1) View.VISIBLE else View.GONE
         screenStats.visibility = if (idx == 2) View.VISIBLE else View.GONE
         screenSettings.visibility = if (idx == 3) View.VISIBLE else View.GONE
-        for ((i, n) in navItems.withIndex()) {
-            val active = i == idx
+        screenAccount.visibility = if (idx == 4) View.VISIBLE else View.GONE
+        for (n in navItems) {
+            val active = n.tab == idx
             val p = Themes.resolve(this, store.settings.theme)
             // قرص ملایم اکسنت برای آیتم فعال — تمیز و بدون گرادیان طلایی
             n.item.background = if (active) android.graphics.drawable.GradientDrawable().apply {
@@ -584,6 +641,7 @@ class MainActivity : ComponentActivity() {
         if (idx == 1) serversUi.render()
         if (idx == 2) statsUi.render()
         if (idx == 3) settingsUi.refresh()
+        if (idx == 4) accountUi.onOpen()
     }
 
     fun gotoServers() = switchTab(1)
@@ -614,6 +672,7 @@ class MainActivity : ComponentActivity() {
             0 -> if (::screenHome.isInitialized) screenHome else return
             1 -> if (::screenServers.isInitialized) screenServers else return
             2 -> if (::screenStats.isInitialized) screenStats else return
+            4 -> if (::screenAccount.isInitialized) screenAccount else return
             else -> if (::screenSettings.isInitialized) screenSettings else return
         }
         val sv = firstScrollView(target) ?: return
@@ -674,6 +733,7 @@ class MainActivity : ComponentActivity() {
         serversUi.applyTheme(p)
         settingsUi.applyTheme(p)
         statsUi.applyTheme(p)
+        accountUi.applyTheme(p)
     }
 
     fun renderAll() {
@@ -1316,6 +1376,7 @@ class MainActivity : ComponentActivity() {
             when (state) {
                 "no-internet" -> { text = "دسترسی به اینترنت نداری"; setTextColor(p.bad) }
                 "closed" -> { text = "App Access Closed"; setTextColor(p.bad) }
+                "subscription" -> { text = "فعال‌سازی اشتراک Vex"; setTextColor(p.text) }
                 else -> { text = "این نسخه از Vex معتبر نیست"; setTextColor(p.bad) }
             }
         }
@@ -1330,12 +1391,20 @@ class MainActivity : ComponentActivity() {
                 "no-internet" -> text = "برای ورود به Vex باید اینترنت گوشی روشن باشد.\nبعد از وصل‌شدن، دوباره تلاش کن."
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
+                "subscription" -> subLockReason?.takeIf { it.isNotBlank() }
+                        ?: "برای استفاده از Vex باید کد اشتراک داشته باشی.\nکد ۱۶ رقمی را از ربات تلگرام بگیر و همین‌جا وارد کن."
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک demonvpn.shop/apk یا vex-gate.pages.dev/apk نصب کن."
                 else -> text = ""
             }
         }
         gateRoot.addView(msg, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        // ---- فرم ورود کد اشتراک ----
+        if (state == "subscription") {
+            buildSubscriptionForm(ctx, p)
+            return
+        }
 
         // دکمه‌ها
         val btns = UI.row(ctx).apply { gravity = Gravity.CENTER; setPadding(0, UI.dp(ctx, 26), 0, 0) }
@@ -1355,6 +1424,118 @@ class MainActivity : ComponentActivity() {
             gateRoot.addView(btns, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
+    }
+
+    /** فرم «کد اشتراک را وارد کن» — دروازه‌ی اولین ورود و ورودِ بعد از کیک/انقضا */
+    private fun buildSubscriptionForm(ctx: MainActivity, p: Palette) {
+        val card = UI.col(ctx).apply {
+            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
+        }
+        val input = android.widget.EditText(ctx).apply {
+            hint = "XXXX-XXXX-XXXX-XXXX"
+            textSize = 17f
+            typeface = Fonts.bold(ctx)
+            gravity = Gravity.CENTER
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(19))
+            setTextColor(p.text)
+            setHintTextColor(p.muted)
+            textDirection = View.TEXT_DIRECTION_LTR
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        card.addView(input, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 50)))
+
+        val err = TextView(ctx).apply {
+            textSize = 13f; gravity = Gravity.CENTER; setTextColor(p.bad)
+            setPadding(0, UI.dp(ctx, 8), 0, 0)
+            visibility = View.GONE
+        }
+        card.addView(err, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        val wrap = LinearLayout(ctx).apply { setPadding(0, UI.dp(ctx, 16), 0, 0) }
+        card.background = UI.card(ctx, p, fillColor = p.card, stroke = p.line)
+        wrap.addView(card, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        wrap.setPadding(UI.dp(ctx, 10), 0, UI.dp(ctx, 10), 0)
+        gateRoot.addView(wrap, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        val go = UI.primaryButton(ctx, "فعال‌سازی اشتراک", p)
+        go.setOnClickListener {
+            val code = SubStore.normalize(input.text.toString())
+            if (code.length != 16) {
+                err.text = "کد اشتراک باید ۱۶ رقم باشد"
+                err.visibility = View.VISIBLE
+                return@setOnClickListener
+            }
+            go.text = "در حال بررسی…"
+            go.isEnabled = false
+            err.visibility = View.GONE
+            Thread {
+                val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+                val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(ctx))
+                main.post {
+                    if (isFinishing) return@post
+                    when {
+                        info.ok -> {
+                            SubStore.save(ctx, info.code, info.createdAt, info.expires,
+                                info.device.ifEmpty { device })
+                            subLockReason = null
+                            UI.toast(ctx, "اشتراک فعال شد ✓")
+                            enterApp()
+                            startGateWatch()
+                        }
+                        info.notFound -> {
+                            err.text = "این کد پیدا نشد؛ از ربات کد معتبر بگیر و دوباره وارد کن"
+                            err.visibility = View.VISIBLE
+                        }
+                        info.expired -> {
+                            err.text = "این کد منقضی شده است؛ از ربات کد تازه بگیر"
+                            err.visibility = View.VISIBLE
+                        }
+                        info.badCode -> {
+                            err.text = "کد اشتراک باید ۱۶ رقم باشد"
+                            err.visibility = View.VISIBLE
+                        }
+                        info.error != null -> {
+                            err.text = "فعال‌سازی انجام نشد؛ کد را چک کن و دوباره تلاش کن"
+                            err.visibility = View.VISIBLE
+                        }
+                        else -> {
+                            err.text = "دسترسی به سرور مدیریت نبود؛ اتصال اینترنت را چک کن و دوباره تلاش کن"
+                            err.visibility = View.VISIBLE
+                        }
+                    }
+                    go.text = "فعال‌سازی اشتراک"
+                    go.isEnabled = true
+                }
+            }.start()
+        }
+        gateRoot.addView(go, LinearLayout.LayoutParams(
+            UI.dp(ctx, 230), UI.dp(ctx, 48)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setMargins(0, UI.dp(ctx, 18), 0, 0)
+        })
+
+        val tg = UI.softButton(ctx, "کانال تلگرام Vex", p)
+        tg.setOnClickListener { openTelegramChannel() }
+        gateRoot.addView(tg, LinearLayout.LayoutParams(
+            UI.dp(ctx, 230), UI.dp(ctx, 44)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setMargins(0, UI.dp(ctx, 10), 0, 0)
+        })
+    }
+
+    /** اشتراک حذف/منقضی شد (از تب حساب یا چک دوره‌ای) → تونل قطع و صفحه‌ی ورود کد می‌آید */
+    fun onSubscriptionLost(reason: String) {
+        subLockReason = reason
+        if (!::root.isInitialized || !gateBuilt) return
+        requestStop()
+        setGateUi("subscription")
     }
 
     override fun onBackPressed() {

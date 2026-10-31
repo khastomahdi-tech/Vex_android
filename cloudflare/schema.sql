@@ -43,3 +43,21 @@ CREATE TABLE IF NOT EXISTS bot_users (
   msgs INTEGER DEFAULT 0,
   banned INTEGER DEFAULT 0
 );
+
+-- کدهای اشتراک ۱۶ رقمی (ساخته‌شده از ربات تلگرامی دوم) + نشست‌های هر کد
+CREATE TABLE IF NOT EXISTS sub_codes (
+  code TEXT PRIMARY KEY,
+  chat_id TEXT,
+  days INTEGER DEFAULT 10,
+  created INTEGER,
+  expires INTEGER,
+  active INTEGER DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS sub_sessions (
+  code TEXT,
+  did TEXT,
+  device TEXT,
+  activated INTEGER,
+  last_seen INTEGER,
+  PRIMARY KEY (code, did)
+);

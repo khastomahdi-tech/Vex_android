@@ -13,7 +13,7 @@ import kotlin.math.sin
 
 /**
  * آیکون‌های وکتوری VEX — همه با Canvas رسم می‌شوند تا با تم طلایی سلطنتی هماهنگ بمانند.
- * icon: tg | globe | gear | chart | list | home | down | up | signal | crown | plus
+ * icon: tg | globe | gear | chart | list | home | down | up | signal | crown | plus | user
  */
 class IconView(context: Context, val icon: String) : View(context) {
 
@@ -296,6 +296,14 @@ class IconView(context: Context, val icon: String) : View(context) {
                 p.lineTo(cx - 1.8f * u, cy + 5.2f * u)
                 p.lineTo(cx + 6.6f * u, cy - 5.2f * u)
                 canvas.drawPath(p, cp)
+            }
+            "user" -> {
+                // آیکون حساب کاربری — سر و شانه‌ها
+                canvas.drawCircle(cx, cy - 4.8f * u, 3.7f * u, fill)
+                canvas.drawArc(
+                    RectF(cx - 7.4f * u, cy + 0.6f * u, cx + 7.4f * u, cy + 16.2f * u),
+                    180f, 180f, true, fill
+                )
             }
             "dots" -> {
                 val r = 1.7f * u
