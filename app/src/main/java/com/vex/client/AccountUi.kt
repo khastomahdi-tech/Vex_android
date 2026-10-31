@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.text.TextUtils
 import android.view.Gravity
@@ -119,6 +120,31 @@ class AccountUi(private val act: MainActivity) {
             setMargins(0, UI.dp(ctx, 10), 0, 0)
         })
         addCard(actCard)
+
+        // ================= خروج از حساب — دکمه‌ی قرمز پایین تب =================
+        // با لمس: نشست این دستگاه از سرور حذف، توکن محلی پاک و صفحه‌ی ورود کد می‌آید؛
+        // ربات توکن هم به کاربر «یک نشانه از روی حسابت حذف شد» را اطلاع می‌دهد.
+        val logoutBtn = TextView(ctx).apply {
+            text = "خروج از حساب"
+            textSize = 15f
+            typeface = Fonts.bold(ctx)
+            gravity = Gravity.CENTER
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(UI.dp(ctx, 18), UI.dp(ctx, 13), UI.dp(ctx, 18), UI.dp(ctx, 13))
+            background = GradientDrawable().apply {
+                cornerRadius = UI.dp(ctx, 14).toFloat()
+                setColor(0xFFD14343.toInt())
+            }
+        }
+        logoutBtn.setOnClickListener { act.logoutFromAccount() }
+        // دکمه داخل کانتینر — تا applyTheme پس‌زمینه‌ی قرمز دکمه را بازنویسی نکند
+        val logoutCard = UI.col(ctx).apply {
+            gravity = Gravity.CENTER
+            setPadding(UI.dp(ctx, 14), UI.dp(ctx, 14), UI.dp(ctx, 14), UI.dp(ctx, 14))
+        }
+        logoutCard.addView(logoutBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 46)))
+        addCard(logoutCard)
 
         scroll.addView(root, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))

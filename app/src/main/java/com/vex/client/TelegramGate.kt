@@ -348,12 +348,25 @@ object TelegramGate {
         }
     }
 
-    /** فعال‌سازی کد اشتراک برای همین دستگاه (نشست ثبت می‌شود) */
-    fun subActivate(code: String, device: String, did: String): SubInfo {
+    /** فعال‌سازی کد اشتراک برای همین دستگاه (نشست ثبت می‌شود)
+     *  android/ver برای اطلاع‌رسانی «اتصال موفق» به کاربر از طرف ربات توکن ارسال می‌شود */
+    fun subActivate(code: String, device: String, did: String, ver: String = ""): SubInfo {
         val res = post("/v1/sub/activate", JSONObject().apply {
             put("did", did); put("code", code); put("device", device)
+            put("android", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            if (ver.isNotEmpty()) put("ver", ver)
         })
         return parseSub(res)
+    }
+
+    /** خروج از حساب — حذف نشست این دستگاه از سرور (توکن باقی می‌ماند و دوباره قابل ورود است).
+     *  سرور از طریق ربات توکن به کاربر «یک نشانه از روی حسابت حذف شد» را اطلاع می‌دهد. */
+    fun subLogout(code: String, did: String, android: String = ""): Boolean {
+        val res = post("/v1/sub/logout", JSONObject().apply {
+            put("did", did); put("code", code)
+            if (android.isNotEmpty()) put("android", android)
+        })
+        return res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
     }
 
     /** بررسی وضعیت اشتراک — kicked یعنی مدیر «حذف تمام نشست‌ها» را زده است */

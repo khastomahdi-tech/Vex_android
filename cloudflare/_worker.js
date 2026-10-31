@@ -192,7 +192,7 @@ export default {
         ).bind(since).all();
         return json({ ok: true, list: rs.results || [] });
       }
-      // ---------------- اشتراک: فعال‌سازی کد (۲۷ حرف انگلیسی / ۱۶ رقمِ قدیمی) ----------------
+      // ---------------- اشتراک: فعال‌سازی توکن (۳۰ حرف انگلیسی / کدهای قدیمی) ----------------
       if (path === "/v1/sub/activate" && request.method === "POST") {
         await ensureSubTables(env);
         let b = {};
@@ -200,11 +200,13 @@ export default {
         const code = normSubCode(b.code);
         const did = String(b.did || "").slice(0, 64);
         const device = String(b.device || "?").slice(0, 80);
+        const android = String(b.android || "").slice(0, 60);
+        const ver = String(b.ver || "").slice(0, 24);
         const now = Date.now();
-        if (!did) return json({ ok: false, error: "did required" }, 400);
+        if (!did) return json({ ok: false, error: "did required", server_time: now });
         if (!validSubCode(code)) return json({ ok: false, error: "bad_code", server_time: now });
         const c = await env.DB.prepare(
-          "SELECT code, created, expires, active FROM sub_codes WHERE code = ?1"
+          "SELECT code, chat_id, created, expires, active FROM sub_codes WHERE code = ?1"
         ).bind(code).first();
         if (!c) return json({ ok: false, error: "not_found", server_time: now });
         if (!c.active) return json({ ok: false, error: "revoked", expires: c.expires, server_time: now });
@@ -214,6 +216,7 @@ export default {
           "SELECT did FROM sub_sessions WHERE code = ?1"
         ).bind(code).all();
         const trows = (taken && taken.results) || [];
+        const firstTime = trows.length === 0;
         if (trows.length && !trows.some((r) => r && r.did === did)) {
           return json({ ok: false, error: "device_taken", expires: c.expires, server_time: now });
         }
@@ -225,6 +228,21 @@ export default {
         const sn = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1"
         ).bind(code).first();
+        // اولین اتصال با این توکن → کاربر از طرف ربات توکن اطلاع‌رسانی می‌شود + رویداد ثبت می‌شود
+        if (firstTime) {
+          await logEvent(env, "activate", code, c.chat_id, device, android, ver, true);
+          if (c.chat_id) {
+            await notifySend(env, c.chat_id,
+              "✅ <b>اتصال شما به برنامه با موفقیت برقرار شد</b>\n\n" +
+              "📱 دستگاه: <b>" + esc(device) + "</b>\n" +
+              (android ? "🤖 اندروید: <b>" + esc(android) + "</b>\n" : "") +
+              (ver ? "📦 نسخه‌ی برنامه: <b>v" + esc(ver) + "</b>\n" : "") +
+              "🕐 زمان: <b>" + faTime(now) + "</b>\n\n" +
+              "💡 توکن تا پایان اعتبارش روی همین دستگاه فعّال است.");
+          }
+        } else {
+          await logEvent(env, "activate", code, c.chat_id, device, android, ver, false);
+        }
         return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device, sessions: sn ? sn.n : 0 });
       }
 
@@ -251,6 +269,44 @@ export default {
           "SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1"
         ).bind(code).first();
         return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device: s.device, activated: s.activated, sessions: sn ? sn.n : 0 });
+      }
+
+      // ---------------- اشتراک: خروج از حساب (حذف نشست این دستگاه) ----------------
+      // دکمه‌ی قرمز «خروج از حساب» در تب حساب کاربری برنامه این را صدا می‌زند؛
+      // نشست دستگاه حذف می‌شود (توکن تا پایان اعتبارش باقی می‌ماند و دوباره قابل ورود است)
+      // و ربات توکن به کاربر «یک نشانه از روی حسابت حذف شد» را اطلاع می‌دهد.
+      if (path === "/v1/sub/logout" && request.method === "POST") {
+        await ensureSubTables(env);
+        let b = {};
+        try { b = await request.json(); } catch (e) {}
+        const code = normSubCode(b.code);
+        const did = String(b.did || "").slice(0, 64);
+        const android = String(b.android || "").slice(0, 60);
+        const now = Date.now();
+        if (!did || !validSubCode(code)) return json({ ok: false, error: "bad_request", server_time: now });
+        const c = await env.DB.prepare(
+          "SELECT code, chat_id FROM sub_codes WHERE code = ?1"
+        ).bind(code).first();
+        if (!c) return json({ ok: false, error: "not_found", server_time: now });
+        const s = await env.DB.prepare(
+          "SELECT did, device FROM sub_sessions WHERE code = ?1 AND did = ?2"
+        ).bind(code, did).first();
+        if (s) {
+          await env.DB.prepare(
+            "DELETE FROM sub_sessions WHERE code = ?1 AND did = ?2"
+          ).bind(code, did).run();
+          await logEvent(env, "logout", code, c.chat_id, s.device, android, "", false);
+          if (c.chat_id) {
+            await notifySend(env, c.chat_id,
+              "🗑 <b>یک نشانه از روی حساب شما حذف شد</b>\n\n" +
+              "یعنی یک نشانه از روی حسابت رفت بیرون.\n" +
+              "📱 دستگاه: <b>" + esc(String(s.device || "?").slice(0, 60)) + "</b>\n" +
+              (android ? "🤖 اندروید: <b>" + esc(android) + "</b>\n" : "") +
+              "🕐 زمان: <b>" + faTime(now) + "</b>\n\n" +
+              "برای ورود دوباره، همان توکن را داخل برنامه وارد کن.");
+          }
+        }
+        return json({ ok: true, server_time: now });
       }
 
       if (path === "/v1/syncsnap" && request.method === "POST") {
@@ -1288,7 +1344,33 @@ async function ensureSubTables(env) {
     "code TEXT, did TEXT, device TEXT, activated INTEGER, last_seen INTEGER, " +
     "PRIMARY KEY (code, did))"
   ).run();
+  // گزارش رویدادها برای پنل مدیریت ربات توکن (اتصال/خروج کاربران برنامه)
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS vx_events (" +
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, type TEXT, code TEXT, chat_id TEXT, " +
+    "device TEXT, android TEXT, ver TEXT, first INTEGER DEFAULT 0)"
+  ).run();
   subTablesReady = true;
+}
+
+/** ثبت رویداد برای پنل ربات (آمار روزانه + گزارش اتصال/خروج) */
+async function logEvent(env, type, code, chatId, device, android, ver, first) {
+  try {
+    await ensureSubTables(env);
+    await env.DB.prepare(
+      "INSERT INTO vx_events (ts, type, code, chat_id, device, android, ver, first) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)"
+    ).bind(Date.now(), String(type || ""), code || "", chatId == null ? "" : String(chatId),
+           device || "", android || "", ver || "", first ? 1 : 0).run();
+  } catch (e) {}
+}
+
+/** زمان فارسی برای پیام‌های اطلاع‌رسانی (مثل ۱۴۰۵/۸/۹ ۱۴:۳۰) */
+function faTime(ms) {
+  try {
+    return new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms));
+  } catch (e) {
+    try { return new Date(ms).toISOString().replace("T", " ").slice(0, 16); } catch (e2) { return ""; }
+  }
 }
 
 /** پاک‌سازی ورودی کد اشتراک: حروف انگلیسی بزرگ + ارقام؛ خط‌تیره/فاصله/ارقام فارسی حذف یا تبدیل می‌شود */

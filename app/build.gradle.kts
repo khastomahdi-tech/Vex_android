@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 21
         targetSdk = 34
-        versionCode = 36
-        versionName = "2"
+        versionCode = 37
+        versionName = "3"
         // فقط گوشی‌های ARM — حذف کتابخانه‌های x86/x86_64 شبیه‌ساز → APK حدود ۱۶MB کوچک‌تر
         // (دانلود سبک‌تر = ریسک خرابی و خطای «بسته معتبر نیست» به‌مراتب کمتر)
         ndk {

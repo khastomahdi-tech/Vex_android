@@ -1573,7 +1573,8 @@ class MainActivity : ComponentActivity() {
             err.visibility = View.GONE
             Thread {
                 val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
-                val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(ctx))
+                val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(ctx),
+                    TelegramGate.selfVersionName(ctx))
                 main.post {
                     if (isFinishing) return@post
                     when {
@@ -1620,14 +1621,14 @@ class MainActivity : ComponentActivity() {
             setMargins(0, UI.dp(ctx, 26), 0, 0)
         })
 
-        // ---- دکمه‌ی «دریافت کد اشتراک» با آیکون تلگرام — ربات توکن برنامه (@Appvexvpnbot) ----
+        // ---- دکمه‌ی «دریافت کد اشتراک» با آیکون رسمی تلگرام (دایره‌ی آبی + هواپیمای سفید، بدون tint)
+        //      لینک به ربات توکن برنامه (@Appvexvpnbot) ----
         val tgBtn = LinearLayout(ctx).apply {
             gravity = Gravity.CENTER
             background = box(white, 0xFFC9D9F4.toInt(), 1.2f, 16f)
         }
         tgBtn.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.ic_telegram)
-            setColorFilter(blue)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(UI.dp(ctx, 22), UI.dp(ctx, 22)))
         tgBtn.addView(TextView(ctx).apply {
@@ -1644,6 +1645,26 @@ class MainActivity : ComponentActivity() {
 
         gateRoot.addView(col, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** خروج از حساب — نشست این دستگاه از سرور حذف می‌شود، توکن محلی پاک و صفحه‌ی ورود کد می‌آید.
+     *  ربات توکن هم از طرف سرور به کاربر «یک نشانه از روی حسابت حذف شد» را اطلاع می‌دهد. */
+    fun logoutFromAccount() {
+        val code = SubStore.code(this)
+        val did = TelegramGate.deviceId(this)
+        val hadSub = SubStore.valid(code)
+        val androidInfo = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+        Thread {
+            if (hadSub) try { TelegramGate.subLogout(code, did, androidInfo) } catch (_: Throwable) {}
+            main.post {
+                if (isFinishing) return@post
+                subLockReason = null
+                requestStop()
+                SubStore.clear(this)
+                UI.toast(this, "از حساب خارج شدی ✓")
+                if (gateBuilt) setGateUi("subscription")
+            }
+        }.start()
     }
 
     /** اشتراک حذف/منقضی شد (از تب حساب یا چک دوره‌ای) → تونل قطع و صفحه‌ی ورود کد می‌آید */
