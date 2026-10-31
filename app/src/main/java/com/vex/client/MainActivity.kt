@@ -1355,7 +1355,9 @@ class MainActivity : ComponentActivity() {
     private fun setGateUi(state: String) {
         if (!gateBuilt) return
         val ctx = this
-        val p = Themes.dark()
+        // صفحه‌ی کد اشتراک: پس‌زمینه‌ی سفید (درخواست کاربر) — بقیه‌ی حالت‌ها تیره
+        val sub = state == "subscription"
+        val p = if (sub) Themes.light().copy(bg = 0xFFFFFFFF.toInt()) else Themes.dark()
         // اگر برنامه باز بوده (قفل وسط کار) → صفحه‌ی قفل جایش را می‌گیرد
         setContentView(gateRoot)
         gateRoot.setBackgroundColor(p.bg)
@@ -1401,7 +1403,7 @@ class MainActivity : ComponentActivity() {
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
                 "subscription" -> subLockReason?.takeIf { it.isNotBlank() }
-                        ?: "برای استفاده از Vex باید کد اشتراک داشته باشی.\nکد ۲۷ حرفیِ انگلیسی را از ربات تلگرام بگیر و همین‌جا وارد کن.\n(کدهای ۱۶ رقمیِ قدیمی هم پذیرفته می‌شوند)"
+                        ?: "برای استفاده از Vex باید کد اشتراک داشته باشی.\nکد ۲۷ حرفیِ انگلیسی را از ربات تلگرام بگیر و همین‌جا تایپ یا پیست کن."
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک demonvpn.shop/apk یا vex-gate.pages.dev/apk نصب کن."
                 else -> text = ""
             }
@@ -1435,16 +1437,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** فرم «کد اشتراک را وارد کن» — دروازه‌ی اولین ورود و ورودِ بعد از کیک/انقضا */
+    /** فرم «کد اشتراک را وارد کن» — دروازه‌ی اولین ورود و ورودِ بعد از کیک/انقضا
+     *  طرح جدید: پس‌زمینه‌ی سفید، آیکون اثر انگشت کنار کادر با متن راهنمای Keys،
+     *  کد را می‌شود تایپ کرد یا از کلیپ‌بورد پیست کرد. */
     private fun buildSubscriptionForm(ctx: MainActivity, p: Palette) {
         val card = UI.col(ctx).apply {
             setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
         }
+        // ---- ردیف ورود کد: [اثر انگشت] [کادر Keys] ----
+        val row = LinearLayout(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
+        val fp = android.widget.ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_fingerprint)
+            setColorFilter(p.accent)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        row.addView(fp, LinearLayout.LayoutParams(UI.dp(ctx, 40), UI.dp(ctx, 40)).apply {
+            marginEnd = UI.dp(ctx, 8)
+        })
         val input = android.widget.EditText(ctx).apply {
-            hint = "XXXXXXXXX-XXXXXXXXX-XXXXXXXXX"
+            hint = "Keys"
             textSize = 15f
             typeface = Fonts.bold(ctx)
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL or Gravity.CENTER_HORIZONTAL
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                     android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
                     android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
@@ -1455,9 +1469,23 @@ class MainActivity : ComponentActivity() {
             textDirection = View.TEXT_DIRECTION_LTR
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            // تایپ با کیبورد و پیست هر دو آزاد است؛ متن کدِ پیست‌شده هم پاک‌سازی می‌شود
+            setTextIsSelectable(false)
         }
-        card.addView(input, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 50)))
+        row.addView(input, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 48)))
+        // کادر روشن با حاشیه‌ی ملایم روی پس‌زمینه‌ی سفید
+        row.background = UI.card(ctx, p, fillColor = 0xFFFFFFFF.toInt(), stroke = p.line)
+        row.setPadding(UI.dp(ctx, 8), UI.dp(ctx, 4), UI.dp(ctx, 8), UI.dp(ctx, 4))
+        card.addView(row, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 56)))
+
+        val pasteNote = UI.label(ctx, "می‌توانی کد را تایپ کنی یا از تلگرام کپی و همین‌جا پیست کنی", 12f, p.muted).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, UI.dp(ctx, 8), 0, 0)
+        }
+        card.addView(pasteNote, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         val err = TextView(ctx).apply {
             textSize = 13f; gravity = Gravity.CENTER; setTextColor(p.bad)
@@ -1536,8 +1564,8 @@ class MainActivity : ComponentActivity() {
             setMargins(0, UI.dp(ctx, 18), 0, 0)
         })
 
-        // ورود به ربات — برای گرفتن کد اشتراک جدید (لینک ربات از سرور می‌آید)
-        val bot = UI.softButton(ctx, "🤖 ورود به ربات", p)
+        // ورود به ربات و دریافت کلید — رباتی که کد اشتراک می‌دهد (@Vexpanelvpn_bot)
+        val bot = UI.softButton(ctx, "🤖 ورود به روبات و دریافت کلید", p)
         bot.setOnClickListener { openVexBot() }
         gateRoot.addView(bot, LinearLayout.LayoutParams(
             UI.dp(ctx, 230), UI.dp(ctx, 44)).apply {

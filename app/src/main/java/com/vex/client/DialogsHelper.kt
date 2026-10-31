@@ -610,15 +610,7 @@ class DialogsHelper(private val act: MainActivity) {
         col.addView(menuRow("تست پینگ") { act.pingServers(listOf(s.id)) })
         col.addView(menuRow("ویرایش اطلاعات") { showEditServer(s) })
         col.addView(menuRow("تغییر نام") { showRename(s) })
-        col.addView(menuRow("اشتراک‌گذاری") {
-            try {
-                val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_TEXT, s.raw)
-                }
-                act.startActivity(android.content.Intent.createChooser(i, "اشتراک‌گذاری کانفیگ"))
-            } catch (_: Throwable) { act.toast("اشتراک‌گذاری ممکن نشد") }
-        })
+        // «اشتراک‌گذاری» حذف شد — سیستم قبلیِ اشتراک/اشتراک‌گذاری کلاً باطل شده است
         col.addView(menuRow("مشاهده‌ی متن کانفیگ") { showRaw(s) })
         col.addView(menuRow("حذف سرور", p.bad) {
             // حذف فوری بدون تأیید — اگر همین سرور وصل باشد، خود deleteServers جلویش را می‌گیرد

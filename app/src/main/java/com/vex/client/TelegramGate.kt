@@ -290,7 +290,7 @@ object TelegramGate {
      * لینک رباتی که دکمه‌ی «ورود به ربات» باز می‌کند — از سرور (bot_url در پاسخ دروازه)
      * تازه می‌شود؛ اگر سرور چیزی نفرستاد، همین مقدار پیش‌فرض استفاده می‌شود.
      */
-    var lastBotUrl: String = "https://t.me/Appmasegbot"
+    var lastBotUrl: String = "https://t.me/Vexpanelvpn_bot"
         private set
 
     private fun rememberBotUrl(o: JSONObject) {

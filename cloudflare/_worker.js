@@ -154,7 +154,7 @@ export default {
         const minVer = Number(await getSetting(env, "min_ver")) || 0;
         const blocked = await getBlocked(env);
         // لینک رباتی که دکمه‌ی «ورود به ربات» برنامه باز می‌کند — از تنظیمات D1 قابل تغییر است
-        const botUrl = (await getSetting(env, "app_bot_url")) || "https://t.me/Appmasegbot";
+        const botUrl = (await getSetting(env, "app_bot_url")) || "https://t.me/Vexpanelvpn_bot";
         return json({ ok: true, gate, reason, min_ver: minVer, blocked, bot_url: botUrl });
       }
       if (path === "/v1/report" && request.method === "POST") {

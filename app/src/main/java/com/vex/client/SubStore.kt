@@ -4,7 +4,7 @@ import android.content.Context
 
 /**
  * اشتراک کاربر — کد ۲۷ حرفیِ انگلیسی که از ربات تلگرام گرفته می‌شود (اعتبار ۱۰ روز).
- * کدهای ۱۶ رقمیِ نسخه‌های قبلی هم همچنان پذیرفته می‌شوند تا اشتراک‌های جاری قطع نشوند.
+ * سیستم قبلی (کدهای ۱۶ رقمی و اشتراک‌گذاری قدیمی) کاملاً باطل شده؛ فقط همین کدِ جدید پذیرفته می‌شود.
  *
  *  • کد فقط بعد از تأیید سرور (demonvpn.shop) ذخیره می‌شود.
  *  • هر کد فقط روی «یک دستگاه» فعال می‌شود؛ دستگاه دوم با همان کد رد می‌شود (device_taken).
@@ -17,13 +17,17 @@ object SubStore {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("vex_sub", Context.MODE_PRIVATE)
 
-    /** آیا این دستگاه با یک کد معتبر فعال شده است؟ (۲۷ حرف انگلیسی یا ۱۶ رقمِ قدیمی) */
+    /** آیا این دستگاه با یک کد معتبر فعال شده است؟ (فقط کد ۲۷ حرفیِ انگلیسیِ جدید) */
     fun activated(ctx: Context): Boolean = try {
         valid(code(ctx))
     } catch (_: Throwable) { false }
 
-    /** شکل معتبر کد: ۲۷ حرف انگلیسی (جدید) یا ۱۶ رقم (قدیمی) */
-    fun valid(code: String): Boolean = code.length == 27 || code.length == 16
+    /** شکل معتبر کد: فقط ۲۷ حرف انگلیسیِ بزرگ — کدهای ۱۶ رقمیِ قدیمی باطل شده‌اند */
+    fun valid(code: String): Boolean {
+        if (code.length != 27) return false
+        for (ch in code) if (ch !in 'A'..'Z') return false
+        return true
+    }
 
     fun code(ctx: Context): String = try {
         prefs(ctx).getString("code", "").orEmpty()

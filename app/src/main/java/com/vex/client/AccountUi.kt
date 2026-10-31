@@ -109,7 +109,7 @@ class AccountUi(private val act: MainActivity) {
             setPadding(0, UI.dp(ctx, 12), 0, 0)
         }
         actCard.addView(hintTv)
-        val botBtn = UI.softButton(ctx, "🤖 ورود به ربات", p).apply {
+        val botBtn = UI.softButton(ctx, "🤖 ورود به روبات و دریافت کلید", p).apply {
             setPadding(UI.dp(ctx, 18), UI.dp(ctx, 12), UI.dp(ctx, 18), UI.dp(ctx, 12))
         }
         botBtnRef = botBtn
