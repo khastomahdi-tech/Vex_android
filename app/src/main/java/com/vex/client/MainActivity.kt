@@ -100,6 +100,12 @@ class MainActivity : ComponentActivity() {
     /** سرور اتصال فعلی رایگان است یا شخصی؟ (برای تفکیک آمار مصرف) */
     private var sessionIsFree = false
 
+    /** شناسه‌ی سرور رایگان جلسه‌ی فعلی — برای آمار «مصرف هر سرور» در پنل ربات */
+    private var sessionSrv: Long = 0L
+
+    /** آخرین اطلاعات نسخه‌ی منتشرشده (پاسخ /v1/app/latest) — برای بروزرسانی درون‌برنامه‌ای */
+    @Volatile private var latestInfo: Updater.Latest? = null
+
     /** اتصال خودکار پس از ورود با کاشی VPN یا اعلان «برنامه بسته شد» */
     private var pendingAutoConnect = false
 
@@ -238,6 +244,18 @@ class MainActivity : ComponentActivity() {
             TelegramGate.ackIfChanged(info.gate, this)
             // اعلام «نسخه‌ی جدید» — مدیر در پنل/ربات min_ver را بالاتر از این نسخه گذاشته باشد
             pendingUpdateVer = if (info.minVer > TelegramGate.selfVersionCode(this).toInt()) info.minVer else 0
+            // اگر نسخه‌ی نصب‌شده با آخرین چک یکی است، فایل بروزرسانی قبلی (اگر مانده) پاک می‌شود
+            try { Updater.cleanup(this) } catch (_: Throwable) {}
+            // بروزرسانی خودکار درون‌برنامه‌ای: نسخه‌ی واقعی آینه از /v1/app/latest خوانده می‌شود؛
+            // اگر از نسخه‌ی نصب‌شده بالاتر باشد، بنر با دکمه‌ی «بروزرسانی» بالا می‌آید
+            try {
+                val li = Updater.check(this)
+                if (li != null && li.code > TelegramGate.selfVersionCode(this)) {
+                    latestInfo = li
+                    pendingUpdateVer = 0 // بنرِ درون‌برنامه‌ای دقیق‌تر است — جای بنر min_ver را می‌گیرد
+                    main.post { if (::homeUi.isInitialized) homeUi.showUpdateBanner(li) }
+                }
+            } catch (_: Throwable) {}
             // نسخه‌های بسته‌شده توسط مدیر — اگر نسخه‌ی همین برنامه در لیست باشد، ورود قفل می‌شود
             if (info.gate == TelegramGate.OPEN && TelegramGate.selfVersionIsBlocked(info, this)) {
                 info = TelegramGate.GateInfo(
@@ -394,12 +412,14 @@ class MainActivity : ComponentActivity() {
             netMsg = VexVpnService.netMsg
             netMs = VexVpnService.netMs
             if (connectionState == "connected") {
-                sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
+                val sel = store.selected()
+                sessionIsFree = sel != null && store.isFree(sel)
+                sessionSrv = if (sel != null && sessionIsFree) sel.id else 0L
             }
 
             VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
             VexVpnService.statsListener = { dn, up, tdn, tup -> main.post {
-                TrafficStore.addSession(tdn, tup, sessionIsFree)
+                TrafficStore.addSession(tdn, tup, sessionIsFree, sessionSrv)
                 homeUi.onStats(dn, up, tdn, tup)
                 statsUi.onStats(dn, up, tdn, tup)
             } }
@@ -410,7 +430,11 @@ class MainActivity : ComponentActivity() {
             homeUi.restoreStats()
 
             // بنر «نسخه‌ی جدید منتشر شده» — اگر مدیر حداقل نسخه را بالا برده باشد
-            if (pendingUpdateVer > 0) homeUi.showUpdateBanner(pendingUpdateVer)
+            if (pendingUpdateVer > 0 && latestInfo == null) homeUi.showUpdateBanner(pendingUpdateVer)
+            // اگر فایل بروزرسانی دانلود شده و اجازه‌ی نصب از قبل داده شده، نصب بی‌صدا ادامه پیدا می‌کند
+            if (Updater.pendingInstall(this)) Thread {
+                if (Updater.installIfAllowed(this) && ::homeUi.isInitialized) main.post { homeUi.updateProgressDone() }
+            }.start()
 
             // به‌روزرسانی خودکار سرورهای رایگان
             scheduleFreeAutoRefresh()
@@ -481,6 +505,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // ادامه‌ی خودکار نصب بروزرسانی — وقتی کاربر از صفحه‌ی اجازه‌ی نصب برمی‌گردد
+        try {
+            if (::root.isInitialized && Updater.pendingInstall(this)) {
+                Thread {
+                    if (Updater.installIfAllowed(this) && ::homeUi.isInitialized) main.post { homeUi.updateProgressDone() }
+                }.start()
+            }
+        } catch (_: Throwable) {}
         try {
             if (!::root.isInitialized || pausedAt == 0L) return
             if (store.settings.pinHash.isEmpty() || !pinUnlocked || !store.settings.relockOnExit) return
@@ -658,6 +690,37 @@ class MainActivity : ComponentActivity() {
             } catch (_: Throwable) {}
         }
         UI.toast(this, "مرورگر در دسترس نیست")
+    }
+
+    /**
+     * بروزرسانی خودکار درون‌برنامه‌ای — با زدن دکمه‌ی «بروزرسانی» در بنر:
+     * APK مستقیم از آینه دانلود و درصد پیشرفت روی همان بنر نشان داده می‌شود؛
+     * بعد از دانلود کامل، نصب به‌صورت خودکار آغاز می‌شود. اگر اطلاعات نسخه
+     * در دسترس نباشد، مثل قبل مرورگر روی لینک دانلود باز می‌شود.
+     */
+    fun startInAppUpdate() {
+        val li = latestInfo
+        if (li == null) {
+            openApkDownload()
+            return
+        }
+        if (Updater.downloadingFile()) return
+        homeUi.updateProgressStart()
+        Thread {
+            val err = Updater.download(this, li.size) { pct -> main.post { homeUi.updateProgress(pct) } }
+            main.post {
+                if (err == null) {
+                    homeUi.updateProgressDone()
+                    if (!Updater.install(this)) {
+                        // صفحه‌ی اجازه باز شد — بعد از برگشتن، onResume نصب را ادامه می‌دهد
+                        UI.toast(this, "برای نصب، اجازه‌ی «نصب برنامه‌های ناشناس» را بده")
+                    }
+                } else {
+                    homeUi.updateProgressFail()
+                    UI.toast(this, "دانلود بروزرسانی ناموفق بود — دوباره امتحان کن")
+                }
+            }
+        }.start()
     }
 
     // ---------------- هدر متحرک (همراه اسکرول) ----------------
@@ -977,7 +1040,10 @@ class MainActivity : ComponentActivity() {
         lastError = ""
         netState = 0
         // تفکیک آمار مصرف: این جلسه روی سرور رایگان است یا شخصی؟
-        sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
+        // شناسه‌ی سرور رایگان هم نگه داشته می‌شود تا مصرف «هر سرور» جداگانه گزارش شود
+        val sel = store.selected()
+        sessionIsFree = sel != null && store.isFree(sel)
+        sessionSrv = if (sel != null && sessionIsFree && sel.id > 0) sel.id else 0L
         TrafficStore.resetSession()
         statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
         homeUi.onStats(0, 0, 0, 0)

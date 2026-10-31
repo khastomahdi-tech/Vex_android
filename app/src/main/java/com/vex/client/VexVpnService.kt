@@ -122,6 +122,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     // ---- آزمون اینترنت پس‌زمینه (مانند v2rayNG: اتصال را قطع نمی‌کنیم) ----
     private var testThread: Thread? = null
 
+    // ---- فال‌بک خودکار موتور اتصال (رفع «وصل شد ولی دیتا رد و بدل نشد» روی برخی اپراتورها) ----
+    private var failStreak = 0
+    private var fallbackDone = false
+
     // ---- آمار واقعی از شمارنده‌ی اینترفیس tun ----
     @Volatile private var tunIfaceName: String? = null
     private var lastRx = -1L
@@ -157,6 +161,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
         // موتور اتصال: «psiphon» = فقط سایفون · «hybrid» = ترکیبی (سرور Vex از داخل سایفون)
         val engMode = try { JSONObject(config).optString("engine") } catch (_: Throwable) { "" }
+        // شروع تازه (از سمت کاربر/سیستم — نه فال‌بک داخلی): وضعیت فال‌بک از نو
+        if (uiState == "stopped") {
+            failStreak = 0
+            fallbackDone = false
+        }
         val usePsiphonProc = engMode == "psiphon" || engMode == "hybrid"
         lastEnginePsiphon = usePsiphonProc
         startForeground(NOTIF_ID, notif(
@@ -249,11 +258,13 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     if (gen != generation) return@thread
                     if (err == null) {
                         verified = true
+                        failStreak = 0
                         netState = 1; netMsg = ""; netMs = ms
                         netListener?.invoke(true, ms, "")
                         startForeground(NOTIF_ID, notif("متصل است", "اینترنت از مسیر سرور تأیید شد · ${ms}ms"))
                     } else {
                         verified = false
+                        failStreak++
                         netState = 2
                         // دلیل واقعی را از لاگ هسته اضافه کن تا کاربر علت اصلی را ببیند
                         // (مثلاً TLS handshake failure / authentication failed / timeout)
@@ -265,6 +276,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         netMs = -1
                         netListener?.invoke(false, -1, netMsg)
                         startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", netMsg))
+                        // دو تست پشت‌سرهم شکست خورد و هنوز فال‌بک نکرده‌ایم؟ موتور را عوض کن
+                        if (failStreak >= 2 && !fallbackDone) maybeFallbackEngine()
                     }
                 }
                 // منتظر تایمر بعدی یا درخواست تست فوری
@@ -316,6 +329,58 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
         Log.e(TAG, "real internet test failed: $lastMsg")
         return "ترافیک از سرور رد نشد ($lastMsg) — کانفیگ یا سرور را بررسی کن"
+    }
+
+    /**
+     * فال‌بک خودکار موتور اتصال — ریشه‌ی «وصل می‌شود ولی هیچ داده‌ای رد و بدل نمی‌شود»
+     * روی برخی اپراتورها (ایرانسل، فیبر نوری و...): اگر مسیر فعلی دو تست پشت‌سرهم را رد کرد،
+     * بی‌سروصدا هسته را با موتور دیگر (مستقیم ↔ ترکیبی) دوباره بالا می‌آوریم تا کاربر
+     * واقعاً دیتا داشته باشد. در هر جلسه فقط یک‌بار — تا حلقه‌ی بی‌پایان ساخته نشود.
+     */
+    private fun maybeFallbackEngine() {
+        val payload = lastPayload ?: return
+        val cur = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
+        val target = if (cur == "hybrid" || cur == "psiphon") "" else "hybrid"
+        fallbackDone = true
+        if (target == cur) return
+        val np = try { JSONObject(payload).put("engine", target).toString() } catch (_: Throwable) { return }
+        val targetName = if (target.isEmpty()) "مستقیم (Vex)" else "ترکیبی (Vex + سایفون)"
+        Log.w(TAG, "auto engine fallback: ${cur.ifEmpty { "direct" }} -> ${target.ifEmpty { "direct" }}")
+        Handler(Looper.getMainLooper()).post {
+            try {
+                android.widget.Toast.makeText(
+                    applicationContext,
+                    "دیتا از مسیر فعلی رد نشد — موتور اتصال خودکار روی «$targetName» تنظیم شد",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            } catch (_: Throwable) {}
+        }
+        thread(name = "vex-fallback") {
+            stopCoreQuiet()
+            startVpn(np)
+        }
+    }
+
+    /** توقف بی‌صدای هسته/تونل/سایفون — بدون تغییر وضعیت UI و بدون stopSelf (فقط برای فال‌بک) */
+    private fun stopCoreQuiet() {
+        synchronized(stateLock) { generation++ }
+        timer?.cancel(); timer = null
+        testThread?.interrupt(); testThread = null
+        trafficThread?.interrupt(); trafficThread = null
+        freeWatchThread?.interrupt(); freeWatchThread = null
+        try { tun?.close() } catch (_: Exception) {}
+        tun = null
+        try { engine?.stop() } catch (_: Exception) {}
+        engine = null
+        if (lastEnginePsiphon) {
+            lastEnginePsiphon = false
+            try {
+                applicationContext.startService(
+                    Intent(applicationContext, PsiphonService::class.java).setAction(PsiphonService.ACTION_STOP)
+                )
+            } catch (_: Throwable) {}
+            PsiphonEngine.clearPort(applicationContext)
+        }
     }
 
     /**

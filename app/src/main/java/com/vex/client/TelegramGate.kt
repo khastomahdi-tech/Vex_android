@@ -182,18 +182,29 @@ object TelegramGate {
 
     /**
      * گزارش مصرف به بک‌اند ربات (D1) — یک دسته در هر درخواست.
+     * srv > 0 → مصرف تفکیکیِ همان سرور رایگان هم ثبت می‌شود (مصرف کل همیشه هم ثبت می‌شود).
+     * ver = نام نسخه‌ی برنامه — آمار «به تفکیک نسخه» از همین ستون ساخته می‌شود
+     * (آمار از کل نسخه‌ها حساب می‌شود؛ نسخه‌های قدیمی بدون ver هم در مجموع کل می‌آیند).
      * خروجی true فقط وقتی پاسخ موفق بود (برای واترمارک TrafficStore).
      */
-    fun reportTrafficType(did: String, type: String, bytes: Long): Boolean {
+    fun reportTrafficType(did: String, type: String, bytes: Long, srv: Long = 0L, ver: String = ""): Boolean {
         return try {
             if (bytes <= 0) return true
             val res = post("/v1/traffic", JSONObject().apply {
                 put("did", did); put("type", type)
                 put("up", 0); put("down", bytes)
+                if (srv > 0) put("srv", srv)
+                if (ver.isNotEmpty()) put("ver", ver)
             })
             res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
         } catch (_: Throwable) { false }
     }
+
+    /**
+     * نسخه‌ی فعلی آینه‌ی APK (برای بروزرسانی خودکار درون‌برنامه‌ای) —
+     * پاسخ خام /v1/app/latest: {ok, code, ver, name, size} — null یعنی سرور در دسترس نبود.
+     */
+    fun appLatestRaw(): String? = get("/v1/app/latest")
 
     // ------------------------------------------------ سرورهای رایگان ربات
 

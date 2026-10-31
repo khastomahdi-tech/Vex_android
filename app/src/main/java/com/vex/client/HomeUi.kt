@@ -7,6 +7,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 
@@ -68,11 +69,16 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var engPsi: TextView
     private var exitInfo: ExitInfo? = null
 
-    // ---- بنر «نسخه‌ی جدید منتشر شده» (مدیر از پنل/ربات min_ver را بالا برده باشد) ----
+    // ---- بنر «نسخه‌ی جدید منتشر شده» + بروزرسانی خودکار درون‌برنامه‌ای ----
     private lateinit var updateWrap: LinearLayout
     private lateinit var updateCard: LinearLayout
     private lateinit var updateText: TextView
+    private lateinit var updateBtn: TextView
+    private lateinit var progRow: LinearLayout
+    private lateinit var progBar: ProgressBar
+    private lateinit var progPct: TextView
     private var updateShownVer = 0
+    private var updateLatest: Updater.Latest? = null
 
     private var p: Palette = Themes.royal()
 
@@ -118,7 +124,7 @@ class HomeUi(private val act: MainActivity) {
 
     // ---------------------------------------------------------- بنر نسخه‌ی جدید
 
-    /** بنر «نسخه‌ی جدید» — بالای صفحه‌ی اصلی، با دکمه‌ی دانلود و بستن */
+    /** بنر «نسخه‌ی جدید» — بالای صفحه‌ی اصلی، با دکمه‌ی بروزرسانی درون‌برنامه‌ای و بستن */
     private fun buildUpdateBanner(): View {
         val ctx = act
         updateCard = LinearLayout(ctx).apply {
@@ -127,17 +133,17 @@ class HomeUi(private val act: MainActivity) {
             setPadding(UI.dp(ctx, 13), UI.dp(ctx, 10), UI.dp(ctx, 13), UI.dp(ctx, 10))
         }
         val txtCol = UI.col(ctx)
-        updateText = UI.label(ctx, "🔔 نسخه‌ی جدید Vex منتشر شده است", 13.5f, p.text, bold = true).apply {
+        updateText = UI.label(ctx, "🔔 بروزرسانی جدید برای کلاینت اومده", 13.5f, p.text, bold = true).apply {
             maxLines = 2
         }
         txtCol.addView(updateText)
         updateCard.addView(txtCol, LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-        val dl = UI.softButton(ctx, "دانلود", p)
-        dl.setOnClickListener { act.openApkDownload() }
-        updateCard.addView(dl, LinearLayout.LayoutParams(
-            UI.dp(ctx, 86), UI.dp(ctx, 40)).apply { marginStart = UI.dp(ctx, 8) })
+        updateBtn = UI.softButton(ctx, "بروزرسانی", p)
+        updateBtn.setOnClickListener { act.startInAppUpdate() }
+        updateCard.addView(updateBtn, LinearLayout.LayoutParams(
+            UI.dp(ctx, 92), UI.dp(ctx, 40)).apply { marginStart = UI.dp(ctx, 8) })
 
         val x = TextView(ctx).apply {
             text = "✕"
@@ -150,6 +156,21 @@ class HomeUi(private val act: MainActivity) {
         updateCard.addView(x, LinearLayout.LayoutParams(
             UI.dp(ctx, 32), UI.dp(ctx, 32)))
 
+        // ردیف درصد پیشرفت دانلود — هنگام بروزرسانی خودکار دیده می‌شود
+        progBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+        }
+        progPct = UI.label(ctx, "در حال بروزرسانی… ٪۰", 12.5f, p.text, bold = true)
+        progRow = UI.row(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
+        progRow.addView(progBar, LinearLayout.LayoutParams(0, UI.dp(ctx, 18), 1f))
+        progRow.addView(progPct, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 10)
+        })
+        progRow.setPadding(UI.dp(ctx, 13), UI.dp(ctx, 2), UI.dp(ctx, 13), UI.dp(ctx, 10))
+        progRow.visibility = View.GONE
+
         updateWrap = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -159,6 +180,8 @@ class HomeUi(private val act: MainActivity) {
             }
         }
         updateWrap.addView(updateCard, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        updateWrap.addView(progRow, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         return updateWrap
     }
@@ -170,8 +193,55 @@ class HomeUi(private val act: MainActivity) {
                 .getInt("upd_dismissed", 0)
             if (dismissed >= ver) return
             updateShownVer = ver
-            updateText.text = "🔔 نسخه‌ی جدید Vex منتشر شده است — برای تجربه‌ی بهتر به‌روز کن"
+            updateText.text = "🔔 بروزرسانی جدید برای کلاینت اومده — می‌تونی از طریق دکمه‌ی زیر بروزرسانی کنی"
             updateWrap.visibility = View.VISIBLE
+        } catch (_: Throwable) {}
+    }
+
+    /** نمایش بنر با اطلاعات واقعی آخرین نسخه (پاسخ /v1/app/latest) — بروزرسانی درون‌برنامه‌ای */
+    fun showUpdateBanner(latest: Updater.Latest) {
+        try {
+            val dismissed = act.getSharedPreferences("vex_gate", Context.MODE_PRIVATE)
+                .getInt("upd_dismissed", 0)
+            if (dismissed >= latest.code.toInt()) return
+            updateShownVer = latest.code.toInt()
+            updateLatest = latest
+            updateText.text = "🔔 بروزرسانی جدید برای کلاینت اومده — می‌تونی از طریق دکمه‌ی زیر بروزرسانی کنی"
+            progRow.visibility = View.GONE
+            updateBtn.visibility = View.VISIBLE
+            updateWrap.visibility = View.VISIBLE
+        } catch (_: Throwable) {}
+    }
+
+    /** شروع دانلود بروزرسانی — دکمه به نوار درصد تبدیل می‌شود */
+    fun updateProgressStart() {
+        try {
+            updateBtn.visibility = View.GONE
+            progBar.progress = 0
+            progPct.text = "در حال بروزرسانی… ٪۰"
+            progPct.setTextColor(p.text)
+            progRow.visibility = View.VISIBLE
+        } catch (_: Throwable) {}
+    }
+
+    /** تازه‌کردن درصد پیشرفت */
+    fun updateProgress(pct: Int) {
+        try {
+            progBar.progress = pct
+            progPct.text = "در حال بروزرسانی… ٪$pct"
+        } catch (_: Throwable) {}
+    }
+
+    /** دانلود کامل شد — نصب آغاز می‌شود */
+    fun updateProgressDone() {
+        try { progPct.text = "نصب بروزرسانی…" } catch (_: Throwable) {}
+    }
+
+    /** دانلود ناموفق — دکمه برمی‌گردد تا کاربر دوباره امتحان کند */
+    fun updateProgressFail() {
+        try {
+            progRow.visibility = View.GONE
+            updateBtn.visibility = View.VISIBLE
         } catch (_: Throwable) {}
     }
 
@@ -617,6 +687,11 @@ class HomeUi(private val act: MainActivity) {
             setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.5f))
         }
         updateText.setTextColor(p.text)
+        if (::progBar.isInitialized) {
+            progBar.progressTintList = android.content.res.ColorStateList.valueOf(p.accent)
+            progBar.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(UI.alpha(p.accent, 0.25f))
+            progPct.setTextColor(p.text)
+        }
 
         // دکمه پاور
         power.palette = p

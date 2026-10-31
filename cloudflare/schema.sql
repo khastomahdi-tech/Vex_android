@@ -25,12 +25,14 @@ CREATE TABLE IF NOT EXISTS free_servers (
   enabled INTEGER DEFAULT 1
 );
 -- مصرف ترافیک هر دستگاه (دلتای جمع‌شده) — تفکیک سرور رایگان / شخصی
+-- ver = آخرین نام نسخه‌ی گزارش‌کننده — آمار «به تفکیک نسخه» از همین ستون ساخته می‌شود
 CREATE TABLE IF NOT EXISTS traffic (
   did TEXT,
   type TEXT,
   up INTEGER DEFAULT 0,
   down INTEGER DEFAULT 0,
   updated INTEGER,
+  ver TEXT,
   PRIMARY KEY (did, type)
 );
 -- کاربران تلگرامی ربات (سمت عمومی: منو/دانلود/پشتیبانی + مخاطبان پیام همگانی)

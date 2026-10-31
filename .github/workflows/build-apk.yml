@@ -166,7 +166,9 @@ jobs:
 
       - name: Read version
         id: ver
-        run: echo "v=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "v=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+          echo "c=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
 
       - name: Build debug APK
         run: gradle :app:assembleRelease --no-daemon
@@ -246,6 +248,7 @@ jobs:
           SIZE=$(stat -c%s vex.apk)
           PARTS=$(ls vex.part-* | wc -l)
           rm vex.apk
-          printf '{"name":"%s","size":%s,"parts":%s}' "$NAME" "$SIZE" "$PARTS" > manifest.json
+          # code/ver برای اندپوینت /v1/app/latest (بروزرسانی خودکار درون‌برنامه‌ای)
+          printf '{"name":"%s","size":%s,"parts":%s,"code":%s,"ver":"%s"}' "$NAME" "$SIZE" "$PARTS" "${{ steps.ver.outputs.c }}" "${{ steps.ver.outputs.v }}" > manifest.json
           cd /tmp
           npx --yes wrangler@3 pages deploy /tmp/vex-cf --project-name vex-gate --branch main --commit-dirty=true

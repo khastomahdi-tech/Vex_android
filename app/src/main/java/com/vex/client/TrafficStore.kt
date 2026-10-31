@@ -2,6 +2,7 @@ package com.vex.client
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONObject
 
 /**
  * شمارنده‌ی «مصرف کل برنامه» — مجموع همه‌ی جلسات از روز نصب،
@@ -38,8 +39,11 @@ object TrafficStore {
     /**
      * افزودن آمار زنده‌ی جلسه — خودش دلتا را حساب می‌کند؛
      * اگر سرویس ریست شده باشد (مقادیر کوچک‌تر از قبل) از همان مقدار جدید شروع می‌کند.
+     *
+     * srv = شناسه‌ی سرور رایگان (>۰) — مصرف آن سرور جداگانه هم انباشته می‌شود تا
+     * در پنل مدیریت «کدام سرور بیشتر استفاده شده» دیده شود.
      */
-    fun addSession(tdn: Long, tup: Long, isFree: Boolean) {
+    fun addSession(tdn: Long, tup: Long, isFree: Boolean, srv: Long = 0L) {
         if (!::prefs.isInitialized) return
         synchronized(this) {
             var dDn = tdn - lastDn
@@ -49,8 +53,17 @@ object TrafficStore {
             lastDn = tdn
             lastUp = tup
             if (dDn <= 0 && dUp <= 0) return
+            val d = dDn + dUp
             val key = if (isFree) "free" else "priv"
-            prefs.edit().putLong(key, prefs.getLong(key, 0L) + dDn + dUp).apply()
+            prefs.edit().putLong(key, prefs.getLong(key, 0L) + d).apply()
+            if (isFree && srv > 0) {
+                try {
+                    val m = JSONObject(prefs.getString("srvmap", "{}") ?: "{}")
+                    val skey = srv.toString()
+                    m.put(skey, m.optLong(skey, 0L) + d)
+                    prefs.edit().putString("srvmap", m.toString()).apply()
+                } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -71,28 +84,59 @@ object TrafficStore {
      * ارسال مصرف جمع‌نشده به بک‌اند ربات — در Thread جدا، بهترین تلاش.
      * دلتا = مصرف کل − مصرف گزارش‌شده؛ واترمارک فقط با پاسخ موفق جلو می‌رود،
      * پس هیچ مصرفی دوباره شمرده نمی‌شود و هیچ مصرفی گم نمی‌شود.
+     * همه‌ی گزارش‌ها «ver» (نام نسخه) هم دارند تا آمار پنل به‌تفکیک نسخه از کل نسخه‌ها حساب شود.
      */
     fun flushAsync(ctx: Context) {
         if (!::prefs.isInitialized) return
         Thread {
             try {
+                val ver = try {
+                    ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+                } catch (_: Throwable) { "" }
                 val f = prefs.getLong("free", 0L)
                 val p = prefs.getLong("priv", 0L)
                 val rf = prefs.getLong("rep_free", 0L)
                 val rp = prefs.getLong("rep_priv", 0L)
                 val fDelta = (f - rf).coerceAtLeast(0)
                 val pDelta = (p - rp).coerceAtLeast(0)
-                if (fDelta == 0L && pDelta == 0L) return@Thread
+                if (fDelta == 0L && pDelta == 0L) {
+                    reportSrvDeltas(ctx, ver)
+                    return@Thread
+                }
                 val did = TelegramGate.deviceId(ctx)
-                val okF = if (fDelta > 0) TelegramGate.reportTrafficType(did, "free", fDelta) else true
-                val okP = if (pDelta > 0) TelegramGate.reportTrafficType(did, "private", pDelta) else true
+                val okF = if (fDelta > 0) TelegramGate.reportTrafficType(did, "free", fDelta, ver = ver) else true
+                val okP = if (pDelta > 0) TelegramGate.reportTrafficType(did, "private", pDelta, ver = ver) else true
                 if (okF || okP) {
                     prefs.edit()
                         .putLong("rep_free", if (okF) f else rf)
                         .putLong("rep_priv", if (okP) p else rp)
                         .apply()
                 }
+                // گزارش تفکیکی هر سرور رایگان — واترمارک جدا برای هر سرور
+                reportSrvDeltas(ctx, ver)
             } catch (_: Throwable) {}
         }.start()
+    }
+
+    /** دلتای مصرف هر سرور رایگان جداگانه گزارش می‌شود (فقط پس از پاسخ موفق واترمارک جلو می‌رود) */
+    private fun reportSrvDeltas(ctx: Context, ver: String) {
+        try {
+            val did = TelegramGate.deviceId(ctx)
+            val m = JSONObject(prefs.getString("srvmap", "{}") ?: "{}")
+            val r = JSONObject(prefs.getString("srvrep", "{}") ?: "{}")
+            if (m.length() == 0) return
+            var changed = false
+            for (id in m.keys()) {
+                val tot = m.optLong(id, 0L)
+                val d = (tot - r.optLong(id, 0L)).coerceAtLeast(0)
+                if (d <= 0) continue
+                val sid = id.toLongOrNull() ?: continue
+                if (TelegramGate.reportTrafficType(did, "free", d, srv = sid, ver = ver)) {
+                    r.put(id, tot)
+                    changed = true
+                }
+            }
+            if (changed) prefs.edit().putString("srvrep", r.toString()).apply()
+        } catch (_: Throwable) {}
     }
 }

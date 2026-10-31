@@ -118,7 +118,9 @@ object ConfigBuilder {
      * extraOutbounds: خروجی‌های اضافی (مثلاً SOCKS سایفون برای موتور ترکیبی) — بعد از proxy می‌آیند.
      */
     private fun assembleShell(outbound: JSONObject, j: JSONObject, extraOutbounds: List<JSONObject> = emptyList()): String {
-        val mtu = j.optInt("mtu", 1500).coerceIn(1280, 9000)
+        // MTU پیش‌فرض ۱۴۰۰: روی فیبر نوری (PPPoE) و اپراتورهایی که MTU مسیر کوچک‌تر است،
+        // بسته‌های ۱۵۰۰ بایتی وسط راه حذف می‌شوند → «وصل می‌شود ولی هیچ داده‌ای رد و بدل نمی‌شود».
+        val mtu = j.optInt("mtu", 1400).coerceIn(1280, 9000)
         val bypassLan = j.optBoolean("bypassLan", true)
         val ipv6 = j.optBoolean("ipv6", false)
         val sniff = j.optBoolean("sniffing", true)
@@ -132,6 +134,12 @@ object ConfigBuilder {
         if (sniff) rules.put(JSONObject().put("action", "sniff"))
         // همه‌ی درخواست‌های DNS داخل تونل به هسته برمی‌گردند (hijack)
         rules.put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+        // بستن QUIC (UDP/443) — روی ایرانسل، برخی فیبرها و شبکه‌هایی که UDP معیوب/محدود دارند،
+        // اپ‌هایی که QUIC را ترجیح می‌دهند (گوگل، یوتیوب، اینستاگرام، ...) بی‌درنگ هنگ می‌کنند
+        // و کاربر می‌بیند «وصل شد ولی هیچ سایتی باز نمی‌شود». با رد کردن QUIC، همان اپ‌ها
+        // بی‌صدا به TCP برمی‌گردند و دیتا جاری می‌شود. (اتصال خود پروتکل‌های UDP مثل Hysteria2
+        // متأثر نمی‌شود — این قانون فقط ترافیک ورودی از tun را کنترل می‌کند.)
+        rules.put(JSONObject().put("network", "udp").put("port", 443).put("action", "reject"))
         if (bypassLan) rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
         if (!ipv6) rules.put(JSONObject().put("ip_version", 6).put("action", "reject"))
 
