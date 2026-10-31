@@ -55,6 +55,10 @@ object ConfigBuilder {
             outbound.put("domain_strategy", domainStrategy)
         }
         if (tfo) outbound.put("tcp_fast_open", true)
+        // مهلت اتصال ۱۵ ثانیه (پیش‌فرض هسته ۵ ثانیه است) — روی شبکه‌ی موبایل شلوغ ایران،
+        // TCP+TLS handshake به سرور گاهی بیش از ۵ ثانیه طول می‌کشد و اتصال‌های نو رد می‌شوند
+        // که به شکل «هی وصل می‌شود، هی قطع می‌شود» دیده می‌شود. کلاینت‌های NG صبورترند.
+        outbound.put("connect_timeout", 15)
 
         return assembleShell(outbound, j)
     }
@@ -118,9 +122,11 @@ object ConfigBuilder {
      * extraOutbounds: خروجی‌های اضافی (مثلاً SOCKS سایفون برای موتور ترکیبی) — بعد از proxy می‌آیند.
      */
     private fun assembleShell(outbound: JSONObject, j: JSONObject, extraOutbounds: List<JSONObject> = emptyList()): String {
-        // MTU پیش‌فرض ۱۴۰۰: روی فیبر نوری (PPPoE) و اپراتورهایی که MTU مسیر کوچک‌تر است،
-        // بسته‌های ۱۵۰۰ بایتی وسط راه حذف می‌شوند → «وصل می‌شود ولی هیچ داده‌ای رد و بدل نمی‌شود».
-        val mtu = j.optInt("mtu", 1400).coerceIn(1280, 9000)
+        // MTU پیش‌فرض ۱۵۰۰ — همان عدد پیش‌فرض v2rayNG و PattNG (AppConfig.VPN_MTU).
+        // MTU فقط روی هاپ «اپ ↔ تونل» اثر دارد (هرگز از گوشی خارج نمی‌شود)؛ عدد بزرگ‌تر =
+        // بسته‌های پرتر و سرعت بیشتر. مسیر کوچک‌تر (PPPoE و...) توسط سوکت واقعیِ هسته که
+        // MSS را از MTU اینترفیس فیزیکی می‌گیرد، خودبه‌خود هندل می‌شود.
+        val mtu = j.optInt("mtu", 1500).coerceIn(1280, 9000)
         val bypassLan = j.optBoolean("bypassLan", true)
         val ipv6 = j.optBoolean("ipv6", false)
         val sniff = j.optBoolean("sniffing", true)

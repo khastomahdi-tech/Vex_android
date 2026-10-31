@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -33,6 +35,7 @@ import java.net.Proxy
 import java.net.URL
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
@@ -110,6 +113,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         /** درخواست تست فوری اینترنت (دکمه‌ی «تست اینترنت» در UI) */
         @Volatile var testNow = false
         fun requestNetTest() { testNow = true }
+
+        // ---- ثابت‌های پایداری (الگوی v2rayNG/PattNG/ArasClient) ----
+        /** تأخیر ضدلرزش هنداور — همان HANDOVER_DEBOUNCE_MS در NetworkMonitor کلاینت‌های NG */
+        private const val HANDOVER_DEBOUNCE_MS = 1000L
+        /** اگر از دور تست قبلی این حجم ترافیک واقعی عبور کرده باشد، تونل قطعاً زنده است */
+        private const val TRAFFIC_ALIVE_BYTES = 300_000L
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -136,6 +145,20 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     /** آخرین متن اعلان — اعلان فقط وقتی عوض شود، نه هر ثانیه (الگوی v2rayNG) */
     private val lastNotifKey = AtomicReference<String>("")
+
+    // ---- نردبان خود-شفای اتصال (رفع «هی وصل می‌شود، هی قطع می‌شود») ----
+    /** مرحله‌ی نوسازی: ۱ و ۳ = ری‌استارت بی‌صدای هسته (جریان تازه) · ۲ = تغییر موتور · ۴ = فقط پایش */
+    private var healStage = 0
+    /** جمع بایت‌ها در آخرین دور تست — لایوِبودن تونل از روی ترافیک واقعی کاربر تشخیص داده می‌شود */
+    private var lastProbeBytes = 0L
+
+    // ---- پایش شبکه‌ی زیرین + نوسازی هنگام هنداور (الگوی NetworkMonitor/reloadCore در v2rayNG) ----
+    private var handoverCb: ConnectivityManager.NetworkCallback? = null
+    private var upstreamNet: Network? = null
+    private val reloadBusy = AtomicBoolean(false)
+    @Volatile private var lastReloadAt = 0L
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+    private var handoverRunnable: Runnable? = null
 
     // ---- آمار واقعی از شمارنده‌ی اینترفیس tun ----
     @Volatile private var tunIfaceName: String? = null
@@ -168,7 +191,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         return START_STICKY
     }
 
-    private fun startVpn(config: String) {
+    /**
+     * quiet = نوسازی بی‌صدای هسته (الگوی reloadCore در v2rayNG): تونل و اعلان و وضعیت «متصل»
+     * دست‌نخورده می‌ماند؛ فقط هسته با کانفیگ تازه و جریان‌های TCP نو بالا می‌آید.
+     * isRetry = تلاش دومِ خودکار در حالت quiet (فقط یک‌بار — تا حلقه‌ی بی‌پایان ساخته نشود).
+     */
+    private fun startVpn(config: String, quiet: Boolean = false, isRetry: Boolean = false) {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
         // موتور اتصال: «psiphon» = فقط سایفون · «hybrid» = ترکیبی (سرور Vex از داخل سایفون)
         val engMode = try { JSONObject(config).optString("engine") } catch (_: Throwable) { "" }
@@ -176,19 +204,23 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         if (uiState == "stopped") {
             failStreak = 0
             fallbackDone = false
+            healStage = 0
+            lastProbeBytes = 0
         }
         val usePsiphonProc = engMode == "psiphon" || engMode == "hybrid"
         lastEnginePsiphon = usePsiphonProc
-        startForeground(NOTIF_ID, notif(
-            when (engMode) {
-                "hybrid" -> "در حال اتصال... (ترکیبی Vex + سایفون)"
-                "psiphon" -> "در حال اتصال... (سایفون)"
-                else -> "در حال اتصال..."
-            },
-            if (usePsiphonProc) "راه‌اندازی موتور سایفون..." else "راه‌اندازی هسته..."))
-        uiState = "connecting"
-        tileListener?.invoke("connecting")
-        netState = 0; netMsg = ""; netMs = -1
+        if (!quiet) {
+            startForeground(NOTIF_ID, notif(
+                when (engMode) {
+                    "hybrid" -> "در حال اتصال... (ترکیبی Vex + سایفون)"
+                    "psiphon" -> "در حال اتصال... (سایفون)"
+                    else -> "در حال اتصال..."
+                },
+                if (usePsiphonProc) "راه‌اندازی موتور سایفون..." else "راه‌اندازی هسته..."))
+            uiState = "connecting"
+            tileListener?.invoke("connecting")
+            netState = 0; netMsg = ""; netMs = -1
+        }
         // پنجره‌ی تثبیت ۶۰ ثانیه‌ای: در این بازه شکست تست‌ها شمرده نمی‌شود —
         // شروع تونل روی شبکه‌ی موبایل پرلرزش است و نباید باعث فال‌بک کاذب شود
         stabilizeUntilMs = System.currentTimeMillis() + 60_000L
@@ -233,7 +265,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     engine = eng
                 }
 
-                lastRx = -1L; lastTx = -1L; totalRx = 0; totalTx = 0; statSource = 0
+                lastRx = -1L; lastTx = -1L; statSource = 0
+                // در نوسازی بی‌صدا آمار جلسه حفظ می‌شود (قطعی برای کاربر دیده نمی‌شود)
+                if (!quiet) { totalRx = 0; totalTx = 0 }
                 verified = false
                 startStatsTimer()
                 startTrafficApi(gen)
@@ -242,42 +276,89 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 // ---- اتصال اعلام می‌شود (مانند v2rayNG)؛ تست اینترنت در پس‌زمینه ----
                 synchronized(stateLock) { if (gen != generation) return@thread }
                 verified = false
-                uiState = "connected"
-                connectedAtMs = System.currentTimeMillis()
-                tileListener?.invoke("connected")
+                if (!quiet) {
+                    uiState = "connected"
+                    connectedAtMs = System.currentTimeMillis()
+                    tileListener?.invoke("connected")
+                }
                 startForeground(NOTIF_ID, notif("متصل است", "در حال تست اینترنت..."))
                 stateListener?.invoke("connected", "")
                 if (autoNetTest) startNetTestLoop(gen)
                 else startForeground(NOTIF_ID, notif("متصل است", "تست خودکار اینترنت خاموش است"))
+                // پایش شبکه‌ی زیرین: هنداور WiFi↔موبایل → نوسازی بی‌صدا (الگوی v2rayNG)
+                startHandoverWatcher(gen)
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
-                if (gen == generation) stopVpn(error = e.message ?: "خطا در اتصال به هسته", includeLogs = true)
+                if (gen == generation) {
+                    if (quiet && !isRetry) {
+                        // یک تلاش دوباره برای نوسازی بی‌صدا — قطع نشدن کاربر به‌خاطر لرزش شروع
+                        try { Thread.sleep(3000) } catch (_: InterruptedException) {}
+                        try { tun?.close() } catch (_: Exception) {}
+                        tun = null
+                        try { engine?.stop() } catch (_: Exception) {}
+                        engine = null
+                        startVpn(config, quiet = true, isRetry = true)
+                    } else {
+                        stopVpn(error = e.message ?: "خطا در اتصال به هسته", includeLogs = true)
+                    }
+                }
             }
         }
     }
 
     /**
-     * حلقه‌ی تست اینترنت پس‌زمینه: هر ۱۵ ثانیه (یا فوری با requestNetTest) یک درخواست
-     * واقعی HTTP از مسیر سرور می‌فرستد. اتصال هیچ‌وقت به‌خاطر شکست تست قطع نمی‌شود؛
-     * فقط وضعیت «اینترنت تأیید شد / بدون اینترنت» به UI و نوتیفیکیشن داده می‌شود.
+     * حلقه‌ی پایش پس‌زمینه — الگوی ترکیبی v2rayNG/PattNG:
+     *  ۱) لایوِبودن از روی ترافیک واقعی: اگر از دور قبل، ترافیک واقعی از تونل گذشته باشد،
+     *     تونل قطعاً کار می‌کند و هیچ پروب HTTP زده نمی‌شود (کلاینت‌های NG اصلاً حلقه‌ی
+     *     خودکار ندارند — تستِ کاذب نباید تونل سالم را بکشد و «قطع‌ووصل» بسازد).
+     *  ۲) وقتی تونل بی‌ترافیک است، پروب واقعی HTTP زده می‌شود.
+     *  ۳) روی شکست پشت‌سرهم، نردبان نوسازی: جریان تازه با همان موتور → تغییر موتور →
+     *     جریان تازه دوباره؛ بعد از آن فقط پایش (تا حلقه‌ی بی‌پایان ساخته نشود).
      */
     private fun startNetTestLoop(gen: Int) {
         testThread?.interrupt()
         val th = thread(name = "vex-nettest") {
             while (true) {
                 synchronized(stateLock) { if (gen != generation) return@thread }
+
+                // ---- ۱) تشخیص لایوِبودن از روی ترافیک واقعی ----
+                val nowBytes: Long = try { totalRx + totalTx } catch (_: Throwable) { 0L }
+                val aliveByTraffic = nowBytes - lastProbeBytes > TRAFFIC_ALIVE_BYTES
+                lastProbeBytes = nowBytes
+                if (aliveByTraffic) {
+                    synchronized(stateLock) {
+                        if (gen != generation) return@thread
+                        verified = true
+                        failStreak = 0
+                        healStage = 0
+                        fallbackDone = false
+                        if (netState != 1) {
+                            netState = 1; netMsg = ""; netMs = -1
+                            netListener?.invoke(true, -1, "")
+                            startForeground(NOTIF_ID, notif("متصل است", "اتصال برقرار و پایدار است"))
+                        }
+                    }
+                    waitNextProbe(gen, 30_000L)
+                    continue
+                }
+
+                // ---- ۲) تونل بی‌ترافیک: پروب واقعی HTTP از مسیر سرور ----
                 val t0 = System.nanoTime()
                 val err = testRealInternet(gen)
                 val ms = ((System.nanoTime() - t0) / 1_000_000L).toInt()
+                var failed = false
                 synchronized(stateLock) {
                     if (gen != generation) return@thread
                     if (err == null) {
                         verified = true
                         failStreak = 0
+                        healStage = 0
+                        fallbackDone = false
                         netState = 1; netMsg = ""; netMs = ms
                         netListener?.invoke(true, ms, "")
                         startForeground(NOTIF_ID, notif("متصل است", "اینترنت از مسیر سرور تأیید شد · ${ms}ms"))
                     } else {
+                        failed = true
                         verified = false
                         // در پنجره‌ی تثبیت شکست شمرده نمی‌شود (لرزش طبیعی اول اتصال)
                         if (System.currentTimeMillis() >= stabilizeUntilMs) failStreak++
@@ -292,24 +373,39 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         netMs = -1
                         netListener?.invoke(false, -1, netMsg)
                         startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", netMsg))
-                        // الگوی v2rayNG/SagerNet: تونل سالم را بیدرود نکُش! چهار شکست پشت‌سرهم
-                        // (≈۳ دقیقه قطعی واقعی) لازم است — نه دو لرزش زودگذر شبکه
-                        if (failStreak >= 4 && !fallbackDone) maybeFallbackEngine()
+                        // ---- ۳) نردبان نوسازی — مثل reloadCore کلاینت‌های NG ولی خودآگاه ----
+                        if (System.currentTimeMillis() >= stabilizeUntilMs && failStreak >= 4) {
+                            failStreak = 0
+                            if (healStage < 4) healStage++
+                            when (healStage) {
+                                // جریان تازه با همان موتور (سوکت‌های مرده دور ریخته می‌شوند)
+                                1, 3 -> lastPayload?.let { performQuietReload(it, "heal$healStage") }
+                                // تغییر موتور (مستقیم ↔ ترکیبی) — فقط یک‌بار در هر ران
+                                2 -> maybeFallbackEngine()
+                                // مرحله‌ی ۴ به بعد: خودکار نمی‌چرخیم؛ فقط پایش —
+                                // با برگشتن ترافیک واقعی یا اتصال مجدد دستی، لدر ریست می‌شود
+                                else -> {}
+                            }
+                            stabilizeUntilMs = System.currentTimeMillis() + 120_000L
+                        }
                     }
                 }
-                // منتظر تایمر بعدی یا درخواست تست فوری — بازه‌ی ۴۵±۵ ثانیه با جیتر
-                // (تست هر ۱۵ ثانیه، خودش مزاحم تونل است؛ v2rayNG اصلاً حلقه‌ی خودکار ندارد)
-                var waited = 0
-                val intervalMs = 45_000L + kotlin.random.Random.nextLong(-5_000L, 5_000L)
-                while (waited < intervalMs) {
-                    synchronized(stateLock) { if (gen != generation) return@thread }
-                    if (testNow) { testNow = false; break }
-                    try { Thread.sleep(250) } catch (_: InterruptedException) { return@thread }
-                    waited += 250
-                }
+                // اگر آخرین تست رد شده، زودتر دوباره چک کن (۲۰ ثانیه) — ریکاوری سریع‌تر دیده می‌شود
+                waitNextProbe(gen, if (failed) 20_000L else 45_000L + kotlin.random.Random.nextLong(-5_000L, 5_000L))
             }
         }
         testThread = th
+    }
+
+    /** انتظار تا دور بعدی پروب — در قطعه‌های ۲۵۰ms تا قطع فوری در stopVpn یا تست فوری کاربر */
+    private fun waitNextProbe(gen: Int, intervalMs: Long) {
+        var waited = 0L
+        while (waited < intervalMs) {
+            synchronized(stateLock) { if (gen != generation) return }
+            if (testNow) { testNow = false; return }
+            try { Thread.sleep(250) } catch (_: InterruptedException) { return }
+            waited += 250
+        }
     }
 
     /**
@@ -388,6 +484,117 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
     }
 
+    /**
+     * نوسازی بی‌صدای هسته — پیاده‌سازی همان reloadCore در v2rayNG/PattNG/ArasClient:
+     * هسته با کانفیگ تازه (resolve تازه‌ی DNS سرور) و جریان‌های TCP نو بالا می‌آید؛
+     * اینترفیس VPN، اعلان و وضعیت «متصل» دست‌نخورده می‌ماند و کاربر هیچ قطعی نمی‌بیند.
+     * آمار جلسه هم حفظ می‌شود. برای سوکت‌های مرده‌ی پس از هنداور/فشار DPI دقیقاً همین است.
+     */
+    private fun performQuietReload(payload: String, reason: String) {
+        if (!reloadBusy.compareAndSet(false, true)) return
+        try {
+            synchronized(stateLock) { if (uiState != "connected") return }
+            if (System.currentTimeMillis() - lastReloadAt < 5_000L) return
+            lastReloadAt = System.currentTimeMillis()
+            Log.w(TAG, "quiet core reload ($reason) — fresh flows, VPN stays up (v2rayNG reloadCore pattern)")
+            stopCoreQuiet()
+            startVpn(payload, quiet = true)
+        } finally {
+            reloadBusy.set(false)
+        }
+    }
+
+    // ---------------------------------------------- پایش شبکه‌ی زیرین (الگوی v2rayNG NetworkMonitor)
+
+    /**
+     * ریشه‌ی واقعی «هی وصل می‌شود، هی قطع می‌شود» روی گوشی: هنداور WiFi↔دیتای موبایل
+     * (و جابه‌جایی آنتن سلولی) به‌صورت make-before-break است — شبکه‌ی نو اعلام می‌شود در
+     * حالی‌که سوکت‌های قدیمی هنوز به شبکه‌ی ازدست‌رفته چسبیده‌اند؛ هسته روی سوکت مرده
+     * می‌ماند و دیتا ظاهراً «قطع» می‌شود تا سوکت‌ها تایم‌اوت شوند.
+     * v2rayNG/PattNG/ArasClient دقیقاً برای همین NetworkMonitor دارند:
+     *  ۱) setUnderlyingNetworks با شبکه‌ی واقعی زیرین (نه اینترفیس VPN)،
+     *  ۲) هنگام هنداور (با ۱ ثانیه ضدلرزش): بازسازی کامل هسته با جریان‌های نو.
+     * برای موتور سایفون/ترکیبی کاری نمی‌کنیم — tunnel-core سایفون خودش شبکه را مدیریت می‌کند.
+     */
+    private fun startHandoverWatcher(gen: Int) {
+        stopHandoverWatcher()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        // requestNetwork به‌جای registerDefaultNetworkCallback: کال‌بک فقط برای «شبکه‌ی
+        // پیش‌فرض واقعی» می‌آید نه اینترفیس VPN خودمان (توضیح داخل NetworkMonitor کلاینت‌های NG)
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            .build()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val prev = upstreamNet
+                upstreamNet = network
+                applyUnderlyingNetworks(network)
+                // هنداور واقعی: شبکه‌ی زیرین عوض شده (در onLost عمداً upstream را خالی نمی‌کنیم
+                // تا «قطعی مطلق → شبکه‌ی نو» هم هنداور حساب شود — مثل کلاینت‌های NG)
+                if (prev != null && prev != network) scheduleHandover(gen)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (upstreamNet == network) applyUnderlyingNetworks(network)
+            }
+
+            override fun onLost(network: Network) {
+                if (upstreamNet == network) applyUnderlyingNetworks(null)
+            }
+        }
+        handoverCb = cb
+        try {
+            cm.requestNetwork(request, cb)
+            cm.activeNetwork?.let {
+                upstreamNet = it
+                applyUnderlyingNetworks(it)
+            }
+        } catch (_: Throwable) {
+            handoverCb = null
+        }
+    }
+
+    private fun stopHandoverWatcher() {
+        handoverRunnable?.let { mainHandler.removeCallbacks(it) }
+        handoverRunnable = null
+        handoverCb?.let {
+            try {
+                getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(it)
+            } catch (_: Throwable) {}
+        }
+        handoverCb = null
+        upstreamNet = null
+    }
+
+    /** شبکه‌ی زیرین واقعی را به سیستم معرفی می‌کند (الگوی serviceControl.setUnderlyingNetworks در v2rayNG) */
+    private fun applyUnderlyingNetworks(network: Network?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            if (network != null) setUnderlyingNetworks(arrayOf(network))
+            else setUnderlyingNetworks(null)
+        } catch (_: Throwable) {}
+    }
+
+    private fun scheduleHandover(gen: Int) {
+        handoverRunnable?.let { mainHandler.removeCallbacks(it) }
+        val r = Runnable { performHandoverReload(gen) }
+        handoverRunnable = r
+        mainHandler.postDelayed(r, HANDOVER_DEBOUNCE_MS)
+    }
+
+    private fun performHandoverReload(gen: Int) {
+        synchronized(stateLock) {
+            if (gen != generation || uiState != "connected") return
+        }
+        val payload = lastPayload ?: return
+        val engMode = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
+        if (engMode == "psiphon" || engMode == "hybrid") return
+        Log.w(TAG, "underlying network handover — quiet core reload (v2rayNG reloadCore pattern)")
+        performQuietReload(payload, "handover")
+    }
+
     /** توقف بی‌صدای هسته/تونل/سایفون — بدون تغییر وضعیت UI و بدون stopSelf (فقط برای فال‌بک) */
     private fun stopCoreQuiet() {
         synchronized(stateLock) { generation++ }
@@ -395,6 +602,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         testThread?.interrupt(); testThread = null
         trafficThread?.interrupt(); trafficThread = null
         freeWatchThread?.interrupt(); freeWatchThread = null
+        stopHandoverWatcher()
         try { tun?.close() } catch (_: Exception) {}
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
@@ -470,6 +678,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         testThread?.interrupt(); testThread = null
         trafficThread?.interrupt(); trafficThread = null
         freeWatchThread?.interrupt(); freeWatchThread = null
+        stopHandoverWatcher()
         // آخرین دلتای جلسه به بک‌اند ربات می‌رود — حتی اگر UI اصلاً باز نبوده باشد
         try { TrafficStore.init(applicationContext) } catch (_: Throwable) {}
         try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
