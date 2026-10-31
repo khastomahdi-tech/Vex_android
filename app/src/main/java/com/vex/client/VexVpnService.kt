@@ -33,6 +33,7 @@ import java.net.Proxy
 import java.net.URL
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 /**
@@ -126,6 +127,16 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private var failStreak = 0
     private var fallbackDone = false
 
+    /** پنجره‌ی تثبیت: تا این لحظه، شکست تست‌ها شمرده نمی‌شود (الگوی v2rayNG — مزاحم تونل نشو) */
+    @Volatile private var stabilizeUntilMs = 0L
+    /** دور تست فعلی — برای چرخش ترتیب URLهای تست تا یک هاست همیشه بازنده نشود */
+    private var testRound = 0
+
+    // ---- WakeLock جزئی حین اتصال (الگوی SagerNet/NekoBox) — مانع خواب CPU و کندشدن تونل ----
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    /** آخرین متن اعلان — اعلان فقط وقتی عوض شود، نه هر ثانیه (الگوی v2rayNG) */
+    private val lastNotifKey = AtomicReference<String>("")
+
     // ---- آمار واقعی از شمارنده‌ی اینترفیس tun ----
     @Volatile private var tunIfaceName: String? = null
     private var lastRx = -1L
@@ -178,6 +189,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         uiState = "connecting"
         tileListener?.invoke("connecting")
         netState = 0; netMsg = ""; netMs = -1
+        // پنجره‌ی تثبیت ۶۰ ثانیه‌ای: در این بازه شکست تست‌ها شمرده نمی‌شود —
+        // شروع تونل روی شبکه‌ی موبایل پرلرزش است و نباید باعث فال‌بک کاذب شود
+        stabilizeUntilMs = System.currentTimeMillis() + 60_000L
+        acquireWakelock()
         lastPayload = config
         clearCoreLogs()
         val gen: Int
@@ -264,7 +279,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         startForeground(NOTIF_ID, notif("متصل است", "اینترنت از مسیر سرور تأیید شد · ${ms}ms"))
                     } else {
                         verified = false
-                        failStreak++
+                        // در پنجره‌ی تثبیت شکست شمرده نمی‌شود (لرزش طبیعی اول اتصال)
+                        if (System.currentTimeMillis() >= stabilizeUntilMs) failStreak++
                         netState = 2
                         // دلیل واقعی را از لاگ هسته اضافه کن تا کاربر علت اصلی را ببیند
                         // (مثلاً TLS handshake failure / authentication failed / timeout)
@@ -276,13 +292,16 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         netMs = -1
                         netListener?.invoke(false, -1, netMsg)
                         startForeground(NOTIF_ID, notif("متصل — بدون اینترنت", netMsg))
-                        // دو تست پشت‌سرهم شکست خورد و هنوز فال‌بک نکرده‌ایم؟ موتور را عوض کن
-                        if (failStreak >= 2 && !fallbackDone) maybeFallbackEngine()
+                        // الگوی v2rayNG/SagerNet: تونل سالم را بیدرود نکُش! چهار شکست پشت‌سرهم
+                        // (≈۳ دقیقه قطعی واقعی) لازم است — نه دو لرزش زودگذر شبکه
+                        if (failStreak >= 4 && !fallbackDone) maybeFallbackEngine()
                     }
                 }
-                // منتظر تایمر بعدی یا درخواست تست فوری
+                // منتظر تایمر بعدی یا درخواست تست فوری — بازه‌ی ۴۵±۵ ثانیه با جیتر
+                // (تست هر ۱۵ ثانیه، خودش مزاحم تونل است؛ v2rayNG اصلاً حلقه‌ی خودکار ندارد)
                 var waited = 0
-                while (waited < 15_000) {
+                val intervalMs = 45_000L + kotlin.random.Random.nextLong(-5_000L, 5_000L)
+                while (waited < intervalMs) {
                     synchronized(stateLock) { if (gen != generation) return@thread }
                     if (testNow) { testNow = false; break }
                     try { Thread.sleep(250) } catch (_: InterruptedException) { return@thread }
@@ -299,19 +318,24 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      */
     private fun testRealInternet(gen: Int): String? {
         val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", ConfigBuilder.LOCAL_TEST_PORT))
+        // ترتیب URL در هر دور می‌چرخد تا یک هاست همیشه اول بیاید و شانس تست کج نشود
         val urls = arrayOf(
-            "https://www.gstatic.com/generate_204",
             "http://cp.cloudflare.com/generate_204",
+            "https://www.gstatic.com/generate_204",
             "http://www.msftconnecttest.com/connecttest.txt"
         )
         var lastMsg = ""
-        for (u in urls) {
+        val startIdx = if (testRound > 0) (testRound % urls.size) else 0
+        testRound++
+        for (k in 0 until urls.size) {
+            val u = urls[(startIdx + k) % urls.size]
             synchronized(stateLock) { if (gen != generation) return null }
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(u).openConnection(proxy) as HttpURLConnection).apply {
-                    connectTimeout = 6000
-                    readTimeout = 6000
+                    // ۱۰ ثانیه: روی شبکه‌ی موبایل/هنداور سلولی، ۶ ثانیه لرزش طبیعی را «خطا» قلمداد می‌کند
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
                     instanceFollowRedirects = false
                     useCaches = false
                     setRequestProperty("User-Agent", "VEX-Client/1.3 (connection-test)")
@@ -358,6 +382,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         thread(name = "vex-fallback") {
             stopCoreQuiet()
             startVpn(np)
+            // موتور تازه ۲ دقیقه فرصت تثبیت دارد و شمارش خطا از صفر شروع می‌شود
+            failStreak = 0
+            stabilizeUntilMs = System.currentTimeMillis() + 120_000L
         }
     }
 
@@ -450,6 +477,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
+        releaseWakelock()
         // اگر این جلسه با موتور سایفون بود، پروسه‌ی سایفون هم خاموش می‌شود
         if (lastEnginePsiphon) {
             lastEnginePsiphon = false
@@ -602,7 +630,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                                     "↓ ${fmt(down)}/s    ↑ ${fmt(up)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
                                 else
                                     "اتصال برقرار و پایدار است\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
-                                try { nm.notify(NOTIF_ID, notif("متصل است", body)) } catch (_: Exception) {}
+                                notifyStable("متصل است", body)
                             }
                         }
                     }
@@ -638,7 +666,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                             "↓ ${fmt(dRx)}/s    ↑ ${fmt(dTx)}/s\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
                         else
                             "اتصال برقرار و پایدار است\nکل: ↓ ${fmt(totalRx)}   ↑ ${fmt(totalTx)}"
-                        try { nm.notify(NOTIF_ID, notif("متصل است", body)) } catch (_: Exception) {}
+                        notifyStable("متصل است", body)
                     }
                 }
             }, 1000, 1000)
@@ -861,6 +889,31 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     // ------------------------------------------------------------------ نوتیفیکیشن
+
+    /** اعلان فقط وقتی متن واقعاً عوض شد — نه هر ثانیه (ضرب‌آهنگ v2rayNG) */
+    private fun notifyStable(title: String, body: String) {
+        val key = title + "\u0000" + body
+        if (lastNotifKey.getAndSet(key) == key) return
+        try { nm.notify(NOTIF_ID, notif(title, body)) } catch (_: Exception) {}
+    }
+
+    /** WakeLock جزئی حین اتصال — مثل SagerNet/NekoBox؛ مانع خواب CPU و کندشدن تونل */
+    @android.annotation.SuppressLint("WakelockTimeout")
+    private fun acquireWakelock() {
+        if (wakeLock?.isHeld == true) return
+        try {
+            val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+            wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vex:vpn").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun releaseWakelock() {
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
+        wakeLock = null
+    }
 
     private fun notif(title: String, body: String): Notification {
         val open = PendingIntent.getActivity(

@@ -189,6 +189,9 @@ object ConfigBuilder {
                 .put("servers", dnsServers)
                 .put("rules", dnsRules)
                 .put("final", "dns-remote")
+                // کش DNS با ظرفیت مشخص (فیلد رسمی sing-box 1.11 — بررسی‌شده در option/dns.go):
+                // «یک دقیقه خوب، بعدش همه‌چیز هنگ» که ریشه‌اش قفل‌شدن روی کوئری DNS است کم می‌شود
+                .put("cache_capacity", 4096)
                 .put("strategy", if (ipv6) "prefer_ipv4" else "ipv4_only"))
             .put("inbounds", inbounds)
             .put("outbounds", run {
