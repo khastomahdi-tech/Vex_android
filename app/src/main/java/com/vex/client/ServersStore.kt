@@ -11,7 +11,8 @@ data class Server(
     var protocol: String,
     var raw: String,
     var ping: Int = -1, // -1 = تست نشده، -2 = ناموفق
-    var label: String = "" // پیشوند مدیر (ایموجی/برچسب) — از ربات تنظیم می‌شود
+    var label: String = "", // پیشوند مدیر (ایموجی/برچسب) — از ربات تنظیم می‌شود
+    var remoteId: Long = 0 // شناسه‌ی سرور رایگان در D1 ربات — برای گزارش مصرف تفکیکی هر سرور
 )
 
 /** تنظیمات برنامه */
@@ -109,7 +110,8 @@ class ServersStore(context: Context) {
                     protocol = o.optString("protocol", "?").lowercase(),
                     raw = raw,
                     ping = o.optInt("ping", -1),
-                    label = o.optString("label", "")
+                    label = o.optString("label", ""),
+                    remoteId = o.optLong("remoteId", 0L)
                 ))
             }
         } catch (_: Throwable) {}
@@ -197,7 +199,8 @@ class ServersStore(context: Context) {
             .put("protocol", s.protocol)
             .put("raw", s.raw)
             .put("ping", s.ping)
-            .put("label", s.label))
+            .put("label", s.label)
+            .put("remoteId", s.remoteId))
         prefs.edit().putString(KEY_FREE, arr.toString())
             .putLong(KEY_FREE_TS, freeLastFetch).apply()
     }

@@ -182,14 +182,16 @@ object TelegramGate {
 
     /**
      * گزارش مصرف به بک‌اند ربات (D1) — یک دسته در هر درخواست.
+     * srv > 0 → مصرف تفکیکیِ همان سرور رایگان ثبت می‌شود (جدول جدا از مصرف کلی).
      * خروجی true فقط وقتی پاسخ موفق بود (برای واترمارک TrafficStore).
      */
-    fun reportTrafficType(did: String, type: String, bytes: Long): Boolean {
+    fun reportTrafficType(did: String, type: String, bytes: Long, srv: Long = 0L): Boolean {
         return try {
             if (bytes <= 0) return true
             val res = post("/v1/traffic", JSONObject().apply {
                 put("did", did); put("type", type)
                 put("up", 0); put("down", bytes)
+                if (srv > 0) put("srv", srv)
             })
             res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
         } catch (_: Throwable) { false }

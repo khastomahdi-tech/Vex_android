@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS traffic (
   updated INTEGER,
   PRIMARY KEY (did, type)
 );
+-- مصرف تفکیکی هر سرور رایگان (نسخه‌ی ۴ به بعد) — srv = free_servers.id
+CREATE TABLE IF NOT EXISTS traffic_srv (
+  srv INTEGER,
+  did TEXT,
+  up INTEGER DEFAULT 0,
+  down INTEGER DEFAULT 0,
+  updated INTEGER,
+  PRIMARY KEY (srv, did)
+);
 -- کاربران تلگرامی ربات (سمت عمومی: منو/دانلود/پشتیبانی + مخاطبان پیام همگانی)
 CREATE TABLE IF NOT EXISTS bot_users (
   chat_id TEXT PRIMARY KEY,

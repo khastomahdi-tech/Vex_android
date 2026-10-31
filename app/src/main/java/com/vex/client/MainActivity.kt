@@ -100,6 +100,9 @@ class MainActivity : ComponentActivity() {
     /** سرور اتصال فعلی رایگان است یا شخصی؟ (برای تفکیک آمار مصرف) */
     private var sessionIsFree = false
 
+    /** شناسه‌ی سرور رایگانِ اتصال فعلی در D1 ربات — برای گزارش مصرف تفکیکی هر سرور (۰ = شخصی/نامشخص) */
+    private var sessionSrv = 0L
+
     /** اتصال خودکار پس از ورود با کاشی VPN یا اعلان «برنامه بسته شد» */
     private var pendingAutoConnect = false
 
@@ -394,12 +397,14 @@ class MainActivity : ComponentActivity() {
             netMsg = VexVpnService.netMsg
             netMs = VexVpnService.netMs
             if (connectionState == "connected") {
-                sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
+                val sel = store.selected()
+                sessionIsFree = sel != null && store.isFree(sel)
+                sessionSrv = if (sel != null && store.isFree(sel)) sel.remoteId else 0L
             }
 
             VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
             VexVpnService.statsListener = { dn, up, tdn, tup -> main.post {
-                TrafficStore.addSession(tdn, tup, sessionIsFree)
+                TrafficStore.addSession(tdn, tup, sessionIsFree, sessionSrv)
                 homeUi.onStats(dn, up, tdn, tup)
                 statsUi.onStats(dn, up, tdn, tup)
             } }
@@ -976,8 +981,10 @@ class MainActivity : ComponentActivity() {
         connectionState = "connecting"
         lastError = ""
         netState = 0
-        // تفکیک آمار مصرف: این جلسه روی سرور رایگان است یا شخصی؟
-        sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
+        // تفکیک آمار مصرف: این جلسه روی سرور رایگان است یا شخصی؟ (+ شناسه‌ی سرور رایگان برای گزارش مصرف هر سرور)
+        val selSrv = store.selected()
+        sessionIsFree = selSrv != null && store.isFree(selSrv)
+        sessionSrv = if (selSrv != null && store.isFree(selSrv)) selSrv.remoteId else 0L
         TrafficStore.resetSession()
         statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
         homeUi.onStats(0, 0, 0, 0)

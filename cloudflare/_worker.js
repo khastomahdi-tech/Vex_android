@@ -168,9 +168,21 @@ export default {
         try { b = await request.json(); } catch (e) {}
         const did = String(b.did || "").slice(0, 64);
         if (!did) return json({ ok: false, error: "did required" }, 400);
-        const type = b.type === "free" ? "free" : "private";
         const up = Math.max(0, Math.round(Number(b.up) || 0));
         const dn = Math.max(0, Math.round(Number(b.down) || 0));
+        const srv = Math.round(Number(b.srv) || 0);
+        if (srv > 0) {
+          // مصرف تفکیکی هر سرور رایگان (از نسخه‌ی ۴ به بعد) — جدول جدا، دوباره‌شماری در مصرف کلی ندارد
+          await ensureTrafficSrv(env);
+          if (up || dn) {
+            await env.DB.prepare(
+              "INSERT INTO traffic_srv (srv, did, up, down, updated) VALUES (?1,?2,?3,?4,?5) " +
+              "ON CONFLICT(srv,did) DO UPDATE SET up = up + ?3, down = down + ?4, updated = ?5"
+            ).bind(srv, did, up, dn, Date.now()).run();
+          }
+          return json({ ok: true });
+        }
+        const type = b.type === "free" ? "free" : "private";
         if (up || dn) {
           await env.DB.prepare(
             "INSERT INTO traffic (did, type, up, down, updated) VALUES (?1,?2,?3,?4,?5) " +
@@ -431,6 +443,19 @@ async function handleAdmin(path, url, request, env) {
     let b = {}; try { b = await request.json(); } catch (e) {}
     const id = parseInt(b.id, 10);
     if (!id) return J({ ok: false, error: "id required" }, 400);
+    if (b.name !== undefined) {
+      const nm = String(b.name || "").trim().slice(0, 80);
+      if (nm) await env.DB.prepare("UPDATE free_servers SET name = ?2 WHERE id = ?1").bind(id, nm).run();
+    }
+    if (b.raw !== undefined) {
+      // جایگزینی کامل کانفیگ — پروتکل از لینک جدید و تکراری‌نبودن چک می‌شود
+      const raw = String(b.raw || "").trim().slice(0, 1200);
+      const p = raw.split("://")[0].toLowerCase();
+      if (!raw || !PROTOCOLS.includes(p)) return J({ ok: false, error: "bad raw" }, 400);
+      const du = await env.DB.prepare("SELECT id FROM free_servers WHERE raw = ?1 AND id <> ?2").bind(raw, id).first();
+      if (du) return J({ ok: false, error: "duplicate raw" }, 400);
+      await env.DB.prepare("UPDATE free_servers SET raw = ?2, proto = ?3 WHERE id = ?1").bind(id, raw, p).run();
+    }
     if (b.label !== undefined) {
       const label = String(b.label || "").trim().slice(0, 40);
       const v = (!label || label === "-" || label === "clear") ? "" : label;
@@ -454,6 +479,43 @@ async function handleAdmin(path, url, request, env) {
     }
     await ghSync(env, "freeservers.json", await fsSnapshot(env));
     return J({ ok: true, total: await countFs(env) });
+  }
+
+  if (path === "/admin/servers/usage" && request.method === "GET") {
+    // مصرف تفکیکی هر سرور رایگان: بایت + تعداد دستگاه + آخرین استفاده — مرتب از پرمصرف‌ترین
+    await ensureTrafficSrv(env);
+    const rows = await env.DB.prepare("SELECT id, name, label, proto, enabled FROM free_servers").all();
+    const agg = await env.DB.prepare(
+      "SELECT srv, COUNT(DISTINCT did) AS users, SUM(up + down) AS b, MAX(updated) AS last FROM traffic_srv GROUP BY srv"
+    ).all();
+    const known = {};
+    for (const s of (rows.results || [])) known[String(s.id)] = s;
+    const list = [];
+    let orphanB = 0, orphanN = 0;
+    for (const a of (agg.results || [])) {
+      const item = {
+        id: a.srv,
+        bytes: Number(a.b) || 0,
+        users: Number(a.users) || 0,
+        last: Number(a.last) || 0
+      };
+      const k = known[String(a.srv)];
+      if (k) {
+        item.name = k.name; item.label = k.label || ""; item.proto = k.proto || "";
+        item.enabled = Number(k.enabled) === 1;
+      } else {
+        item.name = "سرور حذف‌شده"; item.orphan = true;
+        orphanB += item.bytes; orphanN++;
+      }
+      list.push(item);
+    }
+    list.sort((x, y) => y.bytes - x.bytes);
+    return J({
+      ok: true,
+      servers: list.slice(0, 50),
+      total_bytes: list.reduce((s, x) => s + x.bytes, 0),
+      orphans: { n: orphanN, bytes: orphanB }
+    });
   }
 
   if (path === "/admin/notifications" && request.method === "GET") {
@@ -1351,6 +1413,18 @@ async function ensureSubTables(env) {
     "device TEXT, android TEXT, ver TEXT, first INTEGER DEFAULT 0)"
   ).run();
   subTablesReady = true;
+}
+
+// مصرف تفکیکی هر سرور رایگان (نسخه‌ی ۴ به بعد) — فقط یک‌بار ساخته می‌شود
+let tSrvReady = false;
+async function ensureTrafficSrv(env) {
+  if (tSrvReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS traffic_srv (" +
+    "srv INTEGER, did TEXT, up INTEGER DEFAULT 0, down INTEGER DEFAULT 0, " +
+    "updated INTEGER, PRIMARY KEY (srv, did))"
+  ).run();
+  tSrvReady = true;
 }
 
 /** ثبت رویداد برای پنل ربات (آمار روزانه + گزارش اتصال/خروج) */
