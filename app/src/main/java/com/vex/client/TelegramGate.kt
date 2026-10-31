@@ -284,13 +284,13 @@ object TelegramGate {
         return did
     }
 
-    // ------------------------------------------------ اشتراک (کد ۲۷ حرفیِ انگلیسی از ربات)
+    // ------------------------------------------------ اشتراک (توکن ۳۰ حرفیِ انگلیسی از ربات)
 
     /**
      * لینک رباتی که دکمه‌ی «ورود به ربات» باز می‌کند — از سرور (bot_url در پاسخ دروازه)
      * تازه می‌شود؛ اگر سرور چیزی نفرستاد، همین مقدار پیش‌فرض استفاده می‌شود.
      */
-    var lastBotUrl: String = "https://t.me/Vexpanelvpn_bot"
+    var lastBotUrl: String = "https://t.me/Appvexvpnbot"
         private set
 
     private fun rememberBotUrl(o: JSONObject) {

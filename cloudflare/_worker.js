@@ -63,7 +63,7 @@
  *   Unhandled bot errors are reported to the owner (max 1/min) instead of being swallowed.
  */
 
-const SERVICE_V = 12;
+const SERVICE_V = 13;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -619,7 +619,7 @@ async function report(request, env) {
       "🌍 زبان: " + esc(lang) + "\n" +
       "👥 کل کاربران: " + (total ? total.n : "?") + "\n" +
       "🕐 " + new Date(now).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-    await tgSend(env, owner, text);
+    await notifySend(env, owner, text);
   }
 
   return json({ ok: true, gate, reason: gate === "closed" ? ((await getSetting(env, "close_reason")) || DEFAULT_CLOSE_REASON) : null, min_ver: minVer, blocked: await getBlocked(env), users: total ? total.n : 0 });
@@ -635,7 +635,7 @@ async function ack(request, env) {
     const text = state === "closed"
       ? "🔒 Vex روی دستگاه «" + esc(device) + "» واقعاً قفل شد"
       : "🔓 Vex روی دستگاه «" + esc(device) + "» دوباره باز شد";
-    await tgSend(env, owner, text);
+    await notifySend(env, owner, text);
   }
   return json({ ok: true });
 }
@@ -1305,16 +1305,42 @@ function normSubCode(s) {
   }
   return out;
 }
-/** کد معتبر: ۲۷ حرف انگلیسی (فرمت جدید) یا ۱۶ رقم (کدهای قدیمی — برای قطع نشدن اشتراک‌های جاری) */
-function validSubCode(c) { return c.length === 27 || c.length === 16; }
+/** کد معتبر: ۳۰ حرف انگلیسی (فرمت جدید توکن) یا ۲۷ حرف / ۱۶ رقم (کدهای قدیمی — برای قطع نشدن اشتراک‌های جاری) */
+function validSubCode(c) { return c.length === 30 || c.length === 27 || c.length === 16; }
 
-/** کد تصادفی ۲۷ حرفی از حروف انگلیسی بزرگ */
+/** کد تصادفی ۳۰ حرفی از حروف انگلیسی بزرگ */
 function genSubCode() {
-  const a = new Uint8Array(27);
+  const a = new Uint8Array(30);
   crypto.getRandomValues(a);
   let s = "";
-  for (let i = 0; i < 27; i++) s += String.fromCharCode(65 + (a[i] % 26));
+  for (let i = 0; i < 30; i++) s += String.fromCharCode(65 + (a[i] % 26));
   return s;
+}
+
+// ---------- ربات اطلاع‌رسانی (مستقل از ربات مدیریتی) ----------
+// اعلان نصب/قفل برنامه به جای ربات قدیمی، از طریق ربات توکن (@Appvexvpnbot) به مدیر می‌رود.
+// توکن از env NOTIFY_BOT_TOKEN یا از D1 settings (notify_bot_token) خوانده می‌شود؛
+// اگر هیچ‌کدام نبود، مثل قبل همان BOT_TOKEN استفاده می‌شود.
+let notifyTokCache = { v: null, at: 0 };
+async function notifyToken(env) {
+  if (env.NOTIFY_BOT_TOKEN) return env.NOTIFY_BOT_TOKEN;
+  const now = Date.now();
+  if (notifyTokCache.v !== null && now - notifyTokCache.at < 60000) return notifyTokCache.v;
+  let v = "";
+  try { v = (await getSetting(env, "notify_bot_token")) || ""; } catch (e) { v = ""; }
+  notifyTokCache.v = v; notifyTokCache.at = now;
+  return v;
+}
+async function notifySend(env, chat, text) {
+  try {
+    const t = await notifyToken(env);
+    if (!t || !chat) return;
+    await fetch("https://api.telegram.org/bot" + t + "/sendMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: String(chat), text, parse_mode: "HTML" })
+    });
+  } catch (e) {}
 }
 
 /** خواندن یک کد + تعداد نشست‌های فعالش */

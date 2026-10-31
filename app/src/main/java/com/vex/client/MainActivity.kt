@@ -256,7 +256,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
-                // ---- اشتراک: بدون کدِ فعال (۲۷ حرف انگلیسی / ۱۶ رقمِ قدیمی)، برنامه وارد نمی‌شود ----
+                // ---- اشتراک: بدون توکنِ فعال (۳۰ حرف انگلیسی / ۲۷ حرفِ قدیمی)، برنامه وارد نمی‌شود ----
                 val sc = SubStore.code(this)
                 if (!SubStore.valid(sc)) {
                     subLockReason = null
@@ -1403,7 +1403,7 @@ class MainActivity : ComponentActivity() {
                 "closed" -> text = gateReason?.takeIf { it.isNotBlank() }
                         ?: "The admin has closed the app for now. Please try again later."
                 "subscription" -> subLockReason?.takeIf { it.isNotBlank() }
-                        ?: "برای استفاده از Vex باید کد اشتراک داشته باشی.\nکد ۲۷ حرفیِ انگلیسی را از ربات تلگرام بگیر و همین‌جا تایپ یا پیست کن."
+                        ?: "برای استفاده از Vex باید توکن اشتراک داشته باشی.\nتوکن ۳۰ حرفیِ انگلیسی را از ربات تلگرام بگیر و همین‌جا تایپ یا پیست کن."
                 "tampered" -> text = "فایل برنامه تغییر کرده یا امضای آن با نسخه‌ی رسمی نمی‌خواند.\nبرای امنیتت، این نسخه اجرا نمی‌شود.\nنسخه‌ی رسمی را فقط از کانال تلگرام یا لینک demonvpn.shop/apk یا vex-gate.pages.dev/apk نصب کن."
                 else -> text = ""
             }
@@ -1507,7 +1507,7 @@ class MainActivity : ComponentActivity() {
         go.setOnClickListener {
             val code = SubStore.normalize(input.text.toString())
             if (!SubStore.valid(code)) {
-                err.text = "کد اشتراک باید ۲۷ حرف انگلیسی باشد"
+                err.text = "توکن اشتراک باید ۳۰ حرف انگلیسی باشد"
                 err.visibility = View.VISIBLE
                 return@setOnClickListener
             }
@@ -1541,7 +1541,7 @@ class MainActivity : ComponentActivity() {
                             err.visibility = View.VISIBLE
                         }
                         info.badCode -> {
-                            err.text = "کد اشتراک باید ۲۷ حرف انگلیسی باشد"
+                            err.text = "توکن اشتراک باید ۳۰ حرف انگلیسی باشد"
                             err.visibility = View.VISIBLE
                         }
                         info.error != null -> {
@@ -1564,7 +1564,7 @@ class MainActivity : ComponentActivity() {
             setMargins(0, UI.dp(ctx, 18), 0, 0)
         })
 
-        // ورود به ربات و دریافت کلید — رباتی که کد اشتراک می‌دهد (@Vexpanelvpn_bot)
+        // ورود به ربات و دریافت توکن — ربات توکن برنامه (@Appvexvpnbot)
         val bot = UI.softButton(ctx, "🤖 ورود به روبات و دریافت کلید", p)
         bot.setOnClickListener { openVexBot() }
         gateRoot.addView(bot, LinearLayout.LayoutParams(
