@@ -182,16 +182,14 @@ object TelegramGate {
 
     /**
      * گزارش مصرف به بک‌اند ربات (D1) — یک دسته در هر درخواست.
-     * srv > 0 → مصرف تفکیکیِ همان سرور رایگان ثبت می‌شود (جدول جدا از مصرف کلی).
      * خروجی true فقط وقتی پاسخ موفق بود (برای واترمارک TrafficStore).
      */
-    fun reportTrafficType(did: String, type: String, bytes: Long, srv: Long = 0L): Boolean {
+    fun reportTrafficType(did: String, type: String, bytes: Long): Boolean {
         return try {
             if (bytes <= 0) return true
             val res = post("/v1/traffic", JSONObject().apply {
                 put("did", did); put("type", type)
                 put("up", 0); put("down", bytes)
-                if (srv > 0) put("srv", srv)
             })
             res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
         } catch (_: Throwable) { false }
@@ -350,25 +348,12 @@ object TelegramGate {
         }
     }
 
-    /** فعال‌سازی کد اشتراک برای همین دستگاه (نشست ثبت می‌شود)
-     *  android/ver برای اطلاع‌رسانی «اتصال موفق» به کاربر از طرف ربات توکن ارسال می‌شود */
-    fun subActivate(code: String, device: String, did: String, ver: String = ""): SubInfo {
+    /** فعال‌سازی کد اشتراک برای همین دستگاه (نشست ثبت می‌شود) */
+    fun subActivate(code: String, device: String, did: String): SubInfo {
         val res = post("/v1/sub/activate", JSONObject().apply {
             put("did", did); put("code", code); put("device", device)
-            put("android", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-            if (ver.isNotEmpty()) put("ver", ver)
         })
         return parseSub(res)
-    }
-
-    /** خروج از حساب — حذف نشست این دستگاه از سرور (توکن باقی می‌ماند و دوباره قابل ورود است).
-     *  سرور از طریق ربات توکن به کاربر «یک نشانه از روی حسابت حذف شد» را اطلاع می‌دهد. */
-    fun subLogout(code: String, did: String, android: String = ""): Boolean {
-        val res = post("/v1/sub/logout", JSONObject().apply {
-            put("did", did); put("code", code)
-            if (android.isNotEmpty()) put("android", android)
-        })
-        return res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
     }
 
     /** بررسی وضعیت اشتراک — kicked یعنی مدیر «حذف تمام نشست‌ها» را زده است */

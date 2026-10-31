@@ -65,8 +65,7 @@ object FreeServers {
                     protocol = d.proto.ifBlank { inf.protocol },
                     raw = d.raw,
                     ping = ping,
-                    label = d.label,
-                    remoteId = d.id // شناسه‌ی D1 ربات — برای گزارش مصرف تفکیکی هر سرور
+                    label = d.label
                 ))
             }
             out.sortWith(compareBy(

@@ -2,7 +2,6 @@ package com.vex.client
 
 import android.content.Context
 import android.content.SharedPreferences
-import org.json.JSONObject
 
 /**
  * شمارنده‌ی «مصرف کل برنامه» — مجموع همه‌ی جلسات از روز نصب،
@@ -39,11 +38,8 @@ object TrafficStore {
     /**
      * افزودن آمار زنده‌ی جلسه — خودش دلتا را حساب می‌کند؛
      * اگر سرویس ریست شده باشد (مقادیر کوچک‌تر از قبل) از همان مقدار جدید شروع می‌کند.
-     *
-     * srv = شناسه‌ی سرور رایگان در D1 ربات (>۰) — مصرف آن سرور جداگانه هم انباشته می‌شود
-     * تا در پنل مدیریت، مصرفِ تفکیکیِ هر سرور دیده شود.
      */
-    fun addSession(tdn: Long, tup: Long, isFree: Boolean, srv: Long = 0L) {
+    fun addSession(tdn: Long, tup: Long, isFree: Boolean) {
         if (!::prefs.isInitialized) return
         synchronized(this) {
             var dDn = tdn - lastDn
@@ -53,17 +49,8 @@ object TrafficStore {
             lastDn = tdn
             lastUp = tup
             if (dDn <= 0 && dUp <= 0) return
-            val d = dDn + dUp
             val key = if (isFree) "free" else "priv"
-            prefs.edit().putLong(key, prefs.getLong(key, 0L) + d).apply()
-            if (isFree && srv > 0) {
-                try {
-                    val m = JSONObject(prefs.getString("srvmap", "{}") ?: "{}")
-                    val skey = srv.toString()
-                    m.put(skey, m.optLong(skey, 0L) + d)
-                    prefs.edit().putString("srvmap", m.toString()).apply()
-                } catch (_: Throwable) {}
-            }
+            prefs.edit().putLong(key, prefs.getLong(key, 0L) + dDn + dUp).apply()
         }
     }
 
@@ -95,36 +82,16 @@ object TrafficStore {
                 val rp = prefs.getLong("rep_priv", 0L)
                 val fDelta = (f - rf).coerceAtLeast(0)
                 val pDelta = (p - rp).coerceAtLeast(0)
+                if (fDelta == 0L && pDelta == 0L) return@Thread
                 val did = TelegramGate.deviceId(ctx)
-                if (fDelta > 0 || pDelta > 0) {
-                    val okF = if (fDelta > 0) TelegramGate.reportTrafficType(did, "free", fDelta) else true
-                    val okP = if (pDelta > 0) TelegramGate.reportTrafficType(did, "private", pDelta) else true
-                    if (okF || okP) {
-                        prefs.edit()
-                            .putLong("rep_free", if (okF) f else rf)
-                            .putLong("rep_priv", if (okP) p else rp)
-                            .apply()
-                    }
+                val okF = if (fDelta > 0) TelegramGate.reportTrafficType(did, "free", fDelta) else true
+                val okP = if (pDelta > 0) TelegramGate.reportTrafficType(did, "private", pDelta) else true
+                if (okF || okP) {
+                    prefs.edit()
+                        .putLong("rep_free", if (okF) f else rf)
+                        .putLong("rep_priv", if (okP) p else rp)
+                        .apply()
                 }
-                // گزارش تفکیکی هر سرور رایگان — واترمارک جدا برای هر سرور؛ فقط پاسخ موفق جلو می‌رود
-                try {
-                    val m = JSONObject(prefs.getString("srvmap", "{}") ?: "{}")
-                    val r = JSONObject(prefs.getString("srvrep", "{}") ?: "{}")
-                    if (m.length() > 0) {
-                        var changed = false
-                        for (id in m.keys()) {
-                            val tot = m.optLong(id, 0L)
-                            val d = (tot - r.optLong(id, 0L)).coerceAtLeast(0)
-                            if (d <= 0) continue
-                            val sid = id.toLongOrNull() ?: continue
-                            if (TelegramGate.reportTrafficType(did, "free", d, sid)) {
-                                r.put(id, tot)
-                                changed = true
-                            }
-                        }
-                        if (changed) prefs.edit().putString("srvrep", r.toString()).apply()
-                    }
-                } catch (_: Throwable) {}
             } catch (_: Throwable) {}
         }.start()
     }

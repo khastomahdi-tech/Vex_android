@@ -100,9 +100,6 @@ class MainActivity : ComponentActivity() {
     /** سرور اتصال فعلی رایگان است یا شخصی؟ (برای تفکیک آمار مصرف) */
     private var sessionIsFree = false
 
-    /** شناسه‌ی سرور رایگانِ اتصال فعلی در D1 ربات — برای گزارش مصرف تفکیکی هر سرور (۰ = شخصی/نامشخص) */
-    private var sessionSrv = 0L
-
     /** اتصال خودکار پس از ورود با کاشی VPN یا اعلان «برنامه بسته شد» */
     private var pendingAutoConnect = false
 
@@ -397,14 +394,12 @@ class MainActivity : ComponentActivity() {
             netMsg = VexVpnService.netMsg
             netMs = VexVpnService.netMs
             if (connectionState == "connected") {
-                val sel = store.selected()
-                sessionIsFree = sel != null && store.isFree(sel)
-                sessionSrv = if (sel != null && store.isFree(sel)) sel.remoteId else 0L
+                sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
             }
 
             VexVpnService.stateListener = { st, msg -> main.post { onServiceState(st, msg) } }
             VexVpnService.statsListener = { dn, up, tdn, tup -> main.post {
-                TrafficStore.addSession(tdn, tup, sessionIsFree, sessionSrv)
+                TrafficStore.addSession(tdn, tup, sessionIsFree)
                 homeUi.onStats(dn, up, tdn, tup)
                 statsUi.onStats(dn, up, tdn, tup)
             } }
@@ -981,10 +976,8 @@ class MainActivity : ComponentActivity() {
         connectionState = "connecting"
         lastError = ""
         netState = 0
-        // تفکیک آمار مصرف: این جلسه روی سرور رایگان است یا شخصی؟ (+ شناسه‌ی سرور رایگان برای گزارش مصرف هر سرور)
-        val selSrv = store.selected()
-        sessionIsFree = selSrv != null && store.isFree(selSrv)
-        sessionSrv = if (selSrv != null && store.isFree(selSrv)) selSrv.remoteId else 0L
+        // تفکیک آمار مصرف: این جلسه روی سرور رایگان است یا شخصی؟
+        sessionIsFree = store.selected()?.let { store.isFree(it) } ?: false
         TrafficStore.resetSession()
         statsUi.resetSession() // آمار اوج/میانگین جلسه‌ی جدید از صفر
         homeUi.onStats(0, 0, 0, 0)
@@ -1580,8 +1573,7 @@ class MainActivity : ComponentActivity() {
             err.visibility = View.GONE
             Thread {
                 val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
-                val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(ctx),
-                    TelegramGate.selfVersionName(ctx))
+                val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(ctx))
                 main.post {
                     if (isFinishing) return@post
                     when {
@@ -1628,14 +1620,14 @@ class MainActivity : ComponentActivity() {
             setMargins(0, UI.dp(ctx, 26), 0, 0)
         })
 
-        // ---- دکمه‌ی «دریافت کد اشتراک» با آیکون رسمی تلگرام (دایره‌ی آبی + هواپیمای سفید، بدون tint)
-        //      لینک به ربات توکن برنامه (@Appvexvpnbot) ----
+        // ---- دکمه‌ی «دریافت کد اشتراک» با آیکون تلگرام — ربات توکن برنامه (@Appvexvpnbot) ----
         val tgBtn = LinearLayout(ctx).apply {
             gravity = Gravity.CENTER
             background = box(white, 0xFFC9D9F4.toInt(), 1.2f, 16f)
         }
         tgBtn.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.ic_telegram)
+            setColorFilter(blue)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(UI.dp(ctx, 22), UI.dp(ctx, 22)))
         tgBtn.addView(TextView(ctx).apply {
@@ -1652,26 +1644,6 @@ class MainActivity : ComponentActivity() {
 
         gateRoot.addView(col, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-    }
-
-    /** خروج از حساب — نشست این دستگاه از سرور حذف می‌شود، توکن محلی پاک و صفحه‌ی ورود کد می‌آید.
-     *  ربات توکن هم از طرف سرور به کاربر «یک نشانه از روی حسابت حذف شد» را اطلاع می‌دهد. */
-    fun logoutFromAccount() {
-        val code = SubStore.code(this)
-        val did = TelegramGate.deviceId(this)
-        val hadSub = SubStore.valid(code)
-        val androidInfo = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-        Thread {
-            if (hadSub) try { TelegramGate.subLogout(code, did, androidInfo) } catch (_: Throwable) {}
-            main.post {
-                if (isFinishing) return@post
-                subLockReason = null
-                requestStop()
-                SubStore.clear(this)
-                UI.toast(this, "از حساب خارج شدی ✓")
-                if (gateBuilt) setGateUi("subscription")
-            }
-        }.start()
     }
 
     /** اشتراک حذف/منقضی شد (از تب حساب یا چک دوره‌ای) → تونل قطع و صفحه‌ی ورود کد می‌آید */
