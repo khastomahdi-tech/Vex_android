@@ -58,7 +58,9 @@ object ConfigBuilder {
         // مهلت اتصال ۱۵ ثانیه (پیش‌فرض هسته ۵ ثانیه است) — روی شبکه‌ی موبایل شلوغ ایران،
         // TCP+TLS handshake به سرور گاهی بیش از ۵ ثانیه طول می‌کشد و اتصال‌های نو رد می‌شوند
         // که به شکل «هی وصل می‌شود، هی قطع می‌شود» دیده می‌شود. کلاینت‌های NG صبورترند.
-        outbound.put("connect_timeout", 15)
+        // ⚠️ فیلد connect_timeout در sing-box از نوع Duration رشته‌ای است («15s») —
+        // عدد خام (15) کرش decode کانفیگ می‌دهد: «cannot unmarshal number into Go value of type string»
+        outbound.put("connect_timeout", "15s")
 
         return assembleShell(outbound, j)
     }
