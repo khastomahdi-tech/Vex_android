@@ -63,7 +63,7 @@
  *   Unhandled bot errors are reported to the owner (max 1/min) instead of being swallowed.
  */
 
-const SERVICE_V = 13;
+const SERVICE_V = 14;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -76,6 +76,29 @@ const PROTOCOLS = ["vless", "vmess", "trojan", "ss", "wg", "wireguard"];
 
 export default {
   async fetch(request, env) {
+    // ---------------- GLOBAL SAFETY NET (anti error 1101) ----------------
+    // خطای ۱۱۰۱ کلادفلر یعنی «ورکر استثنای پرتاب کرده». اگر هر کوئری D1 یا هر fetch
+    // لحظه‌ای خطا بدهد و گیر نیفتد، کلادفلر صفحه‌ی 1101 نشان می‌دهد و پنل «پایین» به
+    // نظر می‌رسد. پس کل بدنه داخل این لایه اجرا می‌شود: هر استثنایی گیر می‌افتد، یک
+    // بار در دقیقه به ادمین در تلگرام گزارش می‌شود و همیشه یک پاسخ JSON تمیز برگردانده
+    // می‌شود — پنل هرگز ۱۱۰۱ نمی‌دهد و از دست نمی‌رود.
+    try {
+      return await handleVex(request, env);
+    } catch (e) {
+      try { await botError(env, e); } catch (_e) {}
+      try {
+        return json({ ok: false, error: "internal error", v: SERVICE_V, time: new Date().toISOString() }, 500);
+      } catch (_e2) {
+        return new Response('{"ok":false,"error":"internal error"}', {
+          status: 500,
+          headers: { "content-type": "application/json; charset=utf-8" }
+        });
+      }
+    }
+  }
+};
+
+async function handleVex(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -380,8 +403,7 @@ export default {
     }
 
     return json({ ok: false, error: "not found" }, 404);
-  }
-};
+}
 
 // ============================================================ admin panel API
 
