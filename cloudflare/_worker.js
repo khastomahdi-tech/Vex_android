@@ -118,6 +118,21 @@ export default {
       }
     }
 
+    // ---------------- DEMON GAMES CONFIG — کلیدها (/dg) ----------------
+    // پروژه‌ی مستقل: پنل ادمین + API کلید برای اپ Demon Games Config
+    // جدول‌های D1: dg_keys / dg_devices / dg_settings (کلید ادمین در dg_settings.admin_key)
+
+    if (path === "/dg" || path === "/dg/") {
+      return new Response(dgPanelHTML(), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
+      });
+    }
+    if (path.startsWith("/dg/api/")) {
+      return dgApi(env, request, path);
+    }
+
+    // ---------------- Telegram webhook ----------------
+
     // ---------------- Telegram webhook ----------------
     if (path === "/tg" && request.method === "POST") {
       if (env.WEBHOOK_SECRET && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) {
@@ -2381,4 +2396,299 @@ function json(obj, status = 200) {
     status,
     headers: { "content-type": "application/json; charset=utf-8" }
   });
+}
+
+// ==================== DEMON GAMES CONFIG — منطق کلیدها ====================
+
+const DG_HOUR = 3600000;
+
+async function dgAdminKey(env) {
+  const r = await env.DB.prepare("SELECT v FROM dg_settings WHERE k='admin_key'").first();
+  return r ? String(r.v || "") : "";
+}
+
+function dgGenKey() {
+  const cs = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let g = () => { let s = ""; for (let i = 0; i < 4; i++) s += cs[Math.floor(Math.random() * cs.length)]; return s; };
+  return "DG-" + g() + "-" + g() + "-" + g();
+}
+
+/** اعتبارسنجی مشترک activate/check — ثبت دستگاه + شمارش سقف + تایمر شروع */
+async function dgValidate(env, body, register) {
+  const key = String(body.key || "").trim().toUpperCase();
+  const dev = String(body.device_id || "").trim().slice(0, 64);
+  if (!key || !dev) return { ok: false, code: "bad_request", error: "درخواست ناقص است" };
+  const row = await env.DB.prepare("SELECT * FROM dg_keys WHERE k=?1").bind(key).first();
+  if (!row) return { ok: false, code: "bad_key", error: "کلید نامعتبر است" };
+  if (row.disabled) return { ok: false, code: "disabled", error: "این کلید غیرفعال شده است" };
+  const now = Date.now();
+  let expiresAt = row.expires_at || 0;
+  let newlyActivated = false;
+  if (!row.activated_at && row.start_mode === "first_use") {
+    newlyActivated = true;
+    expiresAt = now + Number(row.duration_hours || 0) * DG_HOUR;
+  }
+  if (expiresAt && now > expiresAt) return { ok: false, code: "expired", error: "کلید منقضی شده است" };
+  const known = await env.DB.prepare("SELECT first_seen FROM dg_devices WHERE key=?1 AND device_id=?2")
+    .bind(key, dev).first();
+  if (!known) {
+    const cnt = await env.DB.prepare("SELECT COUNT(*) AS n FROM dg_devices WHERE key=?1").bind(key).first();
+    if (Number(cnt ? cnt.n : 0) >= Number(row.device_limit || 1)) {
+      return { ok: false, code: "device_limit", error: "سقف دستگاه‌های این کلید پر شده است" };
+    }
+  }
+  if (newlyActivated) {
+    await env.DB.prepare("UPDATE dg_keys SET activated_at=?1, expires_at=?2 WHERE k=?3")
+      .bind(now, expiresAt, key).run();
+  }
+  if (register || known) {
+    if (known) {
+      await env.DB.prepare("UPDATE dg_devices SET last_seen=?1, model=?2, android_ver=?3 WHERE key=?4 AND device_id=?5")
+        .bind(now, String(body.model || "").slice(0, 80), String(body.android_ver || "").slice(0, 16), key, dev).run();
+    } else {
+      await env.DB.prepare("INSERT INTO dg_devices (key, device_id, model, android_ver, first_seen, last_seen) VALUES (?1,?2,?3,?4,?5,?5)")
+        .bind(key, dev, String(body.model || "").slice(0, 80), String(body.android_ver || "").slice(0, 16), now).run();
+    }
+  }
+  return { ok: true, expires_at: expiresAt || 0, server_time: now, remaining_ms: expiresAt ? Math.max(0, expiresAt - now) : 0 };
+}
+
+async function dgApi(env, request, path) {
+  const url = new URL(request.url);
+  // ---- API اپ (بدون ادمین — خود کلید احراز می‌شود) ----
+  if (path === "/dg/api/activate" || path === "/dg/api/check") {
+    if (request.method !== "POST") return json({ ok: false, code: "bad_request", error: "POST لازم است" });
+    let body = {};
+    try { body = await request.json(); } catch (_e) {}
+    try {
+      const r = await dgValidate(env, body, path === "/dg/api/activate");
+      return json(r);
+    } catch (e) {
+      return json({ ok: false, code: "server", error: "خطای سرور: " + (e && e.message) });
+    }
+  }
+
+  // ---- API ادمین ----
+  const ak = request.headers.get("X-DG-Admin") || "";
+  const real = await dgAdminKey(env);
+  if (!real) return json({ ok: false, code: "forbidden", error: "کلید ادمین تنظیم نشده است" });
+  if (ak !== real) return json({ ok: false, code: "forbidden", error: "کلید ادمین اشتباه است" });
+
+  if (path === "/dg/api/admin/keys" && request.method === "GET") {
+    const rs = await env.DB.prepare(
+      "SELECT k.*, (SELECT COUNT(*) FROM dg_devices d WHERE d.key = k.k) AS devices, " +
+      "(SELECT MAX(last_seen) FROM dg_devices d WHERE d.key = k.k) AS last_seen " +
+      "FROM dg_keys k ORDER BY k.created_at DESC LIMIT 500").all();
+    return json({ ok: true, keys: rs.results || [] });
+  }
+
+  if (path === "/dg/api/admin/keys" && request.method === "POST") {
+    let b = {};
+    try { b = await request.json(); } catch (_e) {}
+    const dur = Math.max(1, Math.min(175200, Number(b.duration_hours) || 720));
+    const lim = Math.max(1, Math.min(50, Number(b.device_limit) || 1));
+    const mode = b.start_mode === "now" ? "now" : "first_use";
+    const note = String(b.note || "").slice(0, 200);
+    const count = Math.max(1, Math.min(20, Number(b.count) || 1));
+    const now = Date.now();
+    const made = [];
+    for (let i = 0; i < count; i++) {
+      let k = dgGenKey();
+      for (let tries = 0; tries < 5; tries++) {
+        const ex = await env.DB.prepare("SELECT 1 AS x FROM dg_keys WHERE k=?1").bind(k).first();
+        if (!ex) break;
+        k = dgGenKey();
+      }
+      await env.DB.prepare(
+        "INSERT INTO dg_keys (k, device_limit, duration_hours, start_mode, created_at, activated_at, expires_at, disabled, note) " +
+        "VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8)")
+        .bind(k, lim, dur, mode, now, mode === "now" ? now : null, mode === "now" ? now + dur * DG_HOUR : null, note).run();
+      made.push(k);
+    }
+    return json({ ok: true, keys_made: made });
+  }
+
+  if (path === "/dg/api/admin/keys/toggle" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (_e) {}
+    const k = String(b.key || "").toUpperCase();
+    await env.DB.prepare("UPDATE dg_keys SET disabled = CASE WHEN disabled=1 THEN 0 ELSE 1 END WHERE k=?1").bind(k).run();
+    return json({ ok: true });
+  }
+
+  if (path === "/dg/api/admin/keys/extend" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (_e) {}
+    const k = String(b.key || "").toUpperCase();
+    const h = Math.max(1, Math.min(175200, Number(b.hours) || 168));
+    const row = await env.DB.prepare("SELECT * FROM dg_keys WHERE k=?1").bind(k).first();
+    if (!row) return json({ ok: false, error: "کلید پیدا نشد" });
+    const base = Math.max(Date.now(), row.expires_at || 0);
+    await env.DB.prepare("UPDATE dg_keys SET expires_at=?1 WHERE k=?2").bind(base + h * DG_HOUR, k).run();
+    return json({ ok: true, expires_at: base + h * DG_HOUR });
+  }
+
+  if (path === "/dg/api/admin/keys/delete" && request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch (_e) {}
+    const k = String(b.key || "").toUpperCase();
+    await env.DB.prepare("DELETE FROM dg_devices WHERE key=?1").bind(k).run();
+    await env.DB.prepare("DELETE FROM dg_keys WHERE k=?1").bind(k).run();
+    return json({ ok: true });
+  }
+
+  if (path === "/dg/api/admin/devices" && request.method === "GET") {
+    const k = String(url.searchParams.get("key") || "").toUpperCase();
+    const rs = await env.DB.prepare("SELECT * FROM dg_devices WHERE key=?1 ORDER BY last_seen DESC").bind(k).all();
+    return json({ ok: true, devices: rs.results || [] });
+  }
+
+  return json({ ok: false, code: "not_found", error: "not found" });
+}
+
+function dgPanelHTML() {
+  return [
+'<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="utf-8">',
+'<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">',
+'<title>Demon Games Config — پنل کلیدها</title>',
+'<style>',
+':root{--bg:#0b0714;--card:#161022;--card2:#1e1530;--line:#2c2044;--tx:#ece7f6;--mut:#9a8fb8;--ac:#a855f7;--ac2:#7c3aed}',
+'*{box-sizing:border-box;margin:0;padding:0}',
+'body{background:var(--bg);color:var(--tx);font-family:Tahoma,"Segoe UI",sans-serif;min-height:100vh;padding:16px}',
+'.wrap{max-width:960px;margin:0 auto}',
+'h1{font-size:19px;display:flex;align-items:center;gap:8px;margin:6px 0 18px}',
+'h1 .lg{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#7c3aed,#312e81);display:inline-flex;align-items:center;justify-content:center;font-size:18px}',
+'h1 small{color:var(--mut);font-size:11px;font-weight:normal}',
+'.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}',
+'.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}',
+'input,select{background:var(--card2);border:1px solid var(--line);color:var(--tx);border-radius:9px;padding:9px 11px;font-family:inherit;font-size:13px;outline:none}',
+'input:focus,select:focus{border-color:var(--ac)}',
+'button{background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;border:0;border-radius:9px;padding:9px 14px;font-family:inherit;font-size:13px;cursor:pointer;font-weight:bold}',
+'button.ghost{background:var(--card2);border:1px solid var(--line);color:var(--tx);font-weight:normal}',
+'button.danger{background:linear-gradient(135deg,#b91c1c,#ef4444)}',
+'button.tiny{padding:5px 9px;font-size:11px;border-radius:7px}',
+'.stats{display:flex;gap:8px;flex-wrap:wrap}',
+'.stat{flex:1;min-width:100px;background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:10px;text-align:center}',
+'.stat b{font-size:20px;display:block}',
+'.stat span{font-size:11px;color:var(--mut)}',
+'table{width:100%;border-collapse:collapse;font-size:12px}',
+'th{color:var(--mut);text-align:right;padding:7px 6px;border-bottom:1px solid var(--line);font-weight:normal;white-space:nowrap}',
+'td{padding:8px 6px;border-bottom:1px solid #221836;vertical-align:middle}',
+'tr:hover td{background:#191228}',
+'.key{font-family:monospace;letter-spacing:.5px;color:#d8b4fe;direction:ltr;display:inline-block}',
+'.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:bold}',
+'.pill.ok{background:#052e16;color:#4ade80}.pill.exp{background:#451a03;color:#fb923c}.pill.dis{background:#450a0a;color:#f87171}',
+'.mut{color:var(--mut);font-size:11px}',
+'.login{max-width:420px;margin:12vh auto 0;text-align:center}',
+'.login input{width:100%;text-align:center;direction:ltr;letter-spacing:1px;font-family:monospace;margin:12px 0}',
+'.dev{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:11.5px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}',
+'.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#312e81;border:1px solid var(--ac);padding:10px 18px;border-radius:99px;font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:9}',
+'.toast.on{opacity:1}',
+'#createBody{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin:10px 0}',
+'#createBody label{font-size:11px;color:var(--mut);display:block;margin-bottom:4px}',
+'#createBody input,#createBody select{width:100%}',
+'</style></head><body><div class="wrap">',
+'<h1><span class="lg">😈</span> DEMON GAMES CONFIG <small>پنل مدیریت کلیدها — demonvpn.shop/dg</small></h1>',
+'<div id="login" class="card login" style="display:none">',
+'<div style="font-size:34px">😈</div>',
+'<div style="margin:8px 0 2px;font-weight:bold">ورود مدیر</div>',
+'<div class="mut">کلید ادمین پنل را وارد کن (در پیام تحویل آمده است)</div>',
+'<input id="ak" type="password" placeholder="dgk_..." autocomplete="off">',
+'<button id="bLogin">ورود به پنل</button>',
+'<div id="lerr" class="mut" style="color:var(--bad);margin-top:8px"></div>',
+'</div>',
+'<div id="panel" style="display:none">',
+'<div class="card"><div class="stats" id="stats"></div></div>',
+'<div class="card">',
+'<div class="row" style="justify-content:space-between"><b>ساخت کلید جدید</b><span class="mut">تایمر از اولین ورود کاربر شروع می‌شود (یا «همین حالا»)</span></div>',
+'<div id="createBody">',
+'<div><label>مدت اعتبار</label><select id="fDur">',
+'<option value="24">۱ روزه</option><option value="72">۳ روزه</option><option value="168" selected>۱ هفته</option>',
+'<option value="360">۱۵ روزه</option><option value="720">۳۰ روزه</option><option value="2160">۹۰ روزه</option>',
+'<option value="8760">۱ ساله</option><option value="0">سفارشی (ساعت)</option></select></div>',
+'<div><label>ساعت سفارشی</label><input id="fDurC" type="number" min="1" placeholder="مثلا 48"></div>',
+'<div><label>سقف دستگاه</label><input id="fLim" type="number" value="1" min="1" max="50"></div>',
+'<div><label>شروع تایمر</label><select id="fMode"><option value="first_use">اولین ورود کاربر</option><option value="now">همین حالا</option></select></div>',
+'<div><label>تعداد کلید</label><input id="fCnt" type="number" value="1" min="1" max="20"></div>',
+'<div><label>یادداشت</label><input id="fNote" placeholder="مثلا: فروش به علی"></div>',
+'</div>',
+'<button id="bCreate">+ ساخت کلید</button> ',
+'<span id="madeKeys" class="key"></span>',
+'</div>',
+'<div class="card">',
+'<div class="row" style="justify-content:space-between"><b>کلیدها</b><button class="ghost tiny" id="bReload">↻ نوسازی</button></div>',
+'<div style="overflow-x:auto;margin-top:8px"><table><thead><tr>',
+'<th>کلید</th><th>وضعیت</th><th>دستگاه‌ها</th><th>شروع</th><th>انقضا</th><th>یادداشت</th><th></th>',
+'</tr></thead><tbody id="tb"></tbody></table></div>',
+'<div id="devBox"></div>',
+'</div>',
+'</div>',
+'<div class="toast" id="toast"></div>',
+'<script>',
+'let AK = localStorage.getItem("dg_admin_key") || "";',
+'let KEYS = [];',
+'function t(m){var e=document.getElementById("toast");e.textContent=m;e.classList.add("on");setTimeout(function(){e.classList.remove("on")},2200)}',
+'async function api(p, opt){opt=opt||{};opt.headers=Object.assign({"X-DG-Admin":AK},opt.headers||{});if(opt.body&&!opt.headers["Content-Type"])opt.headers["Content-Type"]="application/json";var r=await fetch(p,opt);var j=await r.json().catch(function(){return{ok:false,error:"پاسخ سرور نامعتبر"}});if(j&&j.code==="forbidden"){localStorage.removeItem("dg_admin_key");AK="";showLogin()}return j}',
+'function saveAk(){var v=document.getElementById("ak").value.trim();if(!v){return}AK=v;localStorage.setItem("dg_admin_key",v);load()}',
+'function showLogin(){document.getElementById("login").style.display="block";document.getElementById("panel").style.display="none"}',
+'function showPanel(){document.getElementById("login").style.display="none";document.getElementById("panel").style.display="block"}',
+'function fa(n){try{return Number(n).toLocaleString("fa-IR")}catch(e){return n}}',
+'function dt(ms){if(!ms)return"—";try{return new Date(ms).toLocaleString("fa-IR",{dateStyle:"short",timeStyle:"short"})}catch(e){return new Date(ms).toLocaleString()}}',
+'function remain(ms){if(!ms)return"—";var d=Date.now()-ms;if(d>=0)return"منقضی شده";var s=Math.floor(-d/1000),day=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);if(day>0)return fa(day)+" روز و "+fa(h)+" ساعت";if(h>0)return fa(h)+" ساعت و "+fa(m)+" دقیقه";return fa(m)+" دقیقه"}',
+'function statusPill(r){if(r.disabled)return \'<span class="pill dis">غیرفعال</span>\';if(r.expires_at&&Date.now()>r.expires_at)return \'<span class="pill exp">منقضی</span>\';return \'<span class="pill ok">فعال</span>\'}',
+'function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}',
+'function st(n,l){return \'<div class="stat"><b>\'+fa(n)+"</b><span>"+l+"</span></div>"}',
+'function render(){',
+'var tb=document.getElementById("tb");var h=KEYS.map(function(r){',
+'return "<tr>"+',
+'"<td><span class=\'key\'>"+esc(r.k)+"</span></td>"+',
+'"<td>"+statusPill(r)+"</td>"+',
+'"<td>"+fa(r.devices)+" / "+fa(r.device_limit)+"</td>"+',
+'"<td class=\'mut\'>"+(r.activated_at?dt(r.activated_at):"هنوز فعال نشده")+"</td>"+',
+'"<td class=\'mut\'>"+(r.expires_at?dt(r.expires_at)+"<br>"+remain(r.expires_at):"—")+"</td>"+',
+'"<td class=\'mut\'>"+esc(r.note||"")+"</td>"+',
+'"<td style=\'white-space:nowrap\'>"+',
+'\'<button class="ghost tiny" data-act="copy" data-k="\'+r.k+\'">کپی</button> \'+',
+'\'<button class="ghost tiny" data-act="devs" data-k="\'+r.k+\'">دستگاه‌ها</button> \'+',
+'\'<button class="ghost tiny" data-act="toggle" data-k="\'+r.k+\'">\'+(r.disabled?"فعال‌سازی":"غیرفعال")+"</button> "+',
+'\'<button class="ghost tiny" data-act="extend" data-k="\'+r.k+\'">+۷روز</button> \'+',
+'\'<button class="danger tiny" data-act="del" data-k="\'+r.k+\'">حذف</button></td>\'+',
+'"</tr>"}).join("");',
+'tb.innerHTML=h||\'<tr><td colspan="7" class="mut" style="text-align:center;padding:18px">هنوز کلیدی ساخته نشده — از فرم بالا اولین کلید را بساز</td></tr>\';',
+'}',
+'async function load(){',
+'var j=await api("/dg/api/admin/keys");',
+'if(!j.ok){document.getElementById("lerr").textContent=j.error||"خطا";if(!AK)showLogin();return}',
+'showPanel();KEYS=j.keys||[];',
+'var act=0,exp=0,dis=0,tot=KEYS.length;KEYS.forEach(function(r){if(r.disabled)dis++;else if(r.expires_at&&Date.now()>r.expires_at)exp++;else act++});',
+'document.getElementById("stats").innerHTML=st(tot,"کلید")+st(act,"فعال")+st(exp,"منقضی")+st(dis,"غیرفعال");',
+'render()}',
+'document.getElementById("bLogin").addEventListener("click",saveAk);',
+'document.getElementById("bReload").addEventListener("click",load);',
+'document.getElementById("bCreate").addEventListener("click",async function(){',
+'var d=parseInt(document.getElementById("fDur").value)||0;',
+'if(d===0)d=parseInt(document.getElementById("fDurC").value)||0;',
+'if(d<1){t("مدت اعتبار را درست انتخاب کن");return}',
+'var body={duration_hours:d,device_limit:parseInt(document.getElementById("fLim").value)||1,',
+'start_mode:document.getElementById("fMode").value,note:document.getElementById("fNote").value.trim(),',
+'count:parseInt(document.getElementById("fCnt").value)||1};',
+'var j=await api("/dg/api/admin/keys",{method:"POST",body:JSON.stringify(body)});',
+'if(!j.ok){t(j.error||"خطا");return}',
+'document.getElementById("madeKeys").textContent=(j.keys_made||[]).join("  ");',
+'t("کلید ساخته شد ✅");load()});',
+'document.getElementById("tb").addEventListener("click",async function(e){',
+'var b=e.target.closest("[data-act]");if(!b)return;var k=b.getAttribute("data-k");var act=b.getAttribute("data-act");',
+'if(act==="copy"){navigator.clipboard.writeText(k).then(function(){t("کلید کپی شد ✅")},function(){t(k)});return}',
+'if(act==="toggle"){await api("/dg/api/admin/keys/toggle",{method:"POST",body:JSON.stringify({key:k})});load();return}',
+'if(act==="extend"){await api("/dg/api/admin/keys/extend",{method:"POST",body:JSON.stringify({key:k,hours:168})});t("یک هفته تمدید شد ✅");load();return}',
+'if(act==="del"){if(!confirm("کلید "+k+" و دستگاه‌هایش کامل حذف شود؟"))return;await api("/dg/api/admin/keys/delete",{method:"POST",body:JSON.stringify({key:k})});t("حذف شد");load();return}',
+'if(act==="devs"){',
+'var j=await api("/dg/api/admin/devices?key="+encodeURIComponent(k));',
+'var box=document.getElementById("devBox");',
+'if(!j.ok){t(j.error||"خطا");return}',
+'if(!j.devices.length){box.innerHTML=\'<div class="card" style="margin-top:10px"><b>دستگاه‌های \'+esc(k)+\'</b><div class="mut" style="margin-top:6px">هنوز هیچ دستگاهی وارد نشده</div></div>\';return}',
+'box.innerHTML=\'<div class="card" style="margin-top:10px"><b>دستگاه‌های \'+esc(k)+"</b>"+j.devices.map(function(d){',
+'return \'<div class="dev"><span>📱 \'+esc(d.model||"دستگاه")+" (اندروید "+esc(d.android_ver||"?")+")</span>"+',
+'"<span class=\'mut\'>آخرین ورود: "+dt(d.last_seen)+"</span></div>"}).join("")+"</div>"}',
+'});',
+'if(AK)load();else showLogin();',
+'<\/script></body></html>'
+  ].join("\n");
 }
