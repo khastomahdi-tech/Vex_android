@@ -440,6 +440,11 @@ class MainActivity : ComponentActivity() {
             scheduleFreeAutoRefresh()
             Thread { refreshFreeServers(silent = true) }.start()
 
+            // «اپ همیشه آنلاین» — حلقه‌ی حضور از همین اولین ورود شروع می‌شود
+            // (onResume قبل از ساخته‌شدن رابط صدا می‌شود و آنجا شروع نمی‌شود)
+            startPresenceLoop()
+            refreshLive()
+
             // اعلان‌های تازه‌ی مدیر (اگر هنگام بسته‌بودن برنامه فرستاده شده باشند)
             Thread { Notifier.fetchAndShow(this) }.start()
             // ضربان پس‌زمینه‌ی اعلان‌ها — حتی وقتی برنامه کاملاً بسته است، سیستم هر ۱۵ دقیقه بیدار می‌کند
@@ -506,9 +511,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // «اپ همیشه آنلاین» (V5): تپش حضور + شمارنده‌های زنده تا وقتی رابط باز است
-        startPresenceLoop()
-        refreshLive()
+        // «اپ همیشه آنلاین» (V5): تپش حضور + شمارنده‌های زنده تا وقتی رابط باز است.
+        // فقط وقتی رابط ساخته شده (::root) — در همان ثانیه‌های اول باز شدن برنامه،
+        // گیت هنوز در حال چک است و serversUi ساخته نشده؛ تپش زودهنگام کرش می‌داد.
+        if (::root.isInitialized) {
+            startPresenceLoop()
+            refreshLive()
+        }
         // ادامه‌ی خودکار نصب بروزرسانی — وقتی کاربر از صفحه‌ی اجازه‌ی نصب برمی‌گردد
         try {
             if (::root.isInitialized && Updater.pendingInstall(this)) {
@@ -1359,25 +1368,36 @@ class MainActivity : ComponentActivity() {
 
     private var liveFetching = false
 
-    /** دریافت شمارنده‌های زنده از دروازه — بی‌صدا؛ در خطا هیچ‌چیز عوض نمی‌شود */
+    /** دریافت شمارنده‌های زنده از دروازه — بی‌صدا؛ در خطا هیچ‌چیز عوض نمی‌شود.
+     *  ⚠ هرجا به رابط می‌رسد با isInitialized محافظت می‌شود — این تابع ممکن است
+     *  قبل از enterApp (روی صفحه‌ی گیت/اشتراک) صدا زده شود وگرنه کرش «پرتم می‌کنه بیرون». */
     fun refreshLive() {
         if (liveFetching) return
         liveFetching = true
-        Thread {
-            val dto = TelegramGate.fetchLive()
-            liveFetching = false
-            if (dto != null) main.post {
-                liveCounts = dto.counts
-                liveAppTotal = dto.app
-                if (serversUi.tab == 1) serversUi.render()
-            }
-        }.start()
+        try {
+            Thread {
+                val dto = try { TelegramGate.fetchLive() } catch (_: Throwable) { null }
+                liveFetching = false
+                if (dto != null) main.post {
+                    try {
+                        liveCounts = dto.counts
+                        liveAppTotal = dto.app
+                        if (::serversUi.isInitialized && serversUi.tab == 1) serversUi.render()
+                    } catch (_: Throwable) {}
+                }
+            }.start()
+        } catch (_: Throwable) { liveFetching = false }
     }
 
     /** حلقه‌ی حضور اپ — وقتی رابط باز است هر ۴۵ ثانیه «اپ آنلاین است» می‌گوید؛
      *  حین اتصال VPN تپش با سرویس است (سرور درست ثبت می‌شود) و این حلقه پینگ نمی‌زند */
     private val presenceTick = object : Runnable {
         override fun run() {
+            // قبل از ورود واقعی به برنامه (گیت/اشتراک/قفل PIN) هیچ کاری نمی‌کند — فقط زمان‌بندی ادامه دارد
+            if (!::root.isInitialized) {
+                main.postDelayed(this, 45_000L)
+                return
+            }
             if (connectionState != "connected" && connectionState != "connecting") {
                 Thread { TelegramGate.pingPresence(this@MainActivity, 0L) }.start()
             }
