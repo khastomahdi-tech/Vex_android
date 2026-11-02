@@ -375,6 +375,52 @@ object TelegramGate {
         return parseSub(res)
     }
 
+    // ------------------------------------------------ حضور زنده (V5)
+
+    /** وضعیت زنده‌ی آنلاین‌ها — counts: شناسه‌ی سمت اپ هر سرور رایگان → تعداد متصل */
+    data class LiveDto(val app: Int, val vpn: Int, val counts: Map<Long, Int>)
+
+    /**
+     * شمارنده‌های زنده از دروازه — خروجی null یعنی سرور در دسترس نبود.
+     * مسیر پشتیبان گیت‌هاب ندارد (داده‌ی زنده نباید از اسنپ‌شات کهنه بیاید).
+     */
+    fun fetchLive(): LiveDto? {
+        val body = get("/v1/live") ?: return null
+        return try {
+            val o = JSONObject(body)
+            if (!o.optBoolean("ok")) return LiveDto(0, 0, emptyMap())
+            val f = o.optJSONObject("free") ?: JSONObject()
+            val m = HashMap<Long, Int>()
+            val keys = f.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val id = k.toLongOrNull() ?: continue
+                m[id] = f.optInt(k)
+            }
+            LiveDto(o.optInt("app"), o.optInt("vpn"), m)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * تپش قلب حضور — «این دستگاه الان اینجاست». best-effort: خرابی‌اش هیچ
+     * تأثیری روی کار اپ ندارد. srv = ۰ یعنی اپ باز ولی VPN خاموش،
+     * ۱- یعنی متصل به سرور خصوصی، 100000+ یعنی شناسه‌ی سرور رایگان.
+     */
+    fun pingPresence(ctx: Context, srv: Long): Boolean {
+        return try {
+            val res = post("/v1/ping", JSONObject().apply {
+                put("did", deviceId(ctx))
+                put("srv", srv)
+                put("ver", selfVersionName(ctx))
+            })
+            res != null && try { JSONObject(res).optBoolean("ok") } catch (_: Throwable) { false }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     // ------------------------------------------------ ابزار شبکه
 
     /** فایل پشتیبانِ هر مسیر — null یعنی فقط مستقیم (POSTها پشتیبان ندارند) */

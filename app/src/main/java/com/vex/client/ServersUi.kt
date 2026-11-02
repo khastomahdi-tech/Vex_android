@@ -337,13 +337,74 @@ class ServersUi(private val act: MainActivity) {
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
             emptyHint.visibility = View.VISIBLE
         } else {
+            // ⚡ کارت «اتصال خودکار» — بالای لیست سرورهای رایگان
+            listContainer.addView(autoConnectCard())
             for (s in free) listContainer.addView(freeRow(s))
         }
+    }
+
+    // ---------------------------------------------------------- کارت اتصال خودکار
+
+    /**
+     * ⚡ اتصال خودکار — کارت ویژه‌ی بالای لیست سرورهای رایگان:
+     *  لمس = برنامه زنده شمارنده‌ها را می‌گیرد و به خلوت‌ترین سرور وصل می‌شود.
+     */
+    private fun autoConnectCard(): View {
+        val ctx = act
+        val searching = autoConnectState == "searching"
+        val card = UI.row(ctx)
+        card.gravity = Gravity.CENTER_VERTICAL
+        card.setPadding(UI.dp(ctx, 14), UI.dp(ctx, 12), UI.dp(ctx, 12), UI.dp(ctx, 12))
+        card.background = UI.card(ctx, p, 16, stroke = p.accent, strokeW = 1.5f,
+            fillColor = UI.alpha(p.accent, 0.10f))
+
+        // آیکون برق
+        val ic = UI.label(ctx, "⚡", 20f, p.accent, bold = true)
+        card.addView(ic, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = UI.dp(ctx, 10)
+        })
+
+        val col = UI.col(ctx)
+        col.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val title = UI.label(ctx, "اتصال خودکار", 14.5f, p.text, bold = true)
+        col.addView(title)
+        val sub = UI.label(ctx,
+            if (searching) "در حال پیدا کردن خلوت‌ترین سرور…"
+            else "به خلوت‌ترین سرور رایگان وصل می‌شود",
+            11.5f, if (searching) p.accent else p.muted, bold = searching)
+        sub.maxLines = 1
+        col.addView(sub)
+        card.addView(col)
+
+        // نشان تعداد آنلاین کل برنامه
+        if (act.liveAppTotal > 0) {
+            val tot = UI.pill(ctx, "👤 " + fa(act.liveAppTotal), UI.alpha(p.accent, 0.16f), p.accent)
+            card.addView(tot, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = UI.dp(ctx, 8)
+            })
+        }
+
+        if (!searching) {
+            card.setOnClickListener { act.autoConnectFree() }
+        }
+
+        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        lp.bottomMargin = UI.dp(ctx, 10)
+        card.layoutParams = lp
+        return card
     }
 
     /** آخرین پیام پیشرفت دریافت سرورهای رایگان (از MainActivity پست می‌شود) */
     var freeProgressMsg: String = "در حال دریافت…"
         set(value) { field = value; if (::freeProgress.isInitialized) freeProgress.text = value }
+
+    /** حالت «اتصال خودکار»: خالی = عادی؛ "searching" = در حال پیدا کردن خلوت‌ترین سرور */
+    var autoConnectState: String = ""
+
+    /** عدد فارسی برای شمارنده‌های زنده */
+    private fun fa(n: Int): String = String(n.toString().map { c -> "۰۱۲۳۴۵۶۷۸۹"[c - '0'] }.toCharArray())
 
     /** آخرین تلاش دریافت، به سرور مدیریت نرسید؟ (برای پیام درستِ حالت خالی) */
     var freeNetFail: Boolean = false
@@ -612,6 +673,17 @@ class ServersUi(private val act: MainActivity) {
         pingLine.addView(active)
         col.addView(pingLine)
         card.addView(col)
+
+        // 👤 نشان زنده‌ی تعداد متصل‌ها به این سرور
+        val online = act.liveCounts[s.id.toLong()] ?: 0
+        val livePill = UI.pill(ctx, "👤 " + fa(online),
+            if (online > 0) UI.alpha(p.good, 0.16f) else UI.alpha(p.muted, 0.14f),
+            if (online > 0) p.good else p.muted)
+        livePill.maxLines = 1
+        card.addView(livePill, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = UI.dp(ctx, 8)
+        })
 
         // دکمه‌ی پینگ تکی
         val pb = FrameLayout(ctx).apply {

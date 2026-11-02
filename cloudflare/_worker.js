@@ -63,7 +63,7 @@
  *   Unhandled bot errors are reported to the owner (max 1/min) instead of being swallowed.
  */
 
-const SERVICE_V = 14;
+const SERVICE_V = 15;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";
@@ -76,12 +76,8 @@ const PROTOCOLS = ["vless", "vmess", "trojan", "ss", "wg", "wireguard"];
 
 export default {
   async fetch(request, env) {
-    // ---------------- GLOBAL SAFETY NET (anti error 1101) ----------------
-    // خطای ۱۱۰۱ کلادفلر یعنی «ورکر استثنای پرتاب کرده». اگر هر کوئری D1 یا هر fetch
-    // لحظه‌ای خطا بدهد و گیر نیفتد، کلادفلر صفحه‌ی 1101 نشان می‌دهد و پنل «پایین» به
-    // نظر می‌رسد. پس کل بدنه داخل این لایه اجرا می‌شود: هر استثنایی گیر می‌افتد، یک
-    // بار در دقیقه به ادمین در تلگرام گزارش می‌شود و همیشه یک پاسخ JSON تمیز برگردانده
-    // می‌شود — پنل هرگز ۱۱۰۱ نمی‌دهد و از دست نمی‌رود.
+    // GLOBAL SAFETY NET — هیچ استثنایی هرگز صفحه‌ی خطای 1101 کلادفلر را نشان نمی‌دهد؛
+    // هر خطای پیش‌بینی‌نشده به یک 500 JSON تمیز تبدیل می‌شود و به مالک گزارش می‌رود.
     try {
       return await handleVex(request, env);
     } catch (e) {
@@ -253,6 +249,47 @@ async function handleVex(request, env) {
           "SELECT id, name, label, proto, raw FROM free_servers WHERE enabled = 1 ORDER BY id"
         ).all();
         return json({ ok: true, servers: rs.results || [] });
+      }
+      // ---------------- حضور زنده (V5) — تپش قلب دستگاه‌ها ----------------
+      // srv: 0 = اپ باز ولی VPN خاموش · 1- = متصل به سرور خصوصی · 100000+ = شناسه‌ی سمت اپ سرور رایگان (همان که در /v1/traffic می‌رود)
+      if (path === "/v1/ping" && request.method === "POST") {
+        try {
+          let b = {};
+          try { b = await request.json(); } catch (e) {}
+          const did = String(b.did || "").slice(0, 64);
+          if (!did) return json({ ok: false, error: "did required" }, 400);
+          const srv = Math.max(-1, Math.min(2000000, Math.round(Number(b.srv) || 0)));
+          const ver = String(b.ver || "").slice(0, 24) || null;
+          await ensurePresence(env);
+          await env.DB.prepare(
+            "INSERT INTO presence (did, srv, ts, ver) VALUES (?1,?2,?3,?4) " +
+            "ON CONFLICT(did) DO UPDATE SET srv = ?2, ts = ?3, ver = ?4"
+          ).bind(did, srv, Date.now(), ver).run();
+          // پاک‌سازی گاه‌به‌گاه ردیف‌های کهنه (بیش از یک ساعت) — بی‌هزینه برای کاربر
+          if (Math.random() < 0.02) {
+            try { await env.DB.prepare("DELETE FROM presence WHERE ts < ?1").bind(Date.now() - 3600000).run(); } catch (e) {}
+          }
+          return json({ ok: true, t: Date.now() });
+        } catch (e) {
+          // خرابی حضور هرگز نباید در کار اپ خللی بدهد
+          return json({ ok: true, t: Date.now() });
+        }
+      }
+      if (path === "/v1/live" && request.method === "GET") {
+        try {
+          await ensurePresence(env);
+          const cut = Date.now() - 90000; // پنجره‌ی آنلاین: ۹۰ ثانیه
+          const a = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE ts >= ?1").bind(cut).first();
+          const v = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE ts >= ?1 AND srv <> 0").bind(cut).first();
+          const p = await env.DB.prepare(
+            "SELECT srv, COUNT(*) AS n FROM presence WHERE ts >= ?1 AND srv > 0 GROUP BY srv"
+          ).bind(cut).all();
+          const free = {};
+          for (const r of (p.results || [])) free[String(r.srv)] = Number(r.n) || 0;
+          return json({ ok: true, app: Number(a && a.n) || 0, vpn: Number(v && v.n) || 0, free, ts: Date.now() });
+        } catch (e) {
+          return json({ ok: true, app: 0, vpn: 0, free: {}, ts: Date.now() });
+        }
       }
       if (path === "/v1/notifications" && request.method === "GET") {
         const since = Math.max(0, Math.round(Number(url.searchParams.get("since")) || 0));
@@ -587,6 +624,51 @@ async function handleAdmin(path, url, request, env) {
       all_bytes: allB,
       versions: vers,
       orphans: { n: orphanN, bytes: orphanB }
+    });
+  }
+
+  if (path === "/admin/live" && request.method === "GET") {
+    // وضعیت زنده‌ی اپ برای ربات: آنلاین در برنامه / متصل به VPN / تفکیک هر سرور رایگان
+    let app = 0, vpn = 0, per = [];
+    try {
+      await ensurePresence(env);
+      const cut = Date.now() - 90000; // پنجره‌ی آنلاین: ۹۰ ثانیه
+      const a = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE ts >= ?1").bind(cut).first();
+      const v = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE ts >= ?1 AND srv <> 0").bind(cut).first();
+      const p = await env.DB.prepare(
+        "SELECT srv, COUNT(*) AS n FROM presence WHERE ts >= ?1 AND srv > 0 GROUP BY srv ORDER BY n DESC"
+      ).bind(cut).all();
+      app = Number(a && a.n) || 0; vpn = Number(v && v.n) || 0; per = p.results || [];
+    } catch (e) {}
+    // نگاشت شناسه‌ی سمت اپ (100000 + hash(raw)٪1e6 + 1 — همان الگوریتم Kotlin String.hashCode) به نام سرور
+    const frows = await env.DB.prepare("SELECT name, label, proto, raw FROM free_servers").all();
+    const byAppId = {};
+    for (const s of (frows.results || [])) {
+      try {
+        const str = String(s.raw || "");
+        let h = 0;
+        for (let i = 0; i < str.length; i++) h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0;
+        const appId = 100000 + ((h & 0x7fffffff) % 1000000) + 1;
+        byAppId[String(appId)] = { name: s.name, label: s.label || "", proto: s.proto || "" };
+      } catch (e) {}
+    }
+    const servers = per.map((r) => {
+      const k = byAppId[String(r.srv)];
+      return {
+        id: r.srv,
+        online: Number(r.n) || 0,
+        name: (k && k.name) || "سرور ناشناس",
+        label: (k && k.label) || "",
+        proto: (k && k.proto) || ""
+      };
+    });
+    return J({
+      ok: true,
+      app,
+      vpn,
+      free: servers.reduce((s, x) => s + x.online, 0),
+      servers,
+      ts: Date.now()
     });
   }
 
@@ -1497,6 +1579,16 @@ async function ensureTrafficSrv(env) {
     "updated INTEGER, PRIMARY KEY (srv, did))"
   ).run();
   tSrvReady = true;
+}
+
+let presenceReady = false;
+async function ensurePresence(env) {
+  if (presenceReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS presence (" +
+    "did TEXT PRIMARY KEY, srv INTEGER DEFAULT 0, ts INTEGER, ver TEXT)"
+  ).run();
+  presenceReady = true;
 }
 
 /** ثبت رویداد برای پنل ربات (آمار روزانه + گزارش اتصال/خروج) */

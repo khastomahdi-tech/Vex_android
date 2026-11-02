@@ -501,10 +501,14 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         if (pinUnlocked) pausedAt = android.os.SystemClock.elapsedRealtime()
+        stopPresenceLoop() // تپش حضور اپ فقط وقتی رابط باز است — حین اتصال سرویس خودش تپش دارد
     }
 
     override fun onResume() {
         super.onResume()
+        // «اپ همیشه آنلاین» (V5): تپش حضور + شمارنده‌های زنده تا وقتی رابط باز است
+        startPresenceLoop()
+        refreshLive()
         // ادامه‌ی خودکار نصب بروزرسانی — وقتی کاربر از صفحه‌ی اجازه‌ی نصب برمی‌گردد
         try {
             if (::root.isInitialized && Updater.pendingInstall(this)) {
@@ -1316,6 +1320,8 @@ class MainActivity : ComponentActivity() {
                 refreshFreeServers(silent = true)
                 // اعلان‌های تازه‌ی مدیر هم در همین تیک ۶۰ ثانیه‌ای بررسی می‌شود
                 Notifier.fetchAndShow(this@MainActivity)
+                // شمارنده‌های زنده هم در همین تیک تازه می‌شوند
+                refreshLive()
             }.start()
             scheduleFreeAutoRefresh()
         }
@@ -1339,6 +1345,127 @@ class MainActivity : ComponentActivity() {
     fun restartFreeAutoRefresh() {
         main.removeCallbacks(freeRefreshTask)
         scheduleFreeAutoRefresh()
+    }
+
+    // ---------------- وضعیت زنده (V5) — آنلاین‌ها و اتصال خودکار ----------------
+
+    /** شمارنده‌ی زنده‌ی متصل‌ها به هر سرور رایگان (شناسه‌ی سمت اپ → تعداد) */
+    var liveCounts: Map<Long, Int> = emptyMap()
+        private set
+
+    /** تعداد آنلاین کل برنامه (اپ باز + متصل) */
+    var liveAppTotal: Int = 0
+        private set
+
+    private var liveFetching = false
+
+    /** دریافت شمارنده‌های زنده از دروازه — بی‌صدا؛ در خطا هیچ‌چیز عوض نمی‌شود */
+    fun refreshLive() {
+        if (liveFetching) return
+        liveFetching = true
+        Thread {
+            val dto = TelegramGate.fetchLive()
+            liveFetching = false
+            if (dto != null) main.post {
+                liveCounts = dto.counts
+                liveAppTotal = dto.app
+                if (serversUi.tab == 1) serversUi.render()
+            }
+        }.start()
+    }
+
+    /** حلقه‌ی حضور اپ — وقتی رابط باز است هر ۴۵ ثانیه «اپ آنلاین است» می‌گوید؛
+     *  حین اتصال VPN تپش با سرویس است (سرور درست ثبت می‌شود) و این حلقه پینگ نمی‌زند */
+    private val presenceTick = object : Runnable {
+        override fun run() {
+            if (connectionState != "connected" && connectionState != "connecting") {
+                Thread { TelegramGate.pingPresence(this@MainActivity, 0L) }.start()
+            }
+            refreshLive()
+            main.postDelayed(this, 45_000L)
+        }
+    }
+
+    private var presenceRunning = false
+
+    private fun startPresenceLoop() {
+        if (presenceRunning) return
+        presenceRunning = true
+        main.post(presenceTick)
+    }
+
+    private fun stopPresenceLoop() {
+        if (!presenceRunning) return
+        presenceRunning = false
+        main.removeCallbacks(presenceTick)
+    }
+
+    /**
+     * ⚡ اتصال خودکار — سرورهای رایگان با شمارنده‌ی زنده مقایسه می‌شوند و اتصال به
+     * خلوت‌ترین‌شان (کمترین آنلاین) برقرار می‌شود؛ اگر داده‌ی زنده نیامد،
+     * تصادفی بین سرورهای پاسخ‌گو (پینگ‌دار) انتخاب می‌شود.
+     */
+    fun autoConnectFree() {
+        if (connectionState == "connecting") {
+            UI.toast(this, "اتصال در حال انجام است")
+            return
+        }
+        if (store.freeServers.isEmpty()) {
+            UI.toast(this, "هنوز سرور رایگانی موجود نیست")
+            return
+        }
+        serversUi.autoConnectState = "searching"
+        if (serversUi.tab == 1) serversUi.render()
+        Thread {
+            var pick: Server? = null
+            val dto = TelegramGate.fetchLive()
+            if (dto != null) {
+                main.post {
+                    liveCounts = dto.counts
+                    liveAppTotal = dto.app
+                    if (serversUi.tab == 1) serversUi.render()
+                }
+                var best = Int.MAX_VALUE
+                val mins = ArrayList<Server>()
+                for (s in store.freeServers) {
+                    val n = dto.counts[s.id.toLong()] ?: 0
+                    if (n < best) {
+                        best = n
+                        mins.clear()
+                        mins.add(s)
+                    } else if (n == best) mins.add(s)
+                }
+                if (mins.isNotEmpty()) pick = mins[(0 until mins.size).random()]
+            }
+            if (pick == null) {
+                // داده‌ی زنده نیامد → تصادفی بین پاسخ‌گوها؛ هیچ سرور پاسخ‌گو نیست → کل لیست
+                val alive = store.freeServers.filter { it.ping >= 0 }
+                val pool = if (alive.isNotEmpty()) alive else store.freeServers
+                if (pool.isNotEmpty()) pick = pool[(0 until pool.size).random()]
+            }
+            val target = pick
+            main.post {
+                serversUi.autoConnectState = ""
+                if (target == null) {
+                    if (serversUi.tab == 1) serversUi.render()
+                    UI.toast(this, "سروری برای اتصال خودکار پیدا نشد")
+                    return@main.post
+                }
+                UI.toast(this, "خلوت‌ترین سرور: «${target.name}» — در حال اتصال…")
+                store.select(target.id)
+                serversUi.render()
+                homeUi.renderServerCard()
+                if (connectionState == "stopped") {
+                    requestStart(target)
+                } else {
+                    requestStop()
+                    main.postDelayed({
+                        val cur = store.selected()
+                        if (cur != null && connectionState == "stopped") requestStart(cur)
+                    }, 1000)
+                }
+            }
+        }.start()
     }
 
     // ---------------- ابزار ----------------

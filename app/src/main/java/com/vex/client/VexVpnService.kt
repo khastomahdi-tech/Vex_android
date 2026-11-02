@@ -682,6 +682,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         // آخرین دلتای جلسه به بک‌اند ربات می‌رود — حتی اگر UI اصلاً باز نبوده باشد
         try { TrafficStore.init(applicationContext) } catch (_: Throwable) {}
         try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
+        // خداحافظیِ حضور — شمارنده‌ی «آنلاین» فوراً یکی کم می‌شود (بدون انتظار پنجره‌ی ۹۰ ثانیه)
+        try { TelegramGate.pingPresence(applicationContext, 0L) } catch (_: Throwable) {}
         try { tun?.close() } catch (_: Exception) {}
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
@@ -732,6 +734,18 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 synchronized(stateLock) { if (gen != generation) return@thread }
                 // ۱) گزارش دوره‌ای مصرف (واترمارک — فقط تازه‌ها می‌روند)
                 try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}
+                // ۱.۵) تپش قلب حضور (V5) — «الان چند نفر متصل‌اند» به تفکیک سرور؛
+                //   سرویس VPN پیش‌زمینه است و حتی با اپ بسته تپش ادامه دارد (اپ همیشه آنلاین)
+                try {
+                    val st = ServersStore(applicationContext)
+                    val sel = st.selected()
+                    val srv = when {
+                        sel == null -> 0L
+                        st.isFree(sel) -> sel.id.toLong()
+                        else -> -1L
+                    }
+                    TelegramGate.pingPresence(applicationContext, srv)
+                } catch (_: Throwable) {}
                 // ۲) اعلان‌های همگانی مدیر — حتی وقتی رابط برنامه بسته است،
                 //    تا اعلان ربات مثل پیام‌رسان‌ها بالای صفحه بیاید
                 try { Notifier.fetchAndShow(applicationContext) } catch (_: Throwable) {}
