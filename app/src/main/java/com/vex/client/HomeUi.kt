@@ -27,6 +27,7 @@ class HomeUi(private val act: MainActivity) {
 
     private lateinit var power: PowerButtonView
     private lateinit var statusText: TextView
+    private lateinit var statusSpin: ProgressBar
     private lateinit var timerText: TextView
 
     private lateinit var dnSpeed: TextView
@@ -61,12 +62,23 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var exitIc: IconView
     private lateinit var exitIcBox: FrameLayout
     private lateinit var exitFlag: TextView
+    private lateinit var exitGlobeIc: IconView
+    private lateinit var exitFlagBox: FrameLayout
     private lateinit var exitCountry: TextView
     private lateinit var exitIp: TextView
-    // ---- گزینش موتور اتصال (Vex / ترکیبی / سایفون) ----
-    private lateinit var engVex: TextView
-    private lateinit var engHyb: TextView
-    private lateinit var engPsi: TextView
+    // ---- گزینش موتور اتصال (اتصال خودکار / Vex / ترکیبی / سایفون) — انتهای صفحه ----
+    private lateinit var engAuto: LinearLayout
+    private lateinit var engVex: LinearLayout
+    private lateinit var engHyb: LinearLayout
+    private lateinit var engPsi: LinearLayout
+    private lateinit var engAutoIc: IconView
+    private lateinit var engVexIc: IconView
+    private lateinit var engHybIc: IconView
+    private lateinit var engPsiIc: IconView
+    private lateinit var engAutoTx: TextView
+    private lateinit var engVexTx: TextView
+    private lateinit var engHybTx: TextView
+    private lateinit var engPsiTx: TextView
     private var exitInfo: ExitInfo? = null
 
     // ---- بنر «نسخه‌ی جدید منتشر شده» + بروزرسانی خودکار درون‌برنامه‌ای ----
@@ -106,10 +118,11 @@ class HomeUi(private val act: MainActivity) {
         col.addView(buildUpdateBanner(), 0)
         col.addView(buildPowerZone())
         col.addView(buildConnectionStatus())
-        col.addView(buildEngineBar())
         col.addView(buildStatsRow())
         col.addView(buildExitIpCard())
         col.addView(buildServerCard())
+        // گزینش موتور — پایین صفحه (زیر کارت سرور) تا انتخاب از پایین‌تر انجام شود
+        col.addView(buildEngineBar())
 
         scroll.addView(col, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
@@ -133,7 +146,14 @@ class HomeUi(private val act: MainActivity) {
             setPadding(UI.dp(ctx, 13), UI.dp(ctx, 10), UI.dp(ctx, 13), UI.dp(ctx, 10))
         }
         val txtCol = UI.col(ctx)
-        updateText = UI.label(ctx, "🔔 بروزرسانی جدید برای کلاینت اومده", 13.5f, p.text, bold = true).apply {
+        // آیکون زنگ SVG — جایگزین ایموجی
+        val bellBox = FrameLayout(ctx)
+        val bell = IconView(ctx, "bell").apply { iconColor = p.accent; bold = true }
+        bellBox.addView(bell, FrameLayout.LayoutParams(
+            UI.dp(ctx, 19), UI.dp(ctx, 19), Gravity.CENTER))
+        updateCard.addView(bellBox, LinearLayout.LayoutParams(
+            UI.dp(ctx, 34), UI.dp(ctx, 34)).apply { marginEnd = UI.dp(ctx, 10) })
+        updateText = UI.label(ctx, "بروزرسانی جدید برای کلاینت اومده", 13.5f, p.text, bold = true).apply {
             maxLines = 2
         }
         txtCol.addView(updateText)
@@ -145,15 +165,14 @@ class HomeUi(private val act: MainActivity) {
         updateCard.addView(updateBtn, LinearLayout.LayoutParams(
             UI.dp(ctx, 92), UI.dp(ctx, 40)).apply { marginStart = UI.dp(ctx, 8) })
 
-        val x = TextView(ctx).apply {
-            text = "✕"
-            textSize = 13f
-            typeface = Fonts.bold(ctx)
-            gravity = Gravity.CENTER
-            setPadding(UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8), UI.dp(ctx, 8))
-            setOnClickListener { hideUpdateBanner() }
-        }
-        updateCard.addView(x, LinearLayout.LayoutParams(
+        val xBox = FrameLayout(ctx)
+        val xIc = IconView(ctx, "x").apply { iconColor = p.muted; bold = true }
+        xIc.setOnClickListener { hideUpdateBanner() }
+        xBox.addView(xIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 14), UI.dp(ctx, 14), Gravity.CENTER))
+        xBox.setPadding(UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6), UI.dp(ctx, 6))
+        xBox.setOnClickListener { hideUpdateBanner() }
+        updateCard.addView(xBox, LinearLayout.LayoutParams(
             UI.dp(ctx, 32), UI.dp(ctx, 32)))
 
         // ردیف درصد پیشرفت دانلود — هنگام بروزرسانی خودکار دیده می‌شود
@@ -193,7 +212,7 @@ class HomeUi(private val act: MainActivity) {
                 .getInt("upd_dismissed", 0)
             if (dismissed >= ver) return
             updateShownVer = ver
-            updateText.text = "🔔 بروزرسانی جدید برای کلاینت اومده — می‌تونی از طریق دکمه‌ی زیر بروزرسانی کنی"
+            updateText.text = "بروزرسانی جدید برای کلاینت اومده — می‌تونی از طریق دکمه‌ی زیر بروزرسانی کنی"
             updateWrap.visibility = View.VISIBLE
         } catch (_: Throwable) {}
     }
@@ -206,7 +225,7 @@ class HomeUi(private val act: MainActivity) {
             if (dismissed >= latest.code.toInt()) return
             updateShownVer = latest.code.toInt()
             updateLatest = latest
-            updateText.text = "🔔 بروزرسانی جدید برای کلاینت اومده — می‌تونی از طریق دکمه‌ی زیر بروزرسانی کنی"
+            updateText.text = "بروزرسانی جدید برای کلاینت اومده — می‌تونی از طریق دکمه‌ی زیر بروزرسانی کنی"
             progRow.visibility = View.GONE
             updateBtn.visibility = View.VISIBLE
             updateWrap.visibility = View.VISIBLE
@@ -273,45 +292,65 @@ class HomeUi(private val act: MainActivity) {
         return zone
     }
 
-    // ---------------------------------------------------------- موتور اتصال (Vex / سایفون)
+    // ---------------------------------------------------------- موتور اتصال (خودکار / Vex / سایفون)
 
-    /** سه قرص انتخاب موتور — «Vex» (سرورهای خود برنامه) · «ترکیبی» (Vex از داخل سایفون) · «سایفون» (موتور رسمی Psiphon) */
+    /**
+     * چهار قرص انتخاب حالت — انتهای صفحه‌ی اصلی، بدون ایموجی؛ آیکون‌ها SVG وکتوری‌اند:
+     *  «اتصال خودکار» (bolt) · «Vex» (shield) · «ترکیبی» (link) · «سایفون» (onion)
+     *  متن همه بولد است؛ حالت انتخاب‌شده با قاب accent مشخص می‌شود.
+     */
     private fun buildEngineBar(): View {
         val ctx = act
         val row = UI.row(ctx).apply { gravity = Gravity.CENTER }
 
-        fun pill(tv: TextView) {
-            tv.textSize = 12f
-            tv.typeface = Fonts.bold(ctx)
-            tv.setPadding(UI.dp(ctx, 13), UI.dp(ctx, 7), UI.dp(ctx, 13), UI.dp(ctx, 7))
-            tv.gravity = Gravity.CENTER
+        fun pill(icon: String, title: String): Triple<LinearLayout, IconView, TextView> {
+            val box = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))
+            }
+            val iv = IconView(ctx, icon).apply { bold = true }
+            box.addView(iv, LinearLayout.LayoutParams(
+                UI.dp(ctx, 14), UI.dp(ctx, 14)).apply { marginEnd = UI.dp(ctx, 6) })
+            val tv = UI.label(ctx, title, 12.5f, p.muted, bold = true)
+            box.addView(tv)
+            return Triple(box, iv, tv)
         }
 
-        engVex = TextView(ctx).apply { text = "⚡ Vex"; pill(this) }
-        engHyb = TextView(ctx).apply { text = "🔗 ترکیبی"; pill(this) }
-        engPsi = TextView(ctx).apply { text = "🧅 سایفون"; pill(this) }
+        val a = pill("bolt", "اتصال خودکار")
+        engAuto = a.first; engAutoIc = a.second; engAutoTx = a.third
+        val v = pill("shield", "Vex")
+        engVex = v.first; engVexIc = v.second; engVexTx = v.third
+        val hy = pill("link", "ترکیبی")
+        engHyb = hy.first; engHybIc = hy.second; engHybTx = hy.third
+        val ps = pill("onion", "سایفون")
+        engPsi = ps.first; engPsiIc = ps.second; engPsiTx = ps.third
 
+        engAuto.setOnClickListener { switchEngine("auto") }
         engVex.setOnClickListener { switchEngine("vex") }
         engHyb.setOnClickListener { switchEngine("hybrid") }
         engPsi.setOnClickListener { switchEngine("psiphon") }
 
-        val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 5), 0, UI.dp(ctx, 5), 0) }
-        val gap2 = TextView(ctx).apply { setPadding(UI.dp(ctx, 5), 0, UI.dp(ctx, 5), 0) }
-        row.addView(engVex)
+        val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        val gap2 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        val gap3 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        row.addView(engAuto)
         row.addView(gap)
-        row.addView(engHyb)
+        row.addView(engVex)
         row.addView(gap2)
+        row.addView(engHyb)
+        row.addView(gap3)
         row.addView(engPsi)
         row.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, UI.dp(ctx, 2), 0, UI.dp(ctx, 4))
+            setMargins(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 6))
         }
         return row
     }
 
     private fun switchEngine(which: String) {
         if (act.connectionState != "stopped") {
-            UI.toast(act, "اول اتصال را قطع کن، بعد موتور را عوض کن")
+            UI.toast(act, "اول اتصال را قطع کن، بعد حالت را عوض کن")
             return
         }
         if (act.store.settings.engine == which) return
@@ -322,6 +361,7 @@ class HomeUi(private val act: MainActivity) {
         UI.toast(
             act,
             when (which) {
+                "auto" -> "اتصال خودکار فعال شد — با زدن پاور، بهترین سرور رایگان پیدا و وصل می‌شود"
                 "hybrid" -> "حالت ترکیبی فعال شد — اتصال به سرور از داخل تونل سایفون عبور می‌کند؛ ضد فیلترینگ و سریع‌تر"
                 "psiphon" -> "موتور سایفون فعال شد — بدون نیاز به سرور وصل می‌شود"
                 else -> "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
@@ -329,30 +369,41 @@ class HomeUi(private val act: MainActivity) {
         )
     }
 
-    /** ظاهر سه قرص بر اساس موتور فعال */
+    /** ظاهر چهار قرص بر اساس حالت فعال — انتخاب‌شده: قاب accent + متن/آیکون accent */
     fun renderEngineBar() {
         val eng = act.store.settings.engine
         val selBg = UI.alpha(p.accent, 0.16f)
         val selStroke = UI.alpha(p.accent, 0.55f)
         val idleBg = UI.card(act, p, 20, fillColor = p.card2)
 
-        fun paint(tv: TextView, selected: Boolean) {
-            tv.background = if (selected) GradientDrawable().apply {
+        fun paint(box: LinearLayout, iv: IconView, tv: TextView, selected: Boolean) {
+            box.background = if (selected) GradientDrawable().apply {
                 setColor(selBg); setStroke(UI.dp(act, 1), selStroke); cornerRadius = UI.dp(act, 20).toFloat()
             } else idleBg
+            iv.iconColor = if (selected) p.accent else p.muted
             tv.setTextColor(if (selected) p.accent else p.muted)
         }
-        paint(engVex, eng == "vex")
-        paint(engHyb, eng == "hybrid")
-        paint(engPsi, eng == "psiphon")
+        paint(engAuto, engAutoIc, engAutoTx, eng == "auto")
+        paint(engVex, engVexIc, engVexTx, eng == "vex")
+        paint(engHyb, engHybIc, engHybTx, eng == "hybrid")
+        paint(engPsi, engPsiIc, engPsiTx, eng == "psiphon")
     }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر
 
-    /** زیر پاور: متن وضعیت اتصال («اتصال با موفقیت انجام شد») + تایمر زنده */
+    /** زیر پاور: متن وضعیت اتصال («اتصال با موفقیت انجام شد») + دایره‌ی چرخان جست‌وجو + تایمر زنده */
     private fun buildConnectionStatus(): View {
         val ctx = act
         val col = UI.col(ctx).apply { gravity = Gravity.CENTER }
+
+        val row = UI.row(ctx).apply { gravity = Gravity.CENTER }
+        statusSpin = ProgressBar(ctx).apply {
+            visibility = View.GONE
+            isIndeterminate = true
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(p.accent)
+        }
+        row.addView(statusSpin, LinearLayout.LayoutParams(
+            UI.dp(ctx, 16), UI.dp(ctx, 16)).apply { marginEnd = UI.dp(ctx, 8) })
 
         statusText = TextView(ctx).apply {
             text = "اتصال قطع است"
@@ -360,6 +411,8 @@ class HomeUi(private val act: MainActivity) {
             typeface = Fonts.bold(ctx)
             gravity = Gravity.CENTER
         }
+        row.addView(statusText, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         timerText = TextView(ctx).apply {
             text = "—"
@@ -371,7 +424,7 @@ class HomeUi(private val act: MainActivity) {
             setPadding(0, UI.dp(ctx, 6), 0, 0)
         }
 
-        col.addView(statusText)
+        col.addView(row)
         col.addView(timerText)
 
         col.layoutParams = LinearLayout.LayoutParams(
@@ -497,12 +550,20 @@ class HomeUi(private val act: MainActivity) {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, UI.dp(ctx, 9), 0, 0)
         }
+        // جای پرچم: پرچم واقعی کشور بعد از اتصال — تا آن موقع آیکون کره‌ی زمین SVG
+        exitFlagBox = FrameLayout(ctx)
+        exitGlobeIc = IconView(ctx, "globe").apply { iconColor = p.muted; bold = true }
+        exitFlagBox.addView(exitGlobeIc, FrameLayout.LayoutParams(
+            UI.dp(ctx, 24), UI.dp(ctx, 24), Gravity.CENTER))
         exitFlag = TextView(ctx).apply {
-            text = "🌐"
+            text = ""
             textSize = 24f
             gravity = Gravity.CENTER
+            visibility = View.GONE
         }
-        row.addView(exitFlag, LinearLayout.LayoutParams(
+        exitFlagBox.addView(exitFlag, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+        row.addView(exitFlagBox, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginEnd = UI.dp(ctx, 10)
         })
@@ -555,30 +616,39 @@ class HomeUi(private val act: MainActivity) {
 
     private fun renderExitIp() {
         val info = exitInfo
+        fun showFlag(v: Boolean) {
+            exitFlag.visibility = if (v) View.VISIBLE else View.GONE
+            exitGlobeIc.visibility = if (v) View.GONE else View.VISIBLE
+        }
         when {
             act.connectionState == "connected" && info != null -> {
                 exitFlag.text = NetUtil.flagEmoji(info.code)
+                // کشور نامشخص → پرچم خالی می‌ماند و آیکون SVG کره‌ی زمین دیده می‌شود
+                showFlag(exitFlag.text.isNotBlank())
                 exitCountry.text = info.country.ifEmpty { "نامشخص" }
                 exitCountry.setTextColor(p.text)
                 exitIp.text = info.ip
                 exitIp.setTextColor(p.good)
             }
             act.connectionState == "connected" -> {
-                exitFlag.text = "⏳"
+                showFlag(false)
+                exitGlobeIc.iconColor = p.mid
                 exitCountry.text = "در حال دریافت آی‌پی خروجی…"
                 exitCountry.setTextColor(p.muted)
                 exitIp.text = "—"
                 exitIp.setTextColor(p.muted)
             }
             act.connectionState == "connecting" -> {
-                exitFlag.text = "🌐"
+                showFlag(false)
+                exitGlobeIc.iconColor = p.mid
                 exitCountry.text = "در حال اتصال…"
                 exitCountry.setTextColor(p.mid)
                 exitIp.text = "—"
                 exitIp.setTextColor(p.muted)
             }
             else -> {
-                exitFlag.text = "🌐"
+                showFlag(false)
+                exitGlobeIc.iconColor = p.muted
                 exitCountry.text = "برای نمایش آی‌پی خروجی وصل شو"
                 exitCountry.setTextColor(p.muted)
                 exitIp.text = "—"
@@ -737,6 +807,7 @@ class HomeUi(private val act: MainActivity) {
         exitIc.iconColor = p.accent
         exitIcBox.background = iconCircle()
         exitFlag.setTextColor(p.text)
+        if (!act.autoSearching) exitGlobeIc.iconColor = if (act.connectionState == "connected") p.mid else p.muted
         renderExitIp()
 
         // کارت سرور — هاله‌ی شعاعی محو + قاب دوبل بیرونی
@@ -771,6 +842,16 @@ class HomeUi(private val act: MainActivity) {
      * متصل → «اتصال با موفقیت انجام شد» به رنگ سبز؛ در حال اتصال → نارنجی؛ قطع → خاکستری.
      */
     private fun renderStatus() {
+        // «اتصال خودکار» در حال جست‌وجوی بهترین سرور — دایره‌ی چرخان + پیام جست‌وجو
+        if (act.autoSearching) {
+            power.mode = "busy"
+            statusText.text = "در حال پیدا کردن سرور با بهترین پینگ…"
+            statusText.setTextColor(p.mid)
+            statusSpin.visibility = View.VISIBLE
+            updateTimer()
+            return
+        }
+        statusSpin.visibility = View.GONE
         power.mode = when (act.connectionState) {
             "connected" -> "on"
             "connecting" -> "busy"
@@ -804,6 +885,10 @@ class HomeUi(private val act: MainActivity) {
                 serverName.text = "حالت ترکیبی (Vex + سایفون)"
                 serverName.setTextColor(p.accent)
                 serverIp.text = "اول یک سرور انتخاب کن — اتصالش از سایفون می‌گذرد"
+            } else if (act.store.settings.engine == "auto") {
+                serverName.text = "اتصال خودکار"
+                serverName.setTextColor(p.accent)
+                serverIp.text = "بهترین سرور رایگان خودش پیدا و انتخاب می‌شود"
             } else {
                 serverName.text = "سروری انتخاب نشده"
                 serverName.setTextColor(p.muted)

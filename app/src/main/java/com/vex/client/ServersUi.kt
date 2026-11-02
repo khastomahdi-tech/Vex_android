@@ -331,7 +331,7 @@ class ServersUi(private val act: MainActivity) {
         freeProgress.visibility = View.GONE
         if (free.isEmpty()) {
             emptyHint.text = if (freeNetFail)
-                "اتصال به سرور مدیریت برقرار نشد\nوقتی اینترنت وصل باشد، هر دقیقه خودکار دوباره بررسی می‌شود\n\n💡 اگر فیلترشکن روشن کنی یا سرور خودت را وصل کنی، لیست همین‌جا می‌آید"
+                "اتصال به سرور مدیریت برقرار نشد\nوقتی اینترنت وصل باشد، هر دقیقه خودکار دوباره بررسی می‌شود\n\nاگر فیلترشکن روشن کنی یا سرور خودت را وصل کنی، لیست همین‌جا می‌آید"
             else
                 "سروری موجود نیست\nهنوز سرور رایگانی از پنل مدیریت ثبت نشده\nهر دقیقه خودکار دوباره بررسی می‌شود"
             if (emptyHint.parent == null) listContainer.addView(emptyHint)
@@ -346,8 +346,8 @@ class ServersUi(private val act: MainActivity) {
     // ---------------------------------------------------------- کارت اتصال خودکار
 
     /**
-     * ⚡ اتصال خودکار — کارت ویژه‌ی بالای لیست سرورهای رایگان:
-     *  لمس = برنامه زنده شمارنده‌ها را می‌گیرد و به خلوت‌ترین سرور وصل می‌شود.
+     * اتصال خودکار — کارت ویژه‌ی بالای لیست سرورهای رایگان:
+     *  لمس = همه‌ی سرورهای رایگان پینگ می‌گیرند و برنامه به بهترین‌شان وصل می‌شود.
      */
     private fun autoConnectCard(): View {
         val ctx = act
@@ -358,28 +358,29 @@ class ServersUi(private val act: MainActivity) {
         card.background = UI.card(ctx, p, 16, stroke = p.accent, strokeW = 1.5f,
             fillColor = UI.alpha(p.accent, 0.10f))
 
-        // آیکون برق
-        val ic = UI.label(ctx, "⚡", 20f, p.accent, bold = true)
-        card.addView(ic, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            marginEnd = UI.dp(ctx, 10)
-        })
+        // آیکون آذرخش SVG — جایگزین ایموجی
+        val icBox = FrameLayout(ctx)
+        val ic = IconView(ctx, "bolt").apply { iconColor = p.accent; bold = true }
+        icBox.addView(ic, FrameLayout.LayoutParams(
+            UI.dp(ctx, 20), UI.dp(ctx, 20), Gravity.CENTER))
+        card.addView(icBox, LinearLayout.LayoutParams(
+            UI.dp(ctx, 28), UI.dp(ctx, 28)).apply { marginEnd = UI.dp(ctx, 10) })
 
         val col = UI.col(ctx)
         col.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         val title = UI.label(ctx, "اتصال خودکار", 14.5f, p.text, bold = true)
         col.addView(title)
         val sub = UI.label(ctx,
-            if (searching) "در حال پیدا کردن خلوت‌ترین سرور…"
-            else "به خلوت‌ترین سرور رایگان وصل می‌شود",
+            if (searching) "در حال پیدا کردن سرور با بهترین پینگ…"
+            else "بهترین سرور رایگان را پیدا و وصل می‌شود",
             11.5f, if (searching) p.accent else p.muted, bold = searching)
         sub.maxLines = 1
         col.addView(sub)
         card.addView(col)
 
-        // نشان تعداد آنلاین کل برنامه
+        // نشان تعداد آنلاین کل برنامه — آیکون آدمک SVG
         if (act.liveAppTotal > 0) {
-            val tot = UI.pill(ctx, "👤 " + fa(act.liveAppTotal), UI.alpha(p.accent, 0.16f), p.accent)
+            val tot = UI.iconPill(ctx, "user", fa(act.liveAppTotal), UI.alpha(p.accent, 0.16f), p.accent)
             card.addView(tot, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 marginStart = UI.dp(ctx, 8)
@@ -674,12 +675,11 @@ class ServersUi(private val act: MainActivity) {
         col.addView(pingLine)
         card.addView(col)
 
-        // 👤 نشان زنده‌ی تعداد متصل‌ها به این سرور
+        // نشان زنده‌ی تعداد متصل‌ها به این سرور — آیکون آدمک SVG (جایگزین ایموجی)
         val online = act.liveCounts[s.id.toLong()] ?: 0
-        val livePill = UI.pill(ctx, "👤 " + fa(online),
+        val livePill = UI.iconPill(ctx, "user", fa(online),
             if (online > 0) UI.alpha(p.good, 0.16f) else UI.alpha(p.muted, 0.14f),
             if (online > 0) p.good else p.muted)
-        livePill.maxLines = 1
         card.addView(livePill, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginStart = UI.dp(ctx, 8)

@@ -175,6 +175,25 @@ object UI {
             }
         }
 
+    /**
+     * قرص با آیکون وکتوری (SVG دستی) + متن بولد — جایگزین قرص‌های ایموجی.
+     * آیکون سمت راست (RTL) و متن کنارش؛ همه‌چیز با تم رنگ می‌شود.
+     */
+    fun iconPill(context: Context, icon: String, text: String, bg: Int, fg: Int, iconSizeDp: Float = 13f): LinearLayout =
+        row(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 10), dp(context, 3), dp(context, 10), dp(context, 3))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(context, 20).toFloat()
+                setColor(bg)
+            }
+            addView(IconView(context, icon).apply { iconColor = fg },
+                LinearLayout.LayoutParams(dp(context, iconSizeDp), dp(context, iconSizeDp)).apply {
+                    marginEnd = dp(context, 5)
+                })
+            addView(label(context, text, 12f, fg, bold = true))
+        }
+
     /** دکمه‌ی پررنگ (accent) */
     fun primaryButton(context: Context, text: String, p: Palette): TextView =
         TextView(context).apply {

@@ -850,7 +850,7 @@ class MainActivity : ComponentActivity() {
         store.saveSettings()
         applyThemeAll()
         UI.toast(this, if (Themes.isLightBg(Themes.resolve(this, next)))
-            "☀️ حالت روز فعال شد" else "🌙 حالت شب فعال شد")
+            "حالت روز فعال شد" else "حالت شب فعال شد")
     }
 
     // ---------------- وضعیت سرویس ----------------
@@ -948,6 +948,9 @@ class MainActivity : ComponentActivity() {
 
     // ---------------- اتصال / قطع ----------------
 
+    /** «اتصال خودکار» در حال پیدا کردن بهترین سرور رایگان (بهترین پینگ) است */
+    var autoSearching = false
+
     fun togglePower() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
@@ -955,6 +958,11 @@ class MainActivity : ComponentActivity() {
                 // موتور سایفون: به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
                 if (store.settings.engine == "psiphon") {
                     requestStart(Server(-99, "سایفون", "psiphon", "psiphon://engine"))
+                    return
+                }
+                // اتصال خودکار: پاور = پیدا کردن بهترین سرور رایگان (بهترین پینگ) و اتصال
+                if (store.settings.engine == "auto") {
+                    startAutoConnectBest()
                     return
                 }
                 // هیچ سروری انتخاب نشده → بهترین سرور رایگان (پیش‌فرض) خودکار انتخاب می‌شود
@@ -968,6 +976,57 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * ⚡ اتصال خودکار (V5.1) — «بهترین پینگ»:
+     *  دایره‌ی چرخان زیر پاور با پیام «در حال پیدا کردن سرور با بهترین پینگ…»،
+     *  هم‌زمان همه‌ی سرورهای رایگان به‌صورت موازی پینگ می‌گیرند و به کم‌پینگ‌ترین‌شان
+     *  وصل می‌شود. اگر هیچ‌کدام پاسخ ندادند، اولین سرور لیست امتحان می‌شود (ICMP/TCP
+     *  بعضی سرورها بسته است ولی خودِ پروکسی کار می‌کند).
+     *  از پاور (حالت اتصال خودکار) و از کارت «اتصال خودکار» در تب سرورها صدا زده می‌شود.
+     */
+    fun startAutoConnectBest(fromCard: Boolean = false) {
+        if (connectionState != "stopped" || autoSearching) return
+        autoSearching = true
+        if (fromCard) {
+            serversUi.autoConnectState = "searching"
+            if (::root.isInitialized) serversUi.render()
+        }
+        renderAll() // پیام جست‌وجو + دایره‌ی چرخان + پاور busy
+        Thread {
+            var list = try { store.freeServers.toList() } catch (_: Throwable) { emptyList() }
+            if (list.isEmpty()) {
+                // هیچ سروری نیست → یک‌بار زنده از سرور مدیریت می‌گیریم
+                try { refreshFreeServers(silent = true) } catch (_: Throwable) {}
+                list = try { store.freeServers.toList() } catch (_: Throwable) { emptyList() }
+            }
+            var best: Server? = null
+            if (list.isNotEmpty()) {
+                val alive = try { FreeServers.pingAll(list.map { it.raw }) } catch (_: Throwable) { emptyList() }
+                val byRaw = HashMap<String, Int>(alive.size * 2)
+                for (a in alive) byRaw[a.raw] = a.ping
+                best = list.mapNotNull { s -> byRaw[s.raw]?.let { s to it } }
+                    .minByOrNull { it.second }?.first
+                    ?: list.first() // هیچ‌کدام پاسخ نداد → اولین لیست
+            }
+            val target = best
+            main.post {
+                autoSearching = false
+                serversUi.autoConnectState = ""
+                if (target == null) {
+                    renderAll()
+                    UI.toast(this, "هنوز سرور رایگانی موجود نیست — چند لحظه بعد دوباره امتحان کن")
+                    switchTab(1)
+                } else {
+                    store.select(target.id)
+                    if (::root.isInitialized) serversUi.render()
+                    if (::homeUi.isInitialized) homeUi.renderServerCard()
+                    UI.toast(this, "بهترین سرور پیدا شد: «${target.name}» — در حال اتصال…")
+                    requestStart(target)
+                }
+            }
+        }.start()
+    }
+
+    /**
      * اتصال خودکارِ درخواستی از کاشی VPN / اعلان «برنامه بسته شد»:
      * به آخرین سرورِ انتخاب‌شده وصل می‌شود؛ اگر هیچ انتخابی نبود،
      * پیش‌فرضِ بهترین‌پینگ بین سرورهای رایگان ساخته می‌شود.
@@ -976,6 +1035,11 @@ class MainActivity : ComponentActivity() {
         if (!pendingAutoConnect) return
         pendingAutoConnect = false
         if (!::root.isInitialized || connectionState != "stopped") return
+        // حالت اتصال خودکار → همان مسیر «بهترین پینگ»
+        if (store.settings.engine == "auto") {
+            main.postDelayed({ if (connectionState == "stopped") startAutoConnectBest() }, 350)
+            return
+        }
         val s = store.selected() ?: ensureDefaultServer() ?: run {
             // موتور سایفون به سرور نیاز ندارد — کانفیگ شبه‌ساز
             if (store.settings.engine == "psiphon") Server(-99, "سایفون", "psiphon", "psiphon://engine") else null
@@ -1421,72 +1485,20 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * ⚡ اتصال خودکار — سرورهای رایگان با شمارنده‌ی زنده مقایسه می‌شوند و اتصال به
-     * خلوت‌ترین‌شان (کمترین آنلاین) برقرار می‌شود؛ اگر داده‌ی زنده نیامد،
-     * تصادفی بین سرورهای پاسخ‌گو (پینگ‌دار) انتخاب می‌شود.
+     * کارت «اتصال خودکار» تب سرورها — همان مسیر «بهترین پینگ» با حالت جست‌وجوی کارت.
+     * اگر اتصال فعلی برقرار است، اول قطع می‌شود و بعد به بهترین سرور وصل.
      */
     fun autoConnectFree() {
-        if (connectionState == "connecting") {
+        if (connectionState == "connecting" || autoSearching) {
             UI.toast(this, "اتصال در حال انجام است")
             return
         }
-        if (store.freeServers.isEmpty()) {
-            UI.toast(this, "هنوز سرور رایگانی موجود نیست")
-            return
+        if (connectionState == "connected") {
+            requestStop()
+            main.postDelayed({ if (connectionState == "stopped") startAutoConnectBest(fromCard = true) }, 900)
+        } else {
+            startAutoConnectBest(fromCard = true)
         }
-        serversUi.autoConnectState = "searching"
-        if (serversUi.tab == 1) serversUi.render()
-        Thread {
-            var pick: Server? = null
-            val dto = TelegramGate.fetchLive()
-            if (dto != null) {
-                main.post {
-                    liveCounts = dto.counts
-                    liveAppTotal = dto.app
-                    if (serversUi.tab == 1) serversUi.render()
-                }
-                var best = Int.MAX_VALUE
-                val mins = ArrayList<Server>()
-                for (s in store.freeServers) {
-                    val n = dto.counts[s.id.toLong()] ?: 0
-                    if (n < best) {
-                        best = n
-                        mins.clear()
-                        mins.add(s)
-                    } else if (n == best) mins.add(s)
-                }
-                if (mins.isNotEmpty()) pick = mins[(0 until mins.size).random()]
-            }
-            if (pick == null) {
-                // داده‌ی زنده نیامد → تصادفی بین پاسخ‌گوها؛ هیچ سرور پاسخ‌گو نیست → کل لیست
-                val alive = store.freeServers.filter { it.ping >= 0 }
-                val pool = if (alive.isNotEmpty()) alive else store.freeServers
-                if (pool.isNotEmpty()) pick = pool[(0 until pool.size).random()]
-            }
-            val target = pick
-            main.post {
-                serversUi.autoConnectState = ""
-                val t = target
-                if (t == null) {
-                    UI.toast(this, "سروری برای اتصال خودکار پیدا نشد")
-                } else {
-                    UI.toast(this, "خلوت‌ترین سرور: «${t.name}» — در حال اتصال…")
-                    store.select(t.id)
-                    serversUi.render()
-                    homeUi.renderServerCard()
-                    if (connectionState == "stopped") {
-                        requestStart(t)
-                    } else {
-                        requestStop()
-                        main.postDelayed({
-                            val cur = store.selected()
-                            if (cur != null && connectionState == "stopped") requestStart(cur)
-                        }, 1000)
-                    }
-                }
-                if (serversUi.tab == 1) serversUi.render()
-            }
-        }.start()
     }
 
     // ---------------- ابزار ----------------

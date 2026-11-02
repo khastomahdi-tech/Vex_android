@@ -311,6 +311,88 @@ class IconView(context: Context, val icon: String) : View(context) {
                 canvas.drawCircle(cx, cy, r, fill)
                 canvas.drawCircle(cx, cy + 6.2f * u, r, fill)
             }
+            "bolt" -> {
+                // آذرخش (اتصال خودکار) — بدنه‌ی پر با دو گوشه‌ی برنده
+                val b = Path()
+                b.moveTo(13.4f * u, 3.2f * u)
+                b.lineTo(5.6f * u, 13.4f * u)
+                b.lineTo(10.8f * u, 13.4f * u)
+                b.lineTo(9.8f * u, 20.8f * u)
+                b.lineTo(18.4f * u, 10.0f * u)
+                b.lineTo(12.8f * u, 10.0f * u)
+                b.close()
+                canvas.drawPath(b, fill)
+            }
+            "link" -> {
+                // حلقه‌ی زنجیر (ترکیبی) — دو حلقه‌ی توخالی مورب که در میانه قفل می‌شوند
+                canvas.save()
+                canvas.rotate(-45f, cx, cy)
+                val lw = 6.4f * u
+                val lh = 12.8f * u
+                // حلقه‌ی بالا-راست
+                canvas.drawRoundRect(
+                    RectF(cx + 1.1f * u, cy - lh / 2f, cx + 1.1f * u + lw, cy + lh / 2f),
+                    lw / 2f, lw / 2f, stroke
+                )
+                // حلقه‌ی پایین-چپ
+                canvas.drawRoundRect(
+                    RectF(cx - 1.1f * u - lw, cy - lh / 2f, cx - 1.1f * u, cy + lh / 2f),
+                    lw / 2f, lw / 2f, stroke
+                )
+                canvas.restore()
+            }
+            "onion" -> {
+                // پیاز (سایفون) — لایه‌های هم‌مرکز + جوانه‌ی بالا
+                val r = 8.2f * u
+                canvas.drawCircle(cx, cy + 1.2f * u, r, stroke)
+                canvas.drawCircle(cx, cy + 1.6f * u, r * 0.52f, stroke)
+                canvas.drawCircle(cx, cy + 1.8f * u, r * 0.16f, fill)
+                // جوانه
+                val sp = Paint(stroke).apply { strokeWidth = sw * 1.1f }
+                canvas.drawLine(cx, cy - r + 0.4f * u, cx, cy - r - 2.4f * u, sp)
+            }
+            "bell" -> {
+                // زنگ اعلان: گنبد + دامن + ناقوس
+                canvas.drawArc(
+                    RectF(cx - 7.4f * u, cy - 9.4f * u, cx + 7.4f * u, cy + 5.4f * u),
+                    180f, 180f, false, stroke
+                )
+                canvas.drawLine(cx - 7.4f * u, cy - 2.0f * u, cx - 9.0f * u, cy + 4.6f * u, stroke)
+                canvas.drawLine(cx + 7.4f * u, cy - 2.0f * u, cx + 9.0f * u, cy + 4.6f * u, stroke)
+                canvas.drawLine(cx - 9.0f * u, cy + 4.6f * u, cx + 9.0f * u, cy + 4.6f * u, stroke)
+                canvas.drawCircle(cx, cy + 7.2f * u, 1.7f * u, fill)
+            }
+            "x" -> {
+                val xp = Paint(stroke)
+                xp.strokeWidth = sw * 1.35f
+                canvas.drawLine(cx - 5.6f * u, cy - 5.6f * u, cx + 5.6f * u, cy + 5.6f * u, xp)
+                canvas.drawLine(cx - 5.6f * u, cy + 5.6f * u, cx + 5.6f * u, cy - 5.6f * u, xp)
+            }
+            "target" -> {
+                // هدف (بهترین پینگ) — دو حلقه + مرکز پر
+                canvas.drawCircle(cx, cy, 8.0f * u, stroke)
+                canvas.drawCircle(cx, cy, 4.4f * u, stroke)
+                canvas.drawCircle(cx, cy, 1.6f * u, fill)
+            }
+            "shield" -> {
+                // سپر (سرورهای امن) — بدنه + تیک
+                val sp = Path()
+                sp.moveTo(cx, 3.4f * u)
+                sp.lineTo(18.6f * u, 6.6f * u)
+                sp.lineTo(18.6f * u, 12.2f * u)
+                sp.quadTo(18.6f * u, 18.4f * u, cx, 20.6f * u)
+                sp.quadTo(5.4f * u, 18.4f * u, 5.4f * u, 12.2f * u)
+                sp.lineTo(5.4f * u, 6.6f * u)
+                sp.close()
+                canvas.drawPath(sp, stroke)
+                val cp = Paint(stroke)
+                cp.strokeWidth = sw * 1.2f
+                val ck = Path()
+                ck.moveTo(cx - 3.6f * u, cy + 1.2f * u)
+                ck.lineTo(cx - 0.8f * u, cy + 4.2f * u)
+                ck.lineTo(cx + 4.2f * u, cy - 2.6f * u)
+                canvas.drawPath(ck, cp)
+            }
         }
     }
 }

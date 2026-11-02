@@ -123,7 +123,7 @@ object LockScreen {
                     lim.onRight()
                     stopCooldown()
                     successDots(dots, buf.length, MAX_LEN, p)
-                    hint.text = "درست است — خوش آمدی ✨"
+                    hint.text = "درست است — خوش آمدی"
                     hint.setTextColor(p.accent)
                     Handler(Looper.getMainLooper()).postDelayed({
                         deactivate()
@@ -191,7 +191,7 @@ object LockScreen {
                     if (buf.toString() == first.toString()) {
                         done = true
                         successDots(dots, first.length, MAX_LEN, p)
-                        input.text = "رمز ثبت شد ✨"
+                        input.text = "رمز ثبت شد"
                         input.setTextColor(p.accent)
                         Handler(Looper.getMainLooper()).postDelayed({
                             deactivate()
@@ -278,7 +278,7 @@ object LockScreen {
                     lim.onRight()
                     stopCooldown()
                     successDots(dots, buf.length, MAX_LEN, p)
-                    hint.text = "تأیید شد ✨"
+                    hint.text = "تأیید شد"
                     hint.setTextColor(p.accent)
                     Handler(Looper.getMainLooper()).postDelayed({
                         deactivate()

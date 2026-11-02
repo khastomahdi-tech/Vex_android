@@ -90,7 +90,7 @@ class AccountUi(private val act: MainActivity) {
             setPadding(UI.dp(ctx, 16), UI.dp(ctx, 14), UI.dp(ctx, 16), UI.dp(ctx, 16))
         }
         actCard.addView(sectionLabel(ctx, "بررسی وضعیت"))
-        refreshBtn = UI.softButton(ctx, "🔄 بروزرسانی وضعیت از سرور", p).apply {
+        refreshBtn = UI.softButton(ctx, "بروزرسانی وضعیت از سرور", p).apply {
             setPadding(UI.dp(ctx, 18), UI.dp(ctx, 12), UI.dp(ctx, 18), UI.dp(ctx, 12))
         }
         refreshBtn.setOnClickListener {
@@ -109,7 +109,7 @@ class AccountUi(private val act: MainActivity) {
             setPadding(0, UI.dp(ctx, 12), 0, 0)
         }
         actCard.addView(hintTv)
-        val botBtn = UI.softButton(ctx, "🤖 ورود به روبات و دریافت کلید", p).apply {
+        val botBtn = UI.softButton(ctx, "ورود به روبات و دریافت کلید", p).apply {
             setPadding(UI.dp(ctx, 18), UI.dp(ctx, 12), UI.dp(ctx, 18), UI.dp(ctx, 12))
         }
         botBtnRef = botBtn

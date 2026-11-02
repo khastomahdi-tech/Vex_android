@@ -78,7 +78,10 @@ class PowerButtonView(context: Context) : View(context) {
     /** بازخورد لمسی: فرو رفتن نرم هنگام فشردن، جهش هنگام رها کردن */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
-            MotionEvent.ACTION_DOWN -> animateScale(0.955f, 110)
+            MotionEvent.ACTION_DOWN -> {
+                animateScale(0.94f, 110)
+                try { performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY) } catch (_: Throwable) {}
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> animateScale(1f, 260)
         }
         return super.onTouchEvent(event)
@@ -192,6 +195,19 @@ class PowerButtonView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy + dp(8f), rMain * 1.22f, paint)
         paint.shader = null
 
+        // ---------- هاله‌ی رنگی دور حلقه — حالت busy پالس می‌زند، متصل آرام می‌درخشد ----------
+        if (mode != "off") {
+            val pulse = if (mode == "busy") (0.5f + 0.5f * kotlin.math.abs(kotlin.math.sin(phase.toDouble())).toFloat()) else 1f
+            val glowA = if (mode == "busy") 0.16f + 0.12f * pulse else 0.22f
+            paint.shader = RadialGradient(
+                cx, cy, rMain * 1.42f,
+                UI.alpha(waterColor, glowA),
+                Color.TRANSPARENT, Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(cx, cy, rMain * 1.42f, paint)
+            paint.shader = null
+        }
+
         // ---------- موج آب داخل دکمه (سه لایه + نفس عمودی) ----------
         if (level > 0.004f && innerR > 0) {
             val save = canvas.save()
@@ -231,6 +247,18 @@ class PowerButtonView(context: Context) : View(context) {
         ringP.color = cWhite
         ringP.strokeWidth = ringW
         canvas.drawCircle(cx, cy, rMain - ringW / 2f, ringP)
+
+        // ---------- کمان چرخان حین جست‌وجو/اتصال (busy) — دور حلقه‌ی اصلی می‌چرخد ----------
+        if (mode == "busy") {
+            val arcR = rMain + ringW * 0.95f
+            val arcRect = RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR)
+            ringP.color = UI.alpha(waterColor, 0.95f)
+            ringP.strokeWidth = ringW * 0.8f
+            canvas.drawArc(arcRect, (phase * 180f / Math.PI.toFloat()) % 360f, 95f, false, ringP)
+            // دنباله‌ی محو کمان
+            ringP.color = UI.alpha(waterColor, 0.35f)
+            canvas.drawArc(arcRect, (phase * 180f / Math.PI.toFloat()) % 360f + 105f, 38f, false, ringP)
+        }
 
         // ---------- گلیف پاور سفید (با سایه‌ی خیلی ملایم برای خوانایی) ----------
         val gr = rMain * 0.34f

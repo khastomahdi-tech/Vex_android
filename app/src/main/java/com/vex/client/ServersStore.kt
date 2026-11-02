@@ -17,7 +17,7 @@ data class Server(
 /** تنظیمات برنامه */
 data class VexSettings(
     var theme: String = "light",   // light | dark | shir | royal | royal_light | system — پیش‌فرض: روشن تمیز
-    var mtu: Int = 1500,
+    var mtu: Int = 8500,
     var dns: String = "1.1.1.1",
     var bypassLan: Boolean = true,
     var ipv6: Boolean = false,
@@ -44,7 +44,7 @@ data class VexSettings(
     var pinLen: Int = 0,                // طول رمز (برای ارسال خودکار کیبورد اختصاصی)
     var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
     var freeRefreshSec: Int = 60,       // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
-    var engine: String = "vex",         // موتور اتصال: vex (سرورها) | psiphon (سایفون)
+    var engine: String = "auto",        // حالت اتصال: auto (بهترین پینگ) | vex | hybrid | psiphon
     var relockOnExit: Boolean = true    // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
 )
 
@@ -119,7 +119,12 @@ class ServersStore(context: Context) {
             val o = JSONObject(prefs.getString(KEY_SETTINGS, "{}") ?: "{}")
             settings = VexSettings(
                 theme = o.optString("theme", "light"),
-                mtu = o.optInt("mtu", 1500).coerceIn(1280, 9000),
+                mtu = run {
+                    val stored = o.optInt("mtu", 8500)
+                    // مهاجرت سرعت (V5.1): ۱۵۰۰ پیش‌فرض قدیمی بود — به ۸۵۰۰ ارتقا می‌یابد
+                    // (MTU فقط روی هاپ اپ↔تونل اثر دارد؛ بسته‌های پرتر = سرعت بیشتر)
+                    (if (stored == 1500) 8500 else stored).coerceIn(1280, 9000)
+                },
                 dns = o.optString("dns", "1.1.1.1").ifEmpty { "1.1.1.1" },
                 bypassLan = o.optBoolean("bypassLan", true),
                 ipv6 = o.optBoolean("ipv6", false),
@@ -141,9 +146,10 @@ class ServersStore(context: Context) {
                 pinLen = o.optInt("pinLen", 0).coerceIn(0, 8),
                 keepScreenOn = o.optBoolean("keepScreenOn", false),
                 freeRefreshSec = when (o.optInt("freeRefreshSec", 60)) { 30 -> 30; 300 -> 300; 0 -> 0; else -> 60 },
-                engine = when (o.optString("engine", "vex")) {
+                engine = when (o.optString("engine", "auto")) {
                     "psiphon" -> "psiphon"
                     "hybrid" -> "hybrid"   // ترکیبی: سرور Vex از داخل تونل سایفون
+                    "auto" -> "auto"       // اتصال خودکار: بهترین سرور رایگان با بهترین پینگ
                     else -> "vex"
                 },
                 relockOnExit = o.optBoolean("relockOnExit", true),

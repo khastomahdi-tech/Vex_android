@@ -103,7 +103,7 @@ object NetUtil {
     /** پرچم اموجی از کد دوحرفی کشور (مثل IR → 🇮🇷) */
     fun flagEmoji(code: String): String {
         val c = code.trim().uppercase()
-        if (c.length != 2 || c.any { it !in 'A'..'Z' }) return "🌐"
+        if (c.length != 2 || c.any { it !in 'A'..'Z' }) return ""
         return buildString {
             for (ch in c) append(Character.toChars(0x1F1E6 + (ch - 'A')))
         }

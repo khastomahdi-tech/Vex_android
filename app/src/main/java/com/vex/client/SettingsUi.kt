@@ -96,7 +96,7 @@ class SettingsUi(private val act: MainActivity) {
                         act.store.settings.pinHash = hash
                         act.store.settings.pinLen = len
                         act.store.saveSettings()
-                        act.toast("قفل برنامه فعال شد 🎉")
+                        act.toast("قفل برنامه فعال شد")
                         act.rebuildSettings()
                     },
                     onCancel = { act.rebuildSettings() })
@@ -640,7 +640,7 @@ class SettingsUi(private val act: MainActivity) {
         renderPerAppMode()
     }
     private fun commitMtu() {
-        val v = mtuEdit.text.toString().trim().toIntOrNull() ?: 1500
+        val v = mtuEdit.text.toString().trim().toIntOrNull() ?: 8500
         act.store.settings.mtu = v.coerceIn(1280, 9000)
         act.store.saveSettings()
         if (mtuEdit.text.toString().trim().toIntOrNull() != act.store.settings.mtu)

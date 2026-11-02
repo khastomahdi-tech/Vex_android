@@ -163,6 +163,10 @@ object ConfigBuilder {
                 .put("mtu", mtu)
                 .put("auto_route", true)
                 .put("strict_route", false)
+                // NAT مستقل از نقطه‌ی پایانی — UDP بازی‌ها/تماس‌ها بدون بازشدن دوباره‌ی نشست کار می‌کند
+                .put("endpoint_independent_nat", true)
+                // GSO (فقط لینوکس) — بار پردازشی هسته کم و توان عبوری UDP بالا می‌رود
+                .put("gso", true)
                 .put("stack", "mixed"))
             // inbound محلی فقط برای تست واقعی مسیر (بدون ریسک؛ روی 127.0.0.1 گوش می‌دهد)
             .put(JSONObject()
