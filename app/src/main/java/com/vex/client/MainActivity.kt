@@ -124,6 +124,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var sunIc: IconView
     private lateinit var vexTv: TextView
     private lateinit var clientTv: TextView
+    /** نشان کوچک نسخه — کنار آیکون ستینگ بالای صفحه */
+    private lateinit var versionTv: TextView
 
     // ---- اجزای نوار پایین ----
     private class NavItem(val item: LinearLayout, val icon: IconView, val label: TextView, val tab: Int)
@@ -609,9 +611,25 @@ class MainActivity : ComponentActivity() {
         sunBtn.setOnClickListener { toggleDayNight() }
 
         val rightBox = UI.row(ctx)
-        // در RTL اولین فرزند سمت راست است: اول گیر، بعد خورشید کنارش
+        // در RTL اولین فرزند سمت راست است: اول گیر، بعد نشان نسخه کنارش، بعد خورشید
         rightBox.addView(gearBtn, LinearLayout.LayoutParams(
             UI.dp(ctx, 46), UI.dp(ctx, 46)))
+        // نشان نسخه — کنار آیکون ستینگ (درخواست کاربر)
+        versionTv = TextView(ctx).apply {
+            text = "v" + (try {
+                packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+            } catch (_: Throwable) { "?" })
+            textSize = 12.5f
+            typeface = Fonts.bold(ctx)
+            includeFontPadding = false
+            setSingleLine(true)
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0)
+        }
+        rightBox.addView(versionTv, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        })
         rightBox.addView(sunBtn, LinearLayout.LayoutParams(
             UI.dp(ctx, 46), UI.dp(ctx, 46)))
         header.addView(rightBox, FrameLayout.LayoutParams(
@@ -807,7 +825,8 @@ class MainActivity : ComponentActivity() {
         val p = Themes.resolve(this, store.settings.theme)
         // اول هدر داخل ستون اسکرول صفحه‌ی فعال سوار شود، بعد تم روی همه اعمال شود
         attachHeader(currentTab)
-        root.setBackgroundColor(p.bg)
+        // پس‌زمینه‌ی پرچم شیر و خورشید — سه نوار رنگ پرچم + واترمارک نشان طلایی وسط
+        root.background = FlagBackdrop.create(this).setDarkTheme(!Themes.isLightBg(p))
         // هدر سلطنتی — شفاف روی پس‌زمینه؛ دکمه‌ها بدون قاب مربع (درخواست کاربر)
         val header = root.findViewWithTag<FrameLayout>("header")
         header?.let {
@@ -815,6 +834,8 @@ class MainActivity : ComponentActivity() {
             gearBtn.background = null
             sunBtn.background = null
             gearIc.iconColor = p.accent
+            // نشان نسخه کنار ستینگ — طلایی/آبی مطابق تم
+            if (::versionTv.isInitialized) versionTv.setTextColor(p.muted)
             // خورشید: در حالت روز پررنگ، در حالت شب کمی آرام‌تر
             sunIc.iconColor = if (Themes.isLightBg(p)) p.accent else UI.alpha(p.accent, 0.85f)
             // متن Vex (تیره) و Client (آبی/طلایی)
@@ -1555,6 +1576,55 @@ class MainActivity : ComponentActivity() {
         dialogs.showError(if (lastError.isNotEmpty()) lastError else VexVpnService.coreLogTail(6))
     }
 
+    // ---------------- تست سرعت تونل (v5.3) ----------------
+
+    /** جلوی اجرای هم‌زمان دو تست */
+    private var speedTestRunning = false
+
+    /**
+     * تست سرعت واقعی دانلود از داخل تونل — فقط وقتی VPN وصل است معنا دارد.
+     * دکمه در حین تست، سرعت لحظه‌ای را نشان می‌دهد و در پایان نتیجه‌ی نهایی toast می‌شود.
+     */
+    fun runTunnelSpeedTest(btn: TextView) {
+        if (speedTestRunning) {
+            UI.toast(this, "یک تست سرعت در حال اجراست…")
+            return
+        }
+        if (connectionState != "connected") {
+            UI.toast(this, "اول وصل شو، بعد تست سرعت بگیر")
+            return
+        }
+        speedTestRunning = true
+        val old = btn.text.toString()
+        btn.text = "در حال تست…"
+        btn.isEnabled = false
+        Thread {
+            val (mbps, err) = SpeedTest.run(true) { _, inst ->
+                // نمایش سرعت لحظه‌ای روی خود دکمه
+                main.post {
+                    if (speedTestRunning) btn.text =
+                        java.lang.String.format(java.util.Locale.US, "↓ %.1f Mbps", inst)
+                }
+            }
+            main.post {
+                speedTestRunning = false
+                btn.text = old
+                btn.isEnabled = true
+                if (err != null) {
+                    UI.toast(this, "تست سرعت ناموفق: $err")
+                } else {
+                    val verdict = when {
+                        mbps >= 25 -> "عالی! اتصال خیلی قوی است 🚀"
+                        mbps >= 10 -> "خوب است — سرعت قابل قبول"
+                        mbps >= 3 -> "متوسط — می‌توانی سرور/حالت سرعت را عوض کنی"
+                        else -> "ضعیف — سرور دیگری یا حالت «حداکثر سازگاری» را امتحان کن"
+                    }
+                    dialogs.showError("نتایج تست سرعت تونل\n\nسرعت دانلود: ${SpeedTest.fmt(mbps)}\nمسیر: تونل VEX ← سرور ← Cloudflare\n\n$verdict")
+                }
+            }
+        }.start()
+    }
+
     fun showCoreLog() = dialogs.showCoreLog()
     fun showAddMenu() = dialogs.showAddMenu()
     fun showServerMenu(s: Server) = dialogs.showServerMenu(s)
@@ -1598,7 +1668,13 @@ class MainActivity : ComponentActivity() {
         val p = if (sub) Themes.light().copy(bg = 0xFFFFFFFF.toInt()) else Themes.dark()
         // اگر برنامه باز بوده (قفل وسط کار) → صفحه‌ی قفل جایش را می‌گیرد
         setContentView(gateRoot)
-        gateRoot.setBackgroundColor(p.bg)
+        if (sub) {
+            // صفحه‌ی اشتراک — سفید تمیز (طرح مرجع)
+            gateRoot.setBackgroundColor(Color.WHITE)
+        } else {
+            // بقیه‌ی حالت‌ها — پس‌زمینه‌ی پرچم شیر و خورشید
+            gateRoot.background = FlagBackdrop.create(this).setDarkTheme(true)
+        }
         gateRoot.removeAllViews()
 
         // صفحه‌ی «تأیید حساب کاربری» — طرح جدید مستقل مطابق مرجع (بدون آیکون و عنوان قدیمی)

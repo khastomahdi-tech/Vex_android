@@ -22,7 +22,7 @@ data class VexSettings(
     var bypassLan: Boolean = true,
     var ipv6: Boolean = false,
     var mux: Boolean = false,
-    var logLevel: String = "info",  // info | warning | debug
+    var logLevel: String = "warning",  // info | warning | debug — v5.3: پیش‌فرض سبک‌تر (هسته کمتر لاگ بفرستد = سرعت بیشتر)
     var autoConnect: Boolean = true,  // v5.2: اتصال خودکار حالا پیش‌فرضِ همه است (کاربر می‌تواند خاموشش کند)
     var allowInsecure: Boolean = true,  // رد کردن تأیید گواهی TLS — پیش‌فرض روشن برای سرورهای CDN/self-signed
     var autoReconnect: Boolean = true,  // اتصال مجدد خودکار پس از کشته‌شدن سرویس

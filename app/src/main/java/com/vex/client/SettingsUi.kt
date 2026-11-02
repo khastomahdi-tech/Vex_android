@@ -34,6 +34,8 @@ class SettingsUi(private val act: MainActivity) {
     private lateinit var perAppCount: TextView
     private val themedButtons = ArrayList<TextView>(4)
     private lateinit var domainSpinner: Spinner
+    /** چیپ‌های «حالت سرعت» — حداکثر سرعت / متعادل / حداکثر سازگاری */
+    private lateinit var speedChips: LinearLayout
 
     private var p: Palette = Themes.dark()
     private var building = false
@@ -295,6 +297,23 @@ class SettingsUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
         addCard(netCard)
 
+        // ================= سرعت و قدرت اتصال (v5.3) =================
+        val speedCard = sectionCard("سرعت و قدرت اتصال", "bolt")
+        speedCard.addView(subLabel("یک حالت را انتخاب کن — ترکیب بهینه‌ی MTU، TCP Fast Open و لاگ برای قوی‌ترین سرعت روی اپراتور تو (برای اتصال بعدی اعمال می‌شود)"))
+        speedCard.addView(divider(6))
+        speedChips = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 8), 0, UI.dp(ctx, 4)) }
+        speedChips.addView(speedChip("حداکثر سرعت", 0))
+        speedChips.addView(speedChip("متعادل", 1))
+        speedChips.addView(speedChip("حداکثر سازگاری", 2))
+        speedCard.addView(speedChips)
+        speedCard.addView(subLabel("حداکثر سرعت: MTU بزرگ + TCP Fast Open + لاگ سبک  ·  سازگاری: MTU کوچک برای شبکه‌های ناپایدار"))
+        speedCard.addView(divider())
+        val speedTestBtn = softRowButton("تست سرعت اتصال (دانلود واقعی از تونل)")
+        speedTestBtn.setOnClickListener { act.runTunnelSpeedTest(speedTestBtn) }
+        speedCard.addView(speedTestBtn)
+        speedCard.addView(subLabel("وقتی متصلی، یک فایل آزمایشی از Cloudflare از داخل تونل دانلود می‌شود تا قدرت واقعی اتصال را ببینی"))
+        addCard(speedCard)
+
         // ================= برنامه‌ها (per-app) =================
         val appCard = sectionCard("برنامه‌ها (Per-app)", "list")
         appCard.addView(subLabel("مثل v2rayNG: تعیین کن تونل برای کدام برنامه‌ها فعال باشد"))
@@ -449,6 +468,7 @@ class SettingsUi(private val act: MainActivity) {
 
         building = false
         renderPerAppMode()
+        renderSpeedChips()
         applyTheme(p)
         return scroll
     }
@@ -492,6 +512,80 @@ class SettingsUi(private val act: MainActivity) {
         }
         chip.tag = "mode$mode"
         return chip
+    }
+
+    // ---------------------------------------------------------- حالت سرعت (v5.3)
+
+    /** پیش‌تنظیم فعال از روی مقادیر فعلی تنظیمات — ۰=حداکثر سرعت، ۱=متعادل، ۲=سازگاری */
+    private fun currentSpeedPreset(): Int {
+        val s = act.store.settings
+        return when {
+            s.mtu == 8500 && s.tcpFastOpen && !s.mux && s.logLevel == "warning" && s.sniffing -> 0
+            s.mtu == 1400 && !s.tcpFastOpen && !s.mux -> 2
+            else -> 1
+        }
+    }
+
+    private fun renderSpeedChips() {
+        val active = currentSpeedPreset()
+        for (i in 0 until speedChips.childCount) {
+            val chip = speedChips.getChildAt(i) as TextView
+            val on = chip.tag == "sp$active"
+            chip.background = UI.card(act, p, 20,
+                fillColor = if (on) UI.alpha(p.accent, 0.2f) else p.card2,
+                stroke = if (on) p.accent else p.line)
+            chip.setTextColor(if (on) p.accent else p.text)
+        }
+    }
+
+    private fun speedChip(text: String, idx: Int): View {
+        val ctx = act
+        val chip = UI.pill(ctx, text, p.card2, p.text)
+        chip.setPadding(UI.dp(ctx, 12), UI.dp(ctx, 8), UI.dp(ctx, 12), UI.dp(ctx, 8))
+        chip.textSize = 12f
+        chip.typeface = Fonts.bold(ctx)
+        chip.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = UI.dp(ctx, 7)
+        }
+        chip.tag = "sp$idx"
+        chip.setOnClickListener {
+            applySpeedPreset(idx)
+        }
+        return chip
+    }
+
+    /** اعمال یک پیش‌تنظیم سرعت روی تنظیمات تونل */
+    private fun applySpeedPreset(idx: Int) {
+        val s = act.store.settings
+        when (idx) {
+            0 -> { // حداکثر سرعت
+                s.mtu = 8500
+                s.tcpFastOpen = true
+                s.mux = false
+                s.logLevel = "warning"
+                s.sniffing = true
+            }
+            2 -> { // حداکثر سازگاری
+                s.mtu = 1400
+                s.tcpFastOpen = false
+                s.mux = false
+            }
+            else -> { // متعادل
+                s.mtu = 8500
+                s.tcpFastOpen = false
+                s.mux = false
+                s.logLevel = "warning"
+            }
+        }
+        act.store.saveSettings()
+        renderSpeedChips()
+        mtuEdit.setText(s.mtu.toString())
+        UI.toast(act, "حالت سرعت " + when (idx) {
+            0 -> "«حداکثر سرعت» فعال شد — قوی‌ترین حالت"
+            2 -> "«حداکثر سازگاری» فعال شد — برای شبکه‌های ناپایدار"
+            else -> "«متعادل» فعال شد"
+        } + " — برای اتصال بعدی اعمال می‌شود")
     }
 
     // ---------------------------------------------------------- سازنده‌ها

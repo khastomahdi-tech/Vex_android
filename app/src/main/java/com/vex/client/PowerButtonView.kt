@@ -6,6 +6,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
@@ -105,12 +106,12 @@ class PowerButtonView(context: Context) : View(context) {
 
     private val ev = ArgbEvaluator()
 
-    /** اهداف هر حالت: level / ampDp / رنگ / آلفا */
+    /** اهداف هر حالت: level / ampDp / رنگ / آلفا — v5.3: موج‌های عمیق‌تر و پرحرکت‌تر */
     private fun targets(m: String): FloatArray = when (m) {
-        "busy" -> floatArrayOf(0.5f, 6.5f, 0.96f, 0f)
+        "busy" -> floatArrayOf(0.5f, 9.5f, 0.97f, 0f)
         // متصل: موج کل حباب را می‌گیرد — فقط یک ذره سرِ حباب خالی می‌ماند
-        "on" -> floatArrayOf(0.93f, 4.4f, 0.96f, 1f)
-        else -> floatArrayOf(0.08f, 1.9f, 0.55f, 2f)
+        "on" -> floatArrayOf(0.93f, 6.5f, 0.97f, 1f)
+        else -> floatArrayOf(0.08f, 2.8f, 0.55f, 2f)
     }
 
     private fun colorOf(m: String): Int = when (m) {
@@ -150,8 +151,9 @@ class PowerButtonView(context: Context) : View(context) {
 
     private fun startFlow() {
         if (flow?.isRunning == true) return
+        // v5.3: چرخه‌ی آهسته‌تر (۲۶۰۰ms) — احساس «آب عمیق» می‌دهد، نه موج تند
         flow = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 2200
+            duration = 2600
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
             addUpdateListener {
@@ -197,7 +199,7 @@ class PowerButtonView(context: Context) : View(context) {
 
         // حاله‌ی نوری دور دکمه حذف شد (درخواست کاربر) — هیچ نوری از دکمه بیرون نمی‌زند
 
-        // ---------- موج آب داخل دکمه (سه لایه + نفس عمودی) ----------
+        // ---------- موج آب داخل دکمه (سه لایه + نفس عمودی + چرخه‌ی ژرف) ----------
         if (level > 0.004f && innerR > 0) {
             val save = canvas.save()
             clip.reset()
@@ -205,6 +207,9 @@ class PowerButtonView(context: Context) : View(context) {
             canvas.clipPath(clip)
             // سطح آب: ارتفاع هدف + نفسِ آرام عمودی (bob) تا آب واقعی‌تر به‌نظر برسد
             val bob = Math.sin(phase * 0.5).toFloat() * amp * 0.38f
+            // v5.3: «چرخه‌ی ژرف» — موج اقیانوسیِ کُند که دامنه را هم نفس می‌دهد
+            val swell = 1f + 0.30f * Math.sin(phase * 0.33).toFloat()
+            val deepAmp = amp * swell
             val surfaceY = (cy + innerR) - level * (2f * innerR) + bob
             // هاله‌ی رنگی وقتی حباب پر است — نور از ته آب
             if (level > 0.55f) {
@@ -216,26 +221,30 @@ class PowerButtonView(context: Context) : View(context) {
                 canvas.drawCircle(cx, cy, innerR, paint)
                 paint.shader = null
             }
-            // لایه‌ی پشتی — کم‌رنگ، فاز برعکس، موج بلندتر
+            // لایه‌ی پشتی — کم‌رنگ، فاز برعکس، موج بلند
             drawWater(canvas, cx, cy, innerR, surfaceY,
-                amp * 0.75f, phase + 2.4f, waterColor, waterAlpha * 0.38f, 1.0f)
-            // لایه‌ی اصلی — امضای موج
+                deepAmp * 0.80f, phase + 2.4f, waterColor, waterAlpha * 0.38f, 1.0f, false)
+            // لایه‌ی اصلی — امضای موج (با گرادیان ژرفا: سطح روشن، کف تیره)
             drawWater(canvas, cx, cy, innerR, surfaceY,
-                amp, phase, waterColor, waterAlpha, 1.15f)
+                deepAmp, phase, waterColor, waterAlpha, 1.15f, true)
             // لایه‌ی جلو — موج‌های ریز سطحی با فرکانس بالاتر (موج‌های بیشتر)
             drawWater(canvas, cx, cy, innerR, surfaceY + dp(2f),
-                amp * 0.42f, phase * 1.7f + 1.1f, waterColor, waterAlpha * 0.32f, 2.2f)
+                deepAmp * 0.46f, phase * 1.7f + 1.1f, waterColor, waterAlpha * 0.34f, 2.2f, false)
             // خط کفِ موج — نور روی سطح آب + کفِ محو لایه‌ی جلو
-            drawFoam(canvas, cx, innerR, surfaceY, amp, phase, 1.15f, 0.42f, dp(1.8f))
-            drawFoam(canvas, cx, innerR, surfaceY + dp(2f), amp * 0.42f,
-                phase * 1.7f + 1.1f, 2.2f, 0.20f, dp(1.1f))
+            drawFoam(canvas, cx, innerR, surfaceY, deepAmp, phase, 1.15f, 0.55f, dp(2.0f))
+            drawFoam(canvas, cx, innerR, surfaceY + dp(2f), deepAmp * 0.46f,
+                phase * 1.7f + 1.1f, 2.2f, 0.24f, dp(1.2f))
             canvas.restoreToCount(save)
         }
 
-        // ---------- حلقه‌ی سفید توخالی ----------
+        // ---------- حلقه‌ی سفید توخالی (کمی پررنگ‌تر — v5.3) ----------
         ringP.color = cWhite
         ringP.strokeWidth = ringW
         canvas.drawCircle(cx, cy, rMain - ringW / 2f, ringP)
+        // حلقه‌ی داخلی مویی — حس دوخطِ سلطنتی (کاملاً داخل حلقه، بدون نورِ بیرون‌زده)
+        ringP.color = UI.alpha(0xFFFFFFFF.toInt(), if (light) 0.30f else 0.42f)
+        ringP.strokeWidth = dp(1f)
+        canvas.drawCircle(cx, cy, rMain - ringW - dp(2.5f), ringP)
 
         // ---------- کمان چرخان حین جست‌وجو/اتصال (busy) — دور حلقه‌ی اصلی می‌چرخد ----------
         if (mode == "busy") {
@@ -262,15 +271,28 @@ class PowerButtonView(context: Context) : View(context) {
         drawGlyph(canvas, cx, cy, gr)
     }
 
-    /** یک لایه‌ی موج: سطح آب در surfaceY با دامنه‌ی ampPx، فاز ph و فرکانس freq */
+    /**
+     * یک لایه‌ی موج: سطح آب در surfaceY با دامنه‌ی ampPx، فاز ph و فرکانس freq.
+     * v5.3: وقتی depth=true، رنگ لایه گرادیان عمق دارد — سطحِ روشن‌تر، کفِ تیره‌تر
+     * (احساس آب عمیق و سلطنتی؛ بدون هیچ نوری خارج از حباب).
+     */
     private fun drawWater(canvas: Canvas, cx: Float, cy: Float, r: Float,
                           surfaceY: Float, ampPx: Float, ph: Float, color: Int, alpha: Float,
-                          freq: Float) {
-        waterP.color = UI.alpha(color, alpha)
-        val path = Path()
+                          freq: Float, depth: Boolean) {
+        waterP.shader = null
         val left = cx - r - dp(4f)
         val right = cx + r + dp(4f)
         val bottom = cy + r + dp(6f)
+        if (depth) {
+            waterP.shader = LinearGradient(
+                cx, (surfaceY - ampPx * 1.6f), cx, bottom,
+                UI.alpha(lighten(color, 1.22f), alpha),
+                UI.alpha(darken(color, 0.55f), (alpha * 0.94f).coerceAtMost(1f)),
+                Shader.TileMode.CLAMP)
+        } else {
+            waterP.color = UI.alpha(color, alpha)
+        }
+        val path = Path()
         val step = dp(3f)
         var x = left
         path.moveTo(x, bottom)
@@ -284,6 +306,23 @@ class PowerButtonView(context: Context) : View(context) {
         path.lineTo(right, bottom)
         path.close()
         canvas.drawPath(path, waterP)
+        waterP.shader = null
+    }
+
+    /** روشن‌کردن رنگ به سمت سفید (f 1=خودش، 1.3=روشن‌تر) */
+    private fun lighten(c: Int, f: Float): Int {
+        val r = Math.min(255, (((c shr 16) and 0xFF) * f).toInt())
+        val g = Math.min(255, (((c shr 8) and 0xFF) * f).toInt())
+        val b = Math.min(255, ((c and 0xFF) * f).toInt())
+        return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    }
+
+    /** تیره‌کردن رنگ به سمت سیاه (f 0.55=تقریباً نیمه‌تیره) با کمی مایل به آبی ژرفا */
+    private fun darken(c: Int, f: Float): Int {
+        val r = (((c shr 16) and 0xFF) * f).toInt()
+        val g = (((c shr 8) and 0xFF) * f).toInt()
+        val b = Math.min(255, (((c and 0xFF) * f).toInt() + 12))
+        return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
     }
 
     /** خط باریک روشن روی سطح آب — «کفِ» موج */
