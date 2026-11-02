@@ -38,16 +38,20 @@ class FlagBackdrop private constructor(private val bmp: Bitmap?) : Drawable() {
         // ---------- سه نوار پرچم ----------
         val bandA = if (dark) 0.055f else 0.09f
         val third = b.height() / 3f
+        val L = b.left.toFloat()
+        val R = b.right.toFloat()
+        val T = b.top.toFloat()
+        val B = b.bottom.toFloat()
         // سبز — بالای صفحه
         flagP.color = UI.alpha(if (dark) 0xFF1FA35C.toInt() else 0xFF149441.toInt(), bandA)
-        canvas.drawRect(b.left, b.top, b.right, b.top + third, flagP)
+        canvas.drawRect(L, T, R, T + third, flagP)
         // نوار میانی — کمی روشن‌تر/کرمی (جای نشان)
         flagP.color = UI.alpha(if (dark) 0xFFF2E7C8.toInt() else 0xFFFFFFFF.toInt(),
             if (dark) 0.030f else 0.22f)
-        canvas.drawRect(b.left, b.top + third, b.right, b.top + third * 2f, flagP)
+        canvas.drawRect(L, T + third, R, T + third * 2f, flagP)
         // قرمز — پایین صفحه
         flagP.color = UI.alpha(if (dark) 0xFFE04848.toInt() else 0xFFC93A3A.toInt(), bandA)
-        canvas.drawRect(b.left, b.top + third * 2f, b.right, b.bottom, flagP)
+        canvas.drawRect(L, T + third * 2f, R, B, flagP)
 
         // ---------- نشان شیر و خورشید (واترمارک وسط) ----------
         val bmap = bmp ?: return
