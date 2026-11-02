@@ -77,6 +77,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         // ---- تنظیمات رفتاری که MainActivity قبل از شروع سرویس ست می‌کند ----
         @Volatile var autoReconnect: Boolean = true
         @Volatile var autoNetTest: Boolean = true
+        /** نوسازی بی‌صدای هسته هنگام هنداور WiFi↔دیتای موبایل (تنظیم کاربر — پیش‌فرض روشن) */
+        @Volatile var handoverReload: Boolean = true
 
         // ---- per-app مثل v2rayNG: 0 = همه، 1 = فقط انتخاب‌شده‌ها، 2 = همه به‌جز انتخاب‌شده‌ها ----
         @Volatile var perAppMode: Int = 0
@@ -151,6 +153,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private var healStage = 0
     /** جمع بایت‌ها در آخرین دور تست — لایوِبودن تونل از روی ترافیک واقعی کاربر تشخیص داده می‌شود */
     private var lastProbeBytes = 0L
+    /** شمارش دورهای پشت‌سرهمِ «سرور در لیست نبود» — قطع فقط بعد از دو تأیید متوالی (رفع قطع کاذب) */
+    @Volatile private var srvMissingStreak = 0
 
     // ---- پایش شبکه‌ی زیرین + نوسازی هنگام هنداور (الگوی NetworkMonitor/reloadCore در v2rayNG) ----
     private var handoverCb: ConnectivityManager.NetworkCallback? = null
@@ -456,6 +460,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      * روی برخی اپراتورها (ایرانسل، فیبر نوری و...): اگر مسیر فعلی دو تست پشت‌سرهم را رد کرد،
      * بی‌سروصدا هسته را با موتور دیگر (مستقیم ↔ ترکیبی) دوباره بالا می‌آوریم تا کاربر
      * واقعاً دیتا داشته باشد. در هر جلسه فقط یک‌بار — تا حلقه‌ی بی‌پایان ساخته نشود.
+     *
+     * v5.2 — تعویض موتور کاملاً «بی‌صدا» شد (رفع «هی صفر می‌شه، هی قطع می‌شه»):
+     *  • وضعیت «متصل» دست‌نخورده می‌ماند (پیشتر «در حال اتصال» می‌شد و بعد دوباره وصل — کاربر قطع می‌دید)؛
+     *  • مجموع جلسه (دانلود/آپلود تجمعی) صفر نمی‌شود — آمار با quiet=true حفظ می‌شود؛
+     *  • تونل فقط برای لحظه‌ی تعویض هسته بسته می‌شود و اعلان هم «متصل» می‌ماند.
      */
     private fun maybeFallbackEngine() {
         val payload = lastPayload ?: return
@@ -465,22 +474,23 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         if (target == cur) return
         val np = try { JSONObject(payload).put("engine", target).toString() } catch (_: Throwable) { return }
         val targetName = if (target.isEmpty()) "مستقیم (Vex)" else "ترکیبی (Vex + سایفون)"
-        Log.w(TAG, "auto engine fallback: ${cur.ifEmpty { "direct" }} -> ${target.ifEmpty { "direct" }}")
-        Handler(Looper.getMainLooper()).post {
-            try {
-                android.widget.Toast.makeText(
-                    applicationContext,
-                    "دیتا از مسیر فعلی رد نشد — موتور اتصال خودکار روی «$targetName» تنظیم شد",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-            } catch (_: Throwable) {}
-        }
+        Log.w(TAG, "auto engine fallback (quiet): ${cur.ifEmpty { "direct" }} -> ${target.ifEmpty { "direct" }}")
+        try {
+            android.widget.Toast.makeText(
+                applicationContext,
+                "دیتا از مسیر فعلی رد نشد — مسیر اتصال بی‌صدا روی «$targetName» عوض شد",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        } catch (_: Throwable) {}
         thread(name = "vex-fallback") {
             stopCoreQuiet()
-            startVpn(np)
+            startVpn(np, quiet = true) // آمار جلسه حفظ، وضعیت «متصل» بدون تغییر
             // موتور تازه ۲ دقیقه فرصت تثبیت دارد و شمارش خطا از صفر شروع می‌شود
             failStreak = 0
             stabilizeUntilMs = System.currentTimeMillis() + 120_000L
+            try {
+                startForeground(NOTIF_ID, notif("متصل است", "مسیر اتصال برای پایداری بیشتر عوض شد"))
+            } catch (_: Throwable) {}
         }
     }
 
@@ -591,6 +601,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         val payload = lastPayload ?: return
         val engMode = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
         if (engMode == "psiphon" || engMode == "hybrid") return
+        // تنظیم کاربر: اگر خاموش باشد فقط شبکه‌ی زیرین معرفی می‌شود و هسته دست نمی‌خورد
+        if (!handoverReload) return
         Log.w(TAG, "underlying network handover — quiet core reload (v2rayNG reloadCore pattern)")
         performQuietReload(payload, "handover")
     }
@@ -779,7 +791,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         }
                     }
                 } catch (_: Throwable) {}
-                // ۴) حذف سرور رایگان → قطع خودکار
+                // ۴) حذف سرور رایگان → قطع خودکار — فقط بعد از «دو تأیید متوالی»
+                //    (پاسخ موقتِ ناقص/خالی از سرور دیگر وسط کار اتصال را قطع نمی‌کند)
                 try {
                     val raw = lastPayload?.let {
                         try { org.json.JSONObject(it).optString("raw", "") } catch (_: Throwable) { "" }
@@ -789,21 +802,26 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         val sel = st.selected()
                         if (sel != null && st.isFree(sel)) {
                             val dtos = TelegramGate.fetchFreeServers() // null = شبکه نبود → کاری نکن
-                            if (dtos != null && dtos.none { it.raw == raw }) {
-                                synchronized(stateLock) { if (gen != generation) return@thread }
-                                try {
-                                    Handler(Looper.getMainLooper()).post {
-                                        try {
-                                            android.widget.Toast.makeText(
-                                                applicationContext,
-                                                "این سرور رایگان حذف شد — اتصال قطع شد",
-                                                android.widget.Toast.LENGTH_LONG
-                                            ).show()
-                                        } catch (_: Throwable) {}
-                                    }
-                                } catch (_: Throwable) {}
-                                stopVpn()
-                                break
+                            if (dtos == null || dtos.any { it.raw == raw }) {
+                                srvMissingStreak = 0 // سرور سر جاش است / شبکه نبود — شمارش صفر
+                            } else {
+                                srvMissingStreak++
+                                if (srvMissingStreak >= 2) {
+                                    synchronized(stateLock) { if (gen != generation) return@thread }
+                                    try {
+                                        Handler(Looper.getMainLooper()).post {
+                                            try {
+                                                android.widget.Toast.makeText(
+                                                    applicationContext,
+                                                    "این سرور رایگان حذف شد — اتصال قطع شد",
+                                                    android.widget.Toast.LENGTH_LONG
+                                                ).show()
+                                            } catch (_: Throwable) {}
+                                        }
+                                    } catch (_: Throwable) {}
+                                    stopVpn()
+                                    break
+                                }
                             }
                         }
                     }

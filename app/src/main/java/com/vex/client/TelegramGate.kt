@@ -327,7 +327,9 @@ object TelegramGate {
         val expires: Long = 0L,
         val serverTime: Long = 0L,
         val device: String = "",
-        val sessions: Int = 0
+        val sessions: Int = 0,
+        /** امضای HMAC سرور روی (کد + انقضا) — ضد دستکاری وضعیت اشتراک محلی */
+        val sig: String = ""
     ) {
         val kicked: Boolean get() = error == "kicked"
         val expired: Boolean get() = error == "expired"
@@ -352,7 +354,8 @@ object TelegramGate {
                 expires = o.optLong("expires", 0L),
                 serverTime = o.optLong("server_time", 0L),
                 device = o.optString("device", ""),
-                sessions = o.optInt("sessions", 0)
+                sessions = o.optInt("sessions", 0),
+                sig = o.optString("sig", "")
             )
         } catch (_: Throwable) {
             SubInfo(false, null)

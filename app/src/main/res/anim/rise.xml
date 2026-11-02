@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- بالاآمدن نرم کارت هنگام باز شدن صفحه — مطابق rise .8s طرح مرجع -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="800"
+    android:fillAfter="true"
+    android:interpolator="@android:anim/decelerate_interpolator">
+    <alpha android:fromAlpha="0.0" android:toAlpha="1.0"
+        android:duration="700"/>
+    <translate android:fromYDelta="60" android:toYDelta="0"
+        android:duration="800"/>
+</set>

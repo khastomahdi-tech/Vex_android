@@ -195,18 +195,7 @@ class PowerButtonView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy + dp(8f), rMain * 1.22f, paint)
         paint.shader = null
 
-        // ---------- هاله‌ی رنگی دور حلقه — حالت busy پالس می‌زند، متصل آرام می‌درخشد ----------
-        if (mode != "off") {
-            val pulse = if (mode == "busy") (0.5f + 0.5f * kotlin.math.abs(kotlin.math.sin(phase.toDouble())).toFloat()) else 1f
-            val glowA = if (mode == "busy") 0.16f + 0.12f * pulse else 0.22f
-            paint.shader = RadialGradient(
-                cx, cy, rMain * 1.42f,
-                UI.alpha(waterColor, glowA),
-                Color.TRANSPARENT, Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(cx, cy, rMain * 1.42f, paint)
-            paint.shader = null
-        }
+        // حاله‌ی نوری دور دکمه حذف شد (درخواست کاربر) — هیچ نوری از دکمه بیرون نمی‌زند
 
         // ---------- موج آب داخل دکمه (سه لایه + نفس عمودی) ----------
         if (level > 0.004f && innerR > 0) {

@@ -13,9 +13,13 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * تب «حساب کاربری» — مشخصات اشتراکِ همین دستگاه:
- *  وضعیت (فعال / منقضی / حذف‌شده)، زمان باقی‌مانده، کد اشتراک (کپی‌شدنی)،
- *  تاریخ فعال‌سازی و انقضا (شمسی)، نام دستگاه و تعداد نشست‌های فعال با همین کد.
+ * تب «حساب کاربری» — مشخصات اشتراکِ همین دستگاه (طرح v5.2 — همه‌چیز کارتِ جداگانه):
+ *
+ *  • کارت بالا: نشان وضعیت + حلقه‌ی پیشرفت (RingProgressView) که خطِ داخلش با نسبت
+ *    زمان باقی‌مانده به کل اشتراک پر می‌شود و زمان باقی‌مانده داخل حلقه نوشته می‌شود؛
+ *  • کارت «مشخصات حساب»: کد اشتراک (کپی‌شدنی)، تاریخ فعال‌سازی و انقضا (شمسی)،
+ *    نام دستگاه و تعداد نشست‌های فعال با همین کد؛
+ *  • کارت «بررسی وضعیت»: بروزرسانی از سرور + ورود به ربات.
  *
  *  وضعیت از سرور (demonvpn.shop) تازه می‌شود؛ اگر مدیر از ربات «حذف تمام نشست‌ها»
  *  را زده باشد، اینجا هم «حذف شده» دیده می‌شود و برنامه به صفحه‌ی ورود کد برمی‌گردد.
@@ -28,8 +32,7 @@ class AccountUi(private val act: MainActivity) {
     private var p: Palette = Themes.royal()
 
     private lateinit var badge: TextView
-    private lateinit var remainBig: TextView
-    private lateinit var remainLbl: TextView
+    private lateinit var ring: RingProgressView
     private lateinit var codeVal: TextView
     private lateinit var createdVal: TextView
     private lateinit var expiresVal: TextView
@@ -50,7 +53,7 @@ class AccountUi(private val act: MainActivity) {
         root.setPadding(UI.dp(ctx, 16), UI.dp(ctx, 10), UI.dp(ctx, 16), UI.dp(ctx, 14))
         val scroll = ScrollView(ctx).apply { overScrollMode = View.OVER_SCROLL_NEVER }
 
-        // ================= وضعیت اشتراک =================
+        // ================= کارت حلقه‌ی زمان باقی‌مانده =================
         val hero = UI.col(ctx).apply {
             gravity = Gravity.CENTER
             setPadding(UI.dp(ctx, 16), UI.dp(ctx, 18), UI.dp(ctx, 16), UI.dp(ctx, 18))
@@ -58,18 +61,12 @@ class AccountUi(private val act: MainActivity) {
         badge = UI.pill(ctx, "—", UI.alpha(p.accent, 0.16f), p.accent).apply { textSize = 13f }
         hero.addView(badge, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        remainBig = TextView(ctx).apply {
-            textSize = 26f
-            typeface = Fonts.bold(ctx)
-            gravity = Gravity.CENTER
-            setPadding(0, UI.dp(ctx, 14), 0, 0)
-        }
-        hero.addView(remainBig)
-        remainLbl = UI.label(ctx, "زمان باقی‌مانده‌ی اشتراک", 12.5f, p.muted).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, UI.dp(ctx, 4), 0, 0)
-        }
-        hero.addView(remainLbl)
+        ring = RingProgressView(ctx)
+        hero.addView(ring, LinearLayout.LayoutParams(
+            UI.dp(ctx, 176), UI.dp(ctx, 176)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setMargins(0, UI.dp(ctx, 16), 0, 0)
+        })
         addCard(hero)
 
         // ================= مشخصات =================
@@ -220,28 +217,47 @@ class AccountUi(private val act: MainActivity) {
             !SubStore.valid(code) -> {
                 badge.text = "اشتراک فعال نیست"
                 badge.setTextColor(p.mid)
-                remainBig.text = "—"
-                remainBig.setTextColor(p.muted)
+                ring.mainText = "—"
+                ring.subText = "اشتراکی فعال نشده"
+                ring.mainColor = p.muted
+                ring.ringColor = p.muted
+                ring.progress = 0f
             }
             kicked -> {
                 badge.text = "حذف شده توسط مدیریت"
                 badge.setTextColor(p.bad)
-                remainBig.text = "بیرون انداخته شدی"
-                remainBig.setTextColor(p.bad)
+                ring.mainText = "۰ روز"
+                ring.subText = "بیرون انداخته شدی"
+                ring.mainColor = p.bad
+                ring.ringColor = p.bad
+                ring.progress = 0f
             }
             expired -> {
                 badge.text = "منقضی شده"
                 badge.setTextColor(p.bad)
-                remainBig.text = "۰ روز"
-                remainBig.setTextColor(p.bad)
+                ring.mainText = "۰ روز"
+                ring.subText = "زمان باقی‌مانده"
+                ring.mainColor = p.bad
+                ring.ringColor = p.bad
+                ring.progress = 0f
             }
             else -> {
                 badge.text = "اشتراک فعال است ✓"
                 badge.setTextColor(p.good)
-                remainBig.text = faDigits(remainingText(exp - now))
-                remainBig.setTextColor(p.good)
+                val remain = exp - now
+                ring.mainText = faDigits(remainingText(remain))
+                ring.subText = "زمان باقی‌مانده"
+                // رنگ حلقه: سبز (بیش از ۲۰٪) کهربایی (کمتر از ۲۰٪)
+                val total = exp - SubStore.activatedAt(ctx)
+                val ratio = if (total > 0) remain.toFloat() / total.toFloat() else 0f
+                ring.progress = ratio
+                ring.ringColor = if (ratio > 0.2f) p.good else p.mid
+                ring.mainColor = ring.ringColor
             }
         }
+        // رنگ زمینه‌ی حلقه با تم — روی تم روشن و تیره خوانا
+        ring.trackColor = UI.alpha(p.line, 0.5f)
+        ring.subColor = p.muted
 
         codeVal.text = if (SubStore.valid(code)) codeFmt(code) else "—"
         createdVal.text = faDigits(jalali(SubStore.activatedAt(ctx)))
@@ -265,7 +281,7 @@ class AccountUi(private val act: MainActivity) {
                     last = info
                     if (info.expires > 0) {
                         SubStore.save(act, info.code, info.createdAt, info.expires,
-                            info.device.ifEmpty { SubStore.device(act) })
+                            info.device.ifEmpty { SubStore.device(act) }, info.sig)
                     }
                     if (showResult) UI.toast(act, "اشتراک فعال است ✓")
                 } else if (info.kicked || info.expired || info.notFound) {

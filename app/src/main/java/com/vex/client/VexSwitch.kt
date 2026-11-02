@@ -15,8 +15,8 @@ import android.view.animation.DecelerateInterpolator
 /**
  * سوییچ لوکس VEX — جایگزین سوییچ پیش‌فرض اندروید:
  *  - ریل با گرادیان طلایی در حالت روشن و تیره‌ی حکاکی‌شده در حالت خاموش
- *  - دسته‌ی متحرک با انیمیشن نرم و درخشش طلایی
- *  - هاله‌ی ملایم هنگام روشن شدن
+ *  - دسته‌ی متحرک با انیمیشن نرم
+ *  (v5.2 — حاله‌ی نوری دور دسته حذف شد: هیچ نوری از سوییچ بیرون نمی‌زند)
  */
 class VexSwitch(context: Context) : View(context) {
 
@@ -45,7 +45,6 @@ class VexSwitch(context: Context) : View(context) {
     private val track = Paint(Paint.ANTI_ALIAS_FLAG)
     private val trackStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val knobP = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val glowP = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shineP = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private var prog = 0f // 0 = خاموش، 1 = روشن
@@ -96,20 +95,10 @@ class VexSwitch(context: Context) : View(context) {
         trackStroke.strokeWidth = strokeW
         canvas.drawRoundRect(RectF(strokeW / 2f, strokeW / 2f, w - strokeW / 2f, h - strokeW / 2f), r - strokeW / 2f, r - strokeW / 2f, trackStroke)
 
-        // ---------- هاله‌ی روشن ----------
+        // ---------- دسته (تم‌پذیر) — بدون حاله‌ی نوری (درخواست کاربر) ----------
         val knobR = r - UI.dp(context, 3.4f)
         val pad = r - knobR
         val kx = lerp(pad + knobR, w - pad - knobR, prog)
-        if (prog > 0.03f) {
-            glowP.shader = RadialGradient(
-                kx, r, knobR * 2.6f,
-                UI.alpha(p.accent, 0.40f * prog), Color.TRANSPARENT, Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(kx, r, knobR * 2.6f, glowP)
-            glowP.shader = null
-        }
-
-        // ---------- دسته (تم‌پذیر) ----------
         val knobOff = if (light) 0xFFF7F8FB.toInt() else 0xFF9AA3B2.toInt()
         val knobOn = 0xFFFFFFFF.toInt()
         val knobCol = lerpColor(knobOff, knobOn, prog)

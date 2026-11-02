@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- لرزش کارت هنگام خطا — مطابق shake .4s طرح مرجع -->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="90"
+    android:fromXDelta="-9"
+    android:toXDelta="9"
+    android:repeatCount="3"
+    android:repeatMode="reverse"
+    android:interpolator="@android:anim/accelerate_decelerate_interpolator"/>

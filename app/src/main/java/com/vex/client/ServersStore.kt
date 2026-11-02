@@ -23,7 +23,7 @@ data class VexSettings(
     var ipv6: Boolean = false,
     var mux: Boolean = false,
     var logLevel: String = "info",  // info | warning | debug
-    var autoConnect: Boolean = false,
+    var autoConnect: Boolean = true,  // v5.2: اتصال خودکار حالا پیش‌فرضِ همه است (کاربر می‌تواند خاموشش کند)
     var allowInsecure: Boolean = true,  // رد کردن تأیید گواهی TLS — پیش‌فرض روشن برای سرورهای CDN/self-signed
     var autoReconnect: Boolean = true,  // اتصال مجدد خودکار پس از کشته‌شدن سرویس
     var autoNetTest: Boolean = true,    // تست خودکار اینترنت پس از اتصال
@@ -45,7 +45,8 @@ data class VexSettings(
     var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
     var freeRefreshSec: Int = 60,       // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
     var engine: String = "auto",        // حالت اتصال: auto (بهترین پینگ) | vex | hybrid | psiphon
-    var relockOnExit: Boolean = true    // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
+    var relockOnExit: Boolean = true,   // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
+    var handoverReload: Boolean = true  // نوسازی بی‌صدای هسته هنگام تغییر شبکه (WiFi↔موبایل)
 )
 
 /**
@@ -130,7 +131,7 @@ class ServersStore(context: Context) {
                 ipv6 = o.optBoolean("ipv6", false),
                 mux = o.optBoolean("mux", false),
                 logLevel = o.optString("logLevel", "info"),
-                autoConnect = o.optBoolean("autoConnect", false),
+                autoConnect = o.optBoolean("autoConnect", true),
                 allowInsecure = o.optBoolean("allowInsecure", true),
                 autoReconnect = o.optBoolean("autoReconnect", true),
                 autoNetTest = o.optBoolean("autoNetTest", true),
@@ -153,6 +154,7 @@ class ServersStore(context: Context) {
                     else -> "vex"
                 },
                 relockOnExit = o.optBoolean("relockOnExit", true),
+                handoverReload = o.optBoolean("handoverReload", true),
                 perAppMode = o.optInt("perAppMode", 0).coerceIn(0, 2),
                 perAppPackages = try {
                     val arr = o.optJSONArray("perAppPackages")
@@ -179,6 +181,15 @@ class ServersStore(context: Context) {
                 saveSettings()
             }
             prefs.edit().putBoolean("theme_migrated_v319", true).apply()
+        }
+        // مهاجرت v5.2: اتصال خودکار حالا پیش‌فرض همه‌ی کاربران است — برای نصب‌های قبلی هم
+        // یک‌بار روشن می‌شود؛ کاربر هر وقت بخواهد در تنظیمات خاموشش می‌کند.
+        if (!prefs.getBoolean("ac_default_v52", false)) {
+            prefs.edit().putBoolean("ac_default_v52", true).apply()
+            if (!settings.autoConnect) {
+                settings.autoConnect = true
+                saveSettings()
+            }
         }
     }
 
@@ -236,6 +247,7 @@ class ServersStore(context: Context) {
             .put("keepScreenOn", settings.keepScreenOn)
             .put("freeRefreshSec", settings.freeRefreshSec)
             .put("relockOnExit", settings.relockOnExit)
+            .put("handoverReload", settings.handoverReload)
             .put("engine", settings.engine)
             .toString()).apply()
     }

@@ -294,11 +294,22 @@ class MainActivity : ComponentActivity() {
                     return@Thread
                 }
                 if (sub.ok) {
-                    // انقضای تازه از سرور ذخیره می‌شود تا زمان باقی‌مانده دقیق بماند
+                    // انقضای تازه + امضای HMAC سرور ذخیره می‌شود — پایه‌ی ورود امن در قطعی‌های بعدی
                     SubStore.save(this, sub.code, sub.createdAt, sub.expires,
-                        sub.device.ifEmpty { SubStore.device(this) })
+                        sub.device.ifEmpty { SubStore.device(this) }, sub.sig)
+                    main.post { if (!isFinishing) enterApp() }
+                } else {
+                    // ---- خطای شبکه (error=null): ورود فقط با امضای معتبر سرور ----
+                    // دورزدن گیت ممکن نیست: کد/انقضای دستکاری‌شده امضا ندارد و امضا هم
+                    // بدون راز سمت سرور قابل ساخت نیست.
+                    if (SubStore.signedAndValid(this)) {
+                        main.post { if (!isFinishing) enterApp() }
+                    } else {
+                        subLockReason = "تأیید اشتراک باید از سرور مدیریت انجام شود؛ اتصال اینترنت را چک کن و دوباره «ورود» را بزن."
+                        main.post { if (!isFinishing) setGateUi("subscription") }
+                        return@Thread
+                    }
                 }
-                main.post { if (!isFinishing) enterApp() }
             }
             startGateWatch()
         }.start()
@@ -1090,6 +1101,7 @@ class MainActivity : ComponentActivity() {
         // تنظیمات رفتاری سرویس (پیش از شروع)
         VexVpnService.autoReconnect = store.settings.autoReconnect
         VexVpnService.autoNetTest = store.settings.autoNetTest
+        VexVpnService.handoverReload = store.settings.handoverReload
         VexVpnService.showNotifSpeed = store.settings.showNotifSpeed
         VexVpnService.perAppMode = store.settings.perAppMode
         VexVpnService.perAppPackages = store.settings.perAppPackages.toSet()
@@ -1591,7 +1603,16 @@ class MainActivity : ComponentActivity() {
 
         // صفحه‌ی «تأیید حساب کاربری» — طرح جدید مستقل مطابق مرجع (بدون آیکون و عنوان قدیمی)
         if (state == "subscription") {
-            buildSubscriptionForm(ctx, p)
+            gateRoot.setBackgroundColor(Color.WHITE)
+            val saved = SubStore.code(ctx).takeIf { SubStore.valid(it) } ?: ""
+            gateRoot.addView(SubVerifyUi.build(
+                act = ctx,
+                prefillCode = saved,
+                initialError = subLockReason,
+                onGetCode = { openVexBot() },
+                onSubmit = { code, setLoading, showError -> runSubActivate(code, setLoading, showError) }
+            ), LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
             return
         }
 
@@ -1660,216 +1681,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** صفحه‌ی «تأیید حساب کاربری» — دقیقاً مو‌به‌مو مطابق طرح مرجع:
-     *  عنوان بالا، دایره‌ی روشن‌آبی با آیکون کلید، «تأیید از طریق تلگرام»،
-     *  توضیح کوتاه، کادر کد با آیکون اثر انگشت، دکمه‌ی آبی «ورود» و
-     *  دکمه‌ی «دریافت کد اشتراک» با آیکون تلگرام (ربات توکن @Appvexvpnbot).
-     *  متن «برای تلگرام به پروکسی نیاز دارید؟» و دکمه‌ی کانال طبق درخواست حذف شدند. */
-    private fun buildSubscriptionForm(ctx: MainActivity, p: Palette) {
-        val navy = 0xFF17233D.toInt()
-        val gray = 0xFF5F6B7A.toInt()
-        val blue = 0xFF2F6BE4.toInt()
-        val blueSoft = 0xFFE4EDFC.toInt()
-        val hintGray = 0xFF98A2B3.toInt()
-        val errRed = 0xFFD14343.toInt()
-        val white = 0xFFFFFFFF.toInt()
-
-        fun box(fill: Int, stroke: Int, strokeDp: Float, radiusDp: Float): GradientDrawable {
-            val d = GradientDrawable()
-            d.shape = GradientDrawable.RECTANGLE
-            d.setColor(fill)
-            if (strokeDp > 0f) d.setStroke(Math.max(1, UI.dp(ctx, strokeDp)), stroke)
-            d.cornerRadius = UI.dp(ctx, radiusDp).toFloat()
-            return d
-        }
-
-        val col = UI.col(ctx).apply {
-            setPadding(UI.dp(ctx, 20), UI.dp(ctx, 22), UI.dp(ctx, 20), UI.dp(ctx, 16))
-        }
-
-        // ---- عنوان بالا ----
-        col.addView(TextView(ctx).apply {
-            text = "تأیید حساب کاربری"
-            textSize = 20f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
-            setTextColor(navy)
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // ---- دایره‌ی روشن‌آبی با آیکون کلید ----
-        val circle = LinearLayout(ctx).apply {
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(blueSoft)
-            }
-        }
-        circle.addView(ImageView(ctx).apply {
-            setImageResource(R.drawable.ic_key_blue)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(UI.dp(ctx, 96), UI.dp(ctx, 96)))
-        val circleWrap = LinearLayout(ctx).apply { gravity = Gravity.CENTER }
-        circleWrap.addView(circle, LinearLayout.LayoutParams(UI.dp(ctx, 188), UI.dp(ctx, 188)))
-        col.addView(circleWrap, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, UI.dp(ctx, 44), 0, 0)
-        })
-
-        // ---- «تأیید از طریق تلگرام» ----
-        col.addView(TextView(ctx).apply {
-            text = "تأیید از طریق تلگرام"
-            textSize = 25f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
-            setTextColor(navy)
-            setPadding(0, UI.dp(ctx, 28), 0, 0)
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // ---- توضیح ----
-        col.addView(TextView(ctx).apply {
-            text = "کد اشتراک را از ربات تلگرام دریافت کرده و در کادر زیر وارد کنید."
-            textSize = 15f; gravity = Gravity.CENTER; setTextColor(gray)
-            setLineSpacing(UI.dp(ctx, 3).toFloat(), 1f)
-            setPadding(UI.dp(ctx, 6), UI.dp(ctx, 10), UI.dp(ctx, 6), 0)
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        // ---- پیام خطا (کیک/انقضا/کد نامعتبر) — پیش‌فرض مخفی ----
-        val err = TextView(ctx).apply {
-            textSize = 13f; gravity = Gravity.CENTER; setTextColor(errRed)
-            setLineSpacing(UI.dp(ctx, 2).toFloat(), 1f)
-            setPadding(UI.dp(ctx, 4), UI.dp(ctx, 12), UI.dp(ctx, 4), 0)
-            visibility = View.GONE
-        }
-        col.addView(err, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        subLockReason?.takeIf { it.isNotBlank() }?.let {
-            err.text = it
-            err.visibility = View.VISIBLE
-        }
-
-        // ---- کادر کد: [اثر انگشت] [کادر ورود] — اثر انگشت سمت راست داخل کادر ----
-        val row = LinearLayout(ctx).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            background = box(white, 0xFFD8DEE9.toInt(), 1.2f, 16f)
-            setPadding(UI.dp(ctx, 16), 0, UI.dp(ctx, 16), 0)
-        }
-        row.addView(ImageView(ctx).apply {
-            setImageResource(R.drawable.ic_fingerprint)
-            setColorFilter(blue)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(UI.dp(ctx, 26), UI.dp(ctx, 26)))
-        val input = android.widget.EditText(ctx).apply {
-            hint = "کد اشتراک را وارد کنید"
-            textSize = 15f
-            typeface = Fonts.bold(ctx)
-            gravity = Gravity.CENTER_VERTICAL
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                    android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            setSingleLine(true)
-            filters = arrayOf(android.text.InputFilter.LengthFilter(35))
-            setTextColor(navy)
-            setHintTextColor(hintGray)
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-            setTextIsSelectable(false)
-            setPadding(UI.dp(ctx, 12), 0, UI.dp(ctx, 4), 0)
-        }
-        row.addView(input, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 52)))
-        col.addView(row, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 56)).apply {
-            setMargins(0, UI.dp(ctx, 30), 0, 0)
-        })
-
-        // ---- دکمه‌ی آبی «ورود» ----
-        val go = TextView(ctx).apply {
-            text = "ورود"
-            textSize = 16.5f; typeface = Fonts.bold(ctx); gravity = Gravity.CENTER
-            setTextColor(white)
-            background = box(blue, 0, 0f, 16f)
-        }
-        go.setOnClickListener {
-            val code = SubStore.normalize(input.text.toString())
-            if (!SubStore.valid(code)) {
-                err.text = "کد اشتراک باید ۳۰ حرف انگلیسی باشد"
-                err.visibility = View.VISIBLE
-                return@setOnClickListener
-            }
-            go.text = "در حال بررسی…"
-            go.isEnabled = false
-            err.visibility = View.GONE
-            Thread {
-                val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
-                val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(ctx))
-                main.post {
-                    if (isFinishing) return@post
-                    when {
-                        info.ok -> {
-                            SubStore.save(ctx, info.code, info.createdAt, info.expires,
-                                info.device.ifEmpty { device })
-                            subLockReason = null
-                            UI.toast(ctx, "اشتراک فعال شد ✓")
-                            enterApp()
-                            startGateWatch()
-                        }
-                        info.deviceTaken -> {
-                            err.text = "این کد قبلاً روی دستگاه دیگری فعال شده است؛\nهر کد فقط روی یک دستگاه کار می‌کند. از ربات «حذف تمام نشست‌ها» را بزن و دوباره تلاش کن"
-                            err.visibility = View.VISIBLE
-                        }
-                        info.notFound -> {
-                            err.text = "این کد پیدا نشد؛ از ربات کد معتبر بگیر و دوباره وارد کن"
-                            err.visibility = View.VISIBLE
-                        }
-                        info.expired -> {
-                            err.text = "کد اشتراک شما منقضی شده است؛ از ربات کد جدید بگیر"
-                            err.visibility = View.VISIBLE
-                        }
-                        info.badCode -> {
-                            err.text = "کد اشتراک باید ۳۰ حرف انگلیسی باشد"
-                            err.visibility = View.VISIBLE
-                        }
-                        info.error != null -> {
-                            err.text = "فعال‌سازی انجام نشد؛ کد را چک کن و دوباره تلاش کن"
-                            err.visibility = View.VISIBLE
-                        }
-                        else -> {
-                            err.text = "دسترسی به سرور مدیریت نبود؛ اتصال اینترنت را چک کن و دوباره تلاش کن"
-                            err.visibility = View.VISIBLE
-                        }
+    /**
+     * فعال‌سازی کد اشتراک روی سرور — از صفحه‌ی تأیید (SubVerifyUi) صدا زده می‌شود.
+     * پاسخ موفق: ذخیره‌ی توکن + امضای HMAC سرور (پایه‌ی ورود امن بعدی) و ورود به برنامه.
+     */
+    private fun runSubActivate(code: String, setLoading: (Boolean) -> Unit, showError: (String) -> Unit) {
+        setLoading(true)
+        Thread {
+            val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+            val info = TelegramGate.subActivate(code, device, TelegramGate.deviceId(this))
+            main.post {
+                if (isFinishing) return@post
+                setLoading(false)
+                when {
+                    info.ok -> {
+                        SubStore.save(this, info.code, info.createdAt, info.expires,
+                            info.device.ifEmpty { device }, info.sig)
+                        subLockReason = null
+                        UI.toast(this, "اشتراک فعال شد ✓")
+                        enterApp()
+                        startGateWatch()
                     }
-                    go.text = "ورود"
-                    go.isEnabled = true
+                    info.deviceTaken -> showError("این کد قبلاً روی دستگاه دیگری فعال شده است؛\nهر کد فقط روی یک دستگاه کار می‌کند. از ربات «حذف تمام نشست‌ها» را بزن و دوباره تلاش کن")
+                    info.notFound -> showError("این کد پیدا نشد؛ از ربات کد معتبر بگیر و دوباره وارد کن")
+                    info.expired -> showError("کد اشتراک شما منقضی شده است؛ از ربات کد جدید بگیر")
+                    info.badCode -> showError("کد اشتراک باید ۳۰ حرف انگلیسی باشد")
+                    info.error != null -> showError("فعال‌سازی انجام نشد؛ کد را چک کن و دوباره تلاش کن")
+                    else -> showError("دسترسی به سرور مدیریت نبود؛ اتصال اینترنت را چک کن و دوباره تلاش کن")
                 }
-            }.start()
-        }
-        col.addView(go, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 54)).apply {
-            setMargins(0, UI.dp(ctx, 26), 0, 0)
-        })
-
-        // ---- دکمه‌ی «دریافت کد اشتراک» با آیکون تلگرام — ربات توکن برنامه (@Appvexvpnbot) ----
-        val tgBtn = LinearLayout(ctx).apply {
-            gravity = Gravity.CENTER
-            background = box(white, 0xFFC9D9F4.toInt(), 1.2f, 16f)
-        }
-        tgBtn.addView(ImageView(ctx).apply {
-            setImageResource(R.drawable.ic_telegram)
-            setColorFilter(blue)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(UI.dp(ctx, 22), UI.dp(ctx, 22)))
-        tgBtn.addView(TextView(ctx).apply {
-            text = "دریافت کد اشتراک"
-            textSize = 15f; typeface = Fonts.bold(ctx); setTextColor(navy)
-            setPadding(UI.dp(ctx, 9), 0, 0, 0)
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        tgBtn.setOnClickListener { openVexBot() }
-        col.addView(tgBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 52)).apply {
-            setMargins(0, UI.dp(ctx, 14), 0, 0)
-        })
-
-        gateRoot.addView(col, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            }
+        }.start()
     }
 
     /** اشتراک حذف/منقضی شد (از تب حساب یا چک دوره‌ای) → تونل قطع و صفحه‌ی ورود کد می‌آید */

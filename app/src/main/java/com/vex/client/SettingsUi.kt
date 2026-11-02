@@ -47,6 +47,30 @@ class SettingsUi(private val act: MainActivity) {
         root.setPadding(UI.dp(ctx, 18), UI.dp(ctx, 8), UI.dp(ctx, 18), UI.dp(ctx, 14))
         val scroll = ScrollView(ctx).apply { overScrollMode = View.OVER_SCROLL_NEVER }
 
+        // ================= ظاهر =================
+        val lookCard = sectionCard("ظاهر و تم", "sun")
+        lookCard.addView(fieldLabel(ctx, "تم برنامه"))
+        val themeSpin = Spinner(ctx).apply {
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                arrayOf("روشن تمیز", "شب تیره", "سلطنتی روز (طلایی)", "سلطنتی شب (طلایی)", "شیر و خورشید", "هماهنگ با سیستم"))
+            setSelection(when (act.store.settings.theme) {
+                "dark" -> 1; "royal_light" -> 2; "royal" -> 3; "shir" -> 4; "system" -> 5; else -> 0
+            })
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                    if (building) return
+                    val key = when (pos) { 1 -> "dark"; 2 -> "royal_light"; 3 -> "royal"; 4 -> "shir"; 5 -> "system"; else -> "light" }
+                    if (key != act.store.settings.theme) act.setTheme(key)
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+        }
+        lookCard.addView(themeSpin, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, UI.dp(ctx, 44)).apply { topMargin = UI.dp(ctx, 4) })
+        lookCard.addView(divider())
+        lookCard.addView(infoRow("زبان نمایش", "فارسی — تاریخ‌ها به شمسی"))
+        addCard(lookCard)
+
         // ================= اتصال =================
         val connCard = sectionCard("اتصال", "signal")
         connCard.addView(switchRow("اتصال خودکار هنگام باز شدن برنامه",
@@ -141,6 +165,18 @@ class SettingsUi(private val act: MainActivity) {
             act.store.settings.relockOnExit = v
             act.store.saveSettings()
         })
+        secCard.addView(divider())
+        val alwaysOnBtn = softRowButton("همیشه‌روشن VPN (Always-On)")
+        alwaysOnBtn.setOnClickListener {
+            try {
+                act.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS))
+                UI.toast(act, "در تنظیمات، Vex را انتخاب و Always-on VPN را روشن کن")
+            } catch (_: Throwable) {
+                UI.toast(act, "تنظیمات VPN در دسترس نیست")
+            }
+        }
+        secCard.addView(alwaysOnBtn)
+        secCard.addView(subLabel("کلید خاموشی: با Always-on و «Block connections without VPN» بدون تونلِ فعال هیچ داده‌ای از گوشی بیرون نمی‌رود — ضد لو رفتن IP واقعی."))
         addCard(secCard)
 
         // ================= تونل =================
@@ -161,6 +197,13 @@ class SettingsUi(private val act: MainActivity) {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             topMargin = UI.dp(ctx, 5)
         })
+        // چیپ‌های آماده‌ی MTU — ۱۲۸۰ سازگارترین، ۸۵۰۰ سریع‌ترین (مطابق چیپ‌های DNS)
+        netCard.addView(fieldLabel(ctx, "MTUهای آماده"))
+        val mtuScroll = android.widget.HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
+        val mtuChipsRow = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 6), 0, 0) }
+        for (m in intArrayOf(1280, 1400, 1500, 8500)) mtuChipsRow.addView(mtuChip(m))
+        mtuScroll.addView(mtuChipsRow)
+        netCard.addView(mtuScroll)
 
         netCard.addView(divider())
         netCard.addView(fieldLabel(ctx, "DNS (مثل 1.1.1.1)"))
@@ -210,6 +253,12 @@ class SettingsUi(private val act: MainActivity) {
         netCard.addView(switchRow("پدینگ Mux",
             "پوشاندن الگوی ترافیک داخل تونل Mux (فقط وقتی Mux روشن است)", act.store.settings.muxPadding) { v ->
             act.store.settings.muxPadding = v; act.store.saveSettings()
+        })
+        netCard.addView(divider())
+        netCard.addView(switchRow("نوسازی خودکار هنگام تغییر شبکه",
+            "با جابه‌جایی WiFi↔دیتای موبایل، هسته بی‌صدا تازه می‌شود تا اتصال نپرد (اگر قطعی دیدی خاموشش کن)", act.store.settings.handoverReload) { v ->
+            act.store.settings.handoverReload = v; act.store.saveSettings()
+            VexVpnService.handoverReload = v
         })
         netCard.addView(divider())
         netCard.addView(switchRow("TCP Fast Open",
@@ -574,6 +623,27 @@ class SettingsUi(private val act: MainActivity) {
             UI.toast(act, "DNS روی $addr تنظیم شد")
         }
         chip.tag = "dns:$addr"
+        return chip
+    }
+
+    /** چیپ آماده‌ی MTU — لمس = تنظیم فوری (برای رفع قطعی/بهبود سرعت روی اپراتورهای مختلف) */
+    private fun mtuChip(value: Int): View {
+        val ctx = act
+        val chip = UI.pill(ctx, "$value", p.card2, p.text)
+        chip.textSize = 11.5f
+        chip.textDirection = View.TEXT_DIRECTION_LTR
+        chip.setPadding(UI.dp(ctx, 12), UI.dp(ctx, 7), UI.dp(ctx, 12), UI.dp(ctx, 7))
+        chip.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = UI.dp(ctx, 6)
+        }
+        chip.setOnClickListener {
+            act.store.settings.mtu = value
+            act.store.saveSettings()
+            mtuEdit.setText(value.toString())
+            UI.toast(act, "MTU روی $value تنظیم شد")
+        }
+        chip.tag = "mtu:$value"
         return chip
     }
 

@@ -349,7 +349,7 @@ async function handleVex(request, env) {
         } else {
           await logEvent(env, "activate", code, c.chat_id, device, android, ver, false);
         }
-        return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device, sessions: sn ? sn.n : 0 });
+        return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device, sessions: sn ? sn.n : 0, sig: await subSig(code, c.expires) });
       }
 
       // ---------------- اشتراک: بررسی وضعیت (کیک/انقضا را هم تشخیص می‌دهد) ----------------
@@ -374,7 +374,7 @@ async function handleVex(request, env) {
         const sn = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM sub_sessions WHERE code = ?1"
         ).bind(code).first();
-        return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device: s.device, activated: s.activated, sessions: sn ? sn.n : 0 });
+        return json({ ok: true, code, created: c.created, expires: c.expires, server_time: now, device: s.device, activated: s.activated, sessions: sn ? sn.n : 0, sig: await subSig(code, c.expires) });
       }
 
       // ---------------- اشتراک: خروج از حساب (حذف نشست این دستگاه) ----------------
@@ -1627,6 +1627,20 @@ function normSubCode(s) {
 }
 /** کد معتبر: ۳۰ حرف انگلیسی (فرمت جدید توکن) یا ۲۷ حرف / ۱۶ رقم (کدهای قدیمی — برای قطع نشدن اشتراک‌های جاری) */
 function validSubCode(c) { return c.length === 30 || c.length === 27 || c.length === 16; }
+
+// ---------------- امضای HMAC وضعیت اشتراک (ضد دورزدن گیت) ----------------
+// پاسخ‌های موفق activate/status با «sig» امضا می‌شوند؛ اپ امضا را کنار اشتراک ذخیره می‌کند و
+// هر بار ورود، امضا را محلی تأیید می‌کند. اگر سرور در دسترس نباشد، ورود فقط با امضای معتبرِ
+// (کد + انقضای) همان اشتراک ممکن است — دستکاری کد/انقضا در SharedPreferences بی‌اثر می‌شود،
+// چون محاسبه‌ی امضا رازِ سمت سرور را می‌خواهد که داخل APK نیست.
+const SUB_SIG_SECRET = "vexsig_Kd82mQp4wZt7Ry3BxN5jL9hC1vP0sF6g";
+async function subSig(code, expires) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(SUB_SIG_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(code + "|" + expires));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 /** کد تصادفی ۳۰ حرفی از حروف انگلیسی بزرگ */
 function genSubCode() {
