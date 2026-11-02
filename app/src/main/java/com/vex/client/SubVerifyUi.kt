@@ -88,11 +88,11 @@ object SubVerifyUi {
 
         /** شناوری آرام بلاب — همان float ۱۴ ثانیه‌ای طرح مرجع */
         private fun float(v: View, dur: Long = 8000) {
-            val ax = ObjectAnimator.ofFloat(v, View.TRANSLATION_X, 0f, dp(ctx, 26f))
+            val ax = ObjectAnimator.ofFloat(v, View.TRANSLATION_X, 0f, dp(context, 26f))
             ax.duration = dur; ax.repeatCount = ValueAnimator.INFINITE
             ax.repeatMode = ValueAnimator.REVERSE
             ax.interpolator = DecelerateInterpolator(); ax.start()
-            val ay = ObjectAnimator.ofFloat(v, View.TRANSLATION_Y, 0f, -dp(ctx, 26f))
+            val ay = ObjectAnimator.ofFloat(v, View.TRANSLATION_Y, 0f, -dp(context, 26f))
             ay.duration = dur; ay.repeatCount = ValueAnimator.INFINITE
             ay.repeatMode = ValueAnimator.REVERSE
             ay.interpolator = DecelerateInterpolator(); ay.start()
@@ -100,7 +100,7 @@ object SubVerifyUi {
     }
 
     /** حلقه‌ی پالس دور نشان کلید — scale ۰٫۸۵→۱٫۳۵ + محوشدن، تکرار بی‌پایان (مطابق pulse) */
-    private class PulseRing(ctx: Context, color: Int, phaseMs: Long) : View(ctx) {
+    private class PulseRing(ctx: Context, col: Int, phaseMs: Long) : View(ctx) {
 
         var scaleScale = 0.85f
         var scaleAlpha = 0.9f
@@ -108,7 +108,7 @@ object SubVerifyUi {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = dp(ctx, 2f)
-            color = color
+            color = col
         }
         private var anim: ValueAnimator? = null
 
