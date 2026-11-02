@@ -1446,24 +1446,25 @@ class MainActivity : ComponentActivity() {
             val target = pick
             main.post {
                 serversUi.autoConnectState = ""
-                if (target == null) {
-                    if (serversUi.tab == 1) serversUi.render()
+                val t = target
+                if (t == null) {
                     UI.toast(this, "سروری برای اتصال خودکار پیدا نشد")
-                    return@main.post
-                }
-                UI.toast(this, "خلوت‌ترین سرور: «${target.name}» — در حال اتصال…")
-                store.select(target.id)
-                serversUi.render()
-                homeUi.renderServerCard()
-                if (connectionState == "stopped") {
-                    requestStart(target)
                 } else {
-                    requestStop()
-                    main.postDelayed({
-                        val cur = store.selected()
-                        if (cur != null && connectionState == "stopped") requestStart(cur)
-                    }, 1000)
+                    UI.toast(this, "خلوت‌ترین سرور: «${t.name}» — در حال اتصال…")
+                    store.select(t.id)
+                    serversUi.render()
+                    homeUi.renderServerCard()
+                    if (connectionState == "stopped") {
+                        requestStart(t)
+                    } else {
+                        requestStop()
+                        main.postDelayed({
+                            val cur = store.selected()
+                            if (cur != null && connectionState == "stopped") requestStart(cur)
+                        }, 1000)
+                    }
                 }
+                if (serversUi.tab == 1) serversUi.render()
             }
         }.start()
     }
