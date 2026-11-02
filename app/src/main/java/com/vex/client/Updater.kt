@@ -30,7 +30,11 @@ object Updater {
 
     private const val PREF = "vex_update"
     private const val APK_FILE = "vex_update.apk"
-    private val HOSTS = arrayOf("https://demonvpn.shop", "https://vex-gate.pages.dev")
+    private val HOSTS = arrayOf(
+        "https://demonvpn.shop",        // اصلی
+        "https://gate.demonvpn.shop",   // گیت ۲ (پشتیبان زنده)
+        "https://vex-gate.pages.dev"    // پشتیبان قدیمی
+    )
 
     /** آیا فایل دانلودشده آماده‌ی نصب است؟ */
     fun pendingInstall(ctx: Context): Boolean {

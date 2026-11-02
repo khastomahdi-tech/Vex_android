@@ -63,7 +63,7 @@
  *   Unhandled bot errors are reported to the owner (max 1/min) instead of being swallowed.
  */
 
-const SERVICE_V = 15;
+const SERVICE_V = 17;
 
 const DEFAULT_REPO = "khastomahdi-tech/Vex_android";
 const LATEST_ASSET = "Vex-Client-latest.apk";

@@ -31,10 +31,11 @@ import java.util.UUID
  */
 object TelegramGate {
 
-    /** بک‌اند کلادفلر (Pages): دامنه‌ی شخصی اول، pages.dev پشتیبان + کلید احراز برنامه */
+    /** بک‌اند کلادفلر (Pages): دامنه‌های شخصی اول، pages.dev پشتیبان + کلید احراز برنامه */
     private val GATE_HOSTS = arrayOf(
-        "https://demonvpn.shop",        // دامنه‌ی شخصی — بدون فیلترینگ
-        "https://vex-gate.pages.dev"    // دامنه‌ی پیش‌فرض Pages (پشتیبان)
+        "https://demonvpn.shop",        // دامنه‌ی شخصی (اصلی)
+        "https://gate.demonvpn.shop",   // دامنه‌ی شخصی دوم — گیت ۲ (پشتیبان زنده)
+        "https://vex-gate.pages.dev"    // دامنه‌ی پیش‌فرض Pages (پشتیبان قدیمی)
     )
     private const val APP_KEY = "vexk_8c3b1e664023f4df081d8dbb"
 

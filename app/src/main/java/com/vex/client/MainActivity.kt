@@ -825,8 +825,8 @@ class MainActivity : ComponentActivity() {
         val p = Themes.resolve(this, store.settings.theme)
         // اول هدر داخل ستون اسکرول صفحه‌ی فعال سوار شود، بعد تم روی همه اعمال شود
         attachHeader(currentTab)
-        // پس‌زمینه‌ی پرچم شیر و خورشید — سه نوار رنگ پرچم + واترمارک نشان طلایی وسط
-        root.background = FlagBackdrop.create(this).setDarkTheme(!Themes.isLightBg(p))
+        // پس‌زمینه‌ی عادی — رنگ تم (بازگشت از پرچم به درخواست کاربر)
+        root.setBackgroundColor(p.bg)
         // هدر سلطنتی — شفاف روی پس‌زمینه؛ دکمه‌ها بدون قاب مربع (درخواست کاربر)
         val header = root.findViewWithTag<FrameLayout>("header")
         header?.let {
@@ -1668,13 +1668,8 @@ class MainActivity : ComponentActivity() {
         val p = if (sub) Themes.light().copy(bg = 0xFFFFFFFF.toInt()) else Themes.dark()
         // اگر برنامه باز بوده (قفل وسط کار) → صفحه‌ی قفل جایش را می‌گیرد
         setContentView(gateRoot)
-        if (sub) {
-            // صفحه‌ی اشتراک — سفید تمیز (طرح مرجع)
-            gateRoot.setBackgroundColor(Color.WHITE)
-        } else {
-            // بقیه‌ی حالت‌ها — پس‌زمینه‌ی پرچم شیر و خورشید
-            gateRoot.background = FlagBackdrop.create(this).setDarkTheme(true)
-        }
+        // پس‌زمینه‌ی عادی — سفید برای اشتراک، تم تیره برای بقیه (بازگشت از پرچم)
+        gateRoot.setBackgroundColor(p.bg)
         gateRoot.removeAllViews()
 
         // صفحه‌ی «تأیید حساب کاربری» — طرح جدید مستقل مطابق مرجع (بدون آیکون و عنوان قدیمی)
