@@ -36,14 +36,14 @@ class FlagBackdrop private constructor(private val bmp: Bitmap?) : Drawable() {
         if (b.isEmpty) return
 
         // ---------- سه نوار پرچم ----------
-        val bandA = if (dark) 0.055f else 0.075f
+        val bandA = if (dark) 0.055f else 0.09f
         val third = b.height() / 3f
         // سبز — بالای صفحه
         flagP.color = UI.alpha(if (dark) 0xFF1FA35C.toInt() else 0xFF149441.toInt(), bandA)
         canvas.drawRect(b.left, b.top, b.right, b.top + third, flagP)
         // نوار میانی — کمی روشن‌تر/کرمی (جای نشان)
         flagP.color = UI.alpha(if (dark) 0xFFF2E7C8.toInt() else 0xFFFFFFFF.toInt(),
-            if (dark) 0.030f else 0.55f)
+            if (dark) 0.030f else 0.22f)
         canvas.drawRect(b.left, b.top + third, b.right, b.top + third * 2f, flagP)
         // قرمز — پایین صفحه
         flagP.color = UI.alpha(if (dark) 0xFFE04848.toInt() else 0xFFC93A3A.toInt(), bandA)
@@ -60,8 +60,16 @@ class FlagBackdrop private constructor(private val bmp: Bitmap?) : Drawable() {
         if (dw <= 0 || dh <= 0) return
         val l = b.left + (b.width() - dw) / 2
         val t = b.top + (b.height() - dh) / 2
-        // روی تم تیره نشان طلایی واترمارکِ ملایم؛ روی تم روشن کمی پررنگ‌تر اما محو
-        bmpP.alpha = if (dark) 26 else 40
+        if (dark) {
+            // تم تیره — نشان طلایی اصلی با واترمارک ملایم
+            bmpP.colorFilter = null
+            bmpP.alpha = 30
+        } else {
+            // تم روشن — طلایی تیره‌ترِ یکدست تا روی زمینه‌ی روشن دیده شود
+            bmpP.colorFilter = android.graphics.PorterDuffColorFilter(
+                0xFFB8860B.toInt(), android.graphics.PorterDuff.Mode.SRC_IN)
+            bmpP.alpha = 74
+        }
         canvas.drawBitmap(bmap, null, Rect(l, t, l + dw, t + dh), bmpP)
     }
 
