@@ -7,16 +7,16 @@ import android.os.Build
 import android.os.IBinder
 
 /**
- * سرویس موتور سایفون — در پروسه‌ی جدا «:psiphon» اجرا می‌شود.
+ * سرویس موتور لنترن — در پروسه‌ی جدا «:lantern» اجرا می‌شود.
  *
  * وظایف:
- *  ۱) بالا آوردن تونل رسمی Psiphon (پروکسی محلی SOCKS روی 127.0.0.1)
+ *  ۱) بالا آوردن هسته‌ی رسمی Lantern (پروکسی محلی HTTP روی 127.0.0.1)
  *  ۲) نوشتن پورت در فایل مشترک برای پروسه‌ی اصلی
- *  ۳) نگه‌داشتن تونل در حین اتصال (سرویس پیش‌زمینه با اعلان بی‌صدا)
+ *  ۳) نگه‌داشتن هسته در حین اتصال (سرویس پیش‌زمینه با اعلان بی‌صدا)
  *
  * خاموش‌کردن: Intent با ACTION_STOP از پروسه‌ی اصلی (VexVpnService هنگام قطع).
  */
-class PsiphonService : Service() {
+class LanternService : Service() {
 
     override fun onCreate() {
         super.onCreate()
@@ -26,24 +26,24 @@ class PsiphonService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when {
             intent?.action == ACTION_STOP -> {
-                PsiphonEngine.stop(this)
+                LanternEngine.stop(this)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
-            // راه‌اندازی مجدد توسط سیستم (بدون Intent) — اگر تونل زنده است کاری نکن
-            intent == null && PsiphonEngine.isRunning() -> return START_STICKY
+            // راه‌اندازی مجدد توسط سیستم (بدون Intent) — اگر هسته زنده است کاری نکن
+            intent == null && LanternEngine.isRunning() -> return START_STICKY
             else -> {
-                // سرویس پیش‌زمینه — تا سیستم پروسه‌ی سایفون را وسط کار نکشد
+                // سرویس پیش‌زمینه — تا سیستم پروسه‌ی لنترن را وسط کار نکشد
                 if (Build.VERSION.SDK_INT >= 29) {
                     startForeground(
-                        NOTIF_ID, PsiphonEngine.buildForegroundNotification(this),
+                        NOTIF_ID, LanternEngine.buildForegroundNotification(this),
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                     )
                 } else {
-                    startForeground(NOTIF_ID, PsiphonEngine.buildForegroundNotification(this))
+                    startForeground(NOTIF_ID, LanternEngine.buildForegroundNotification(this))
                 }
-                if (!PsiphonEngine.isRunning()) PsiphonEngine.start(this)
+                if (!LanternEngine.isRunning()) LanternEngine.start(this)
             }
         }
         return START_STICKY
@@ -51,16 +51,16 @@ class PsiphonService : Service() {
 
     override fun onDestroy() {
         // اگر پروسه کشته شد، پورت کهنه نباید گول پروسه‌ی اصلی را بزند
-        if (PsiphonEngine.isRunning()) PsiphonEngine.stop(this)
-        PsiphonEngine.clearPort(this)
+        if (LanternEngine.isRunning()) LanternEngine.stop(this)
+        LanternEngine.clearPort(this)
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_START = "com.vex.client.PSIPHON_START"
-        const val ACTION_STOP = "com.vex.client.PSIPHON_STOP"
+        const val ACTION_START = "com.vex.client.LANTERN_START"
+        const val ACTION_STOP = "com.vex.client.LANTERN_STOP"
         private const val NOTIF_ID = 2
     }
 }

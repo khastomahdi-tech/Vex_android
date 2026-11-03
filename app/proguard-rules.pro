@@ -52,11 +52,11 @@
     public static int d(...);
 }
 
-# --- موتور سایفون (Psiphon tunnel core) — کلاس‌ها به‌صورت JAR ساده می‌آیند،
+# --- موتور لنترن (Lantern SDK رسمی — هسته‌ی flashlight) — کلاس‌ها به‌صورت JAR ساده می‌آیند،
 #     پس قواعد keep قبلیِ داخل AAR دیگر اعمال نمی‌شود؛ اینجا معادلشان را می‌گذاریم ---
--keep class psi.** { *; }
--keep class ca.psiphon.** { *; }
+-keep class lantern.** { *; }
+-keep class io.lantern.sdk.** { *; }
 -keep class go.** { *; }
--dontwarn psi.**
--dontwarn ca.psiphon.**
+-dontwarn lantern.**
+-dontwarn io.lantern.sdk.**
 -dontwarn go.**

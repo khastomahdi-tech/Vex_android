@@ -987,19 +987,14 @@ class MainActivity : ComponentActivity() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
             else -> {
-                // موتور سایفون/لنتر: به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
-                if (store.settings.engine == "psiphon") {
-                    requestStart(Server(-99, "سایفون", "psiphon", "psiphon://engine"))
+                // موتور لنترن (هسته‌ی رسمی Lantern): به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
+                if (store.settings.engine == "lantern") {
+                    requestStart(Server(-98, "لنترن", "lantern", "lantern://engine"))
                     return
                 }
                 // اتصال خودکار: پاور = پیدا کردن بهترین سرور رایگان (بهترین پینگ) و اتصال
                 if (store.settings.engine == "auto") {
                     startAutoConnectBest()
-                    return
-                }
-                // موتور لنتر: بدون سرور — استخر رایگان داخل هسته بالا می‌آید
-                if (store.settings.engine == "lantern") {
-                    requestStart(Server(-98, "لنتر", "lantern", "lantern://engine"))
                     return
                 }
                 // هیچ سروری انتخاب نشده → بهترین سرور رایگان (پیش‌فرض) خودکار انتخاب می‌شود
@@ -1078,10 +1073,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         val s = store.selected() ?: ensureDefaultServer() ?: run {
-            // موتور سایفون/لنتر به سرور نیاز ندارند — کانفیگ شبه‌ساز
+            // موتور لنترن به سرور نیاز ندارد — کانفیگ شبه‌ساز
             when (store.settings.engine) {
-                "psiphon" -> Server(-99, "سایفون", "psiphon", "psiphon://engine")
-                "lantern" -> Server(-98, "لنتر", "lantern", "lantern://engine")
+                "lantern" -> Server(-98, "لنترن", "lantern", "lantern://engine")
                 else -> null
             }
         } ?: return
@@ -1113,14 +1107,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Payload موتور لنتر — استخر سرورها را ضمیمه می‌کند:
+     * Payload حالت خودکار — استخر سرورها را ضمیمه می‌کند:
      * سرور انتخابی کاربر (اولویت) + همه‌ی سرورهای رایگان؛ هسته با گروه urltest
      * بهترین‌شان را خودکار انتخاب می‌کند و در صورت مردن، سوییچ می‌کند.
      */
-    private fun lanternPayload(payload0: String): String {
+    private fun autoPoolPayload(payload0: String): String {
         return try {
             val o = org.json.JSONObject(payload0)
-            o.put("engine", "lantern")
+            o.put("engine", "auto")
             val arr = org.json.JSONArray()
             val seen = HashSet<String>()
             val selRaw = try { store.selected()?.raw?.trim().orEmpty() } catch (_: Throwable) { "" }
@@ -1134,6 +1128,20 @@ class MainActivity : ComponentActivity() {
         } catch (_: Throwable) { payload0 }
     }
 
+    /**
+     * Payload موتور لنترن (هسته‌ی رسمی Lantern) — علاوه بر engine، استخر سرورها را هم
+     * ضمیمه می‌کند تا در صورت شکست لنترن، فال‌بک خودکار به «اتصال خودکار» فوراً کار کند.
+     */
+    private fun realLanternPayload(payload0: String): String {
+        return try {
+            val o = org.json.JSONObject(autoPoolPayload(payload0))
+            o.put("engine", "lantern")
+            o.toString()
+        } catch (_: Throwable) {
+            try { org.json.JSONObject(payload0).put("engine", "lantern").toString() } catch (_: Throwable) { payload0 }
+        }
+    }
+
     fun requestStart(s: Server) {
         if (connectionState != "stopped") return
         // حالت per-app: اگر «فقط برنامه‌های انتخابی» خالی باشد اجازه‌ی اتصال نده
@@ -1143,13 +1151,13 @@ class MainActivity : ComponentActivity() {
             return
         }
         val payload0 = store.connectionPayload(s)
-        // موتور اتصال — «سایفون» ترافیک را به تونل رسمی Psiphon می‌فرستد، نه به سرور انتخابی
-        // «ترکیبی» — همان سرور انتخابی، ولی اتصال به آن از داخل تونل سایفون عبور می‌کند (سرعت/پایداری بیشتر)
-        // «لنتر» — استخر کل سرورهای رایگان داخل هسته بالا می‌آید و بهترین سرور خودکار انتخاب/سوییچ می‌شود
+        // موتور اتصال — «لنترن» ترافیک را به هسته‌ی رسمی Lantern می‌فرستد، نه به سرور انتخابی
+        // «ترکیبی» — همان سرور انتخابی، ولی اتصال به آن از داخل تونل لنترن عبور می‌کند
+        // «خودکار» — استخر کل سرورهای رایگان داخل هسته بالا می‌آید و بهترین سرور خودکار انتخاب/سوییچ می‌شود
         val payload = when (store.settings.engine) {
-            "psiphon" -> try { org.json.JSONObject(payload0).put("engine", "psiphon").toString() } catch (_: Throwable) { payload0 }
+            "auto" -> autoPoolPayload(payload0)
+            "lantern" -> realLanternPayload(payload0)
             "hybrid" -> try { org.json.JSONObject(payload0).put("engine", "hybrid").toString() } catch (_: Throwable) { payload0 }
-            "lantern" -> lanternPayload(payload0)
             else -> payload0
         }
         // تنظیمات رفتاری سرویس (پیش از شروع)

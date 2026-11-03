@@ -46,11 +46,11 @@ jobs:
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.4
           go install github.com/sagernet/gomobile/cmd/gobind@v0.1.4
           # ---- VEX PATCH: go.Seq process-aware library loading ----
-          # دو ران‌تایم Go در یک اپ داریم: libbox (پروسه‌ی اصلی) و libgojni (پروسه‌ی :psiphon).
+          # دو ران‌تایم Go در یک اپ داریم: libbox (پروسه‌ی اصلی) و libgojni (پروسه‌ی :lantern).
           # بلوک static کلاس go.Seq فقط یک کتابخانه را load می‌کند و native init فقط یک‌بار
-          # اجرا می‌شود؛ پس در پروسه‌ی :psiphon باید gojni و در پروسه‌ی اصلی box بارگذاری شود،
+          # اجرا می‌شود؛ پس در پروسه‌ی :lantern باید gojni و در پروسه‌ی اصلی box بارگذاری شود،
           # وگرنه یکی از دو موتور کرش می‌کند. gobind بعداً «gojni» را با libname جایگزین می‌کند
-          # (شاخه‌ی else)، برای همین مسیر سایفون با "go"+"jni" نوشته شده تا دست‌نخورده بماند.
+          # (شاخه‌ی else)، برای همین مسیر لنترن با "go"+"jni" نوشته شده تا دست‌نخورده بماند.
           GMOD="$(go env GOMODCACHE)/github.com/sagernet/gomobile@v0.1.4/bind/java/Seq.java"
           ls -l "$GMOD"
           # فایل‌های کش ماژول فقط‌خواندنی‌اند — اول اجازه‌ی نوشتن بده
@@ -65,7 +65,7 @@ jobs:
               '\tstatic {\n'
               '\t\t// VEX PATCH: process-aware bridge library selection\n'
               '\t\tString __vp = vexProcessName();\n'
-              '\t\tif (__vp != null && __vp.endsWith(":psiphon")) {\n'
+              '\t\tif (__vp != null && __vp.endsWith(":lantern")) {\n'
               '\t\t\tSystem.loadLibrary("go" + "jni");\n'
               '\t\t} else {\n'
               '\t\t\tSystem.loadLibrary("gojni");\n'
@@ -89,7 +89,7 @@ jobs:
           )
           s = s.replace(old, new)
           open(p, 'w', encoding='utf-8').write(s)
-          print('Seq.java patched for process-aware loading')
+          print('Seq.java patched for process-aware loading (main=box, :lantern=gojni)')
           PY
           git clone --depth 1 --branch v1.11.15 https://github.com/SagerNet/sing-box.git /tmp/sing-box
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
@@ -106,63 +106,78 @@ jobs:
             ./experimental/libbox
           ls -lh "$GITHUB_WORKSPACE/app/libs/"
 
-      - name: Prepare Psiphon classes+native libs (strip duplicate gomobile runtime go.*)
+      - name: Prepare Lantern classes+native libs (strip duplicate gomobile runtime go.*)
         run: |
-          curl -fsSL --retry 3 -o /tmp/psi.aar \
-            "https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/master/ca/psiphon/psiphontunnel/2.0.42/psiphontunnel-2.0.42.aar"
-          ls -lh /tmp/psi.aar
-          # ۱) classes.jar بدون go/* تکراری → app/libs/psiphon-classes.jar (JAR ساده —
+          # SDK رسمی لنترن (getlantern/lanternsdk-android v1.0.1 — هسته‌ی flashlight v7)
+          # ساختار AAR: classes.jar = io.lantern.sdk.*  ·  libs/liblantern.jar = go.* + lantern.*
+          # ۱) ادغام دو JAR بدون go/* تکراری → app/libs/lantern-classes.jar (JAR ساده —
           #    بدون هیچ ترنسفورم AAR، همیشه برای کامپایلر Kotlin دیده می‌شود)
-          # ۲) libgojni.so → app/src/main/jniLibs/<abi>/ (پکیجینگ مستقیم، بدون AAR)
+          # ۲) libgojni.so (flashlight) → app/src/main/jniLibs/<abi>/ (پکیجینگ مستقیم، بدون AAR)
+          curl -fsSL --retry 3 -o /tmp/lantern.aar \
+            "https://github.com/getlantern/lanternsdk-android/releases/download/v1.0.1/lanternsdk-android-1.0.1.aar"
+          ls -lh /tmp/lantern.aar
           python3 - <<'PY'
           import zipfile, io, os
-          src = '/tmp/psi.aar'
+          src = '/tmp/lantern.aar'
           ws = os.environ['GITHUB_WORKSPACE']
           zin = zipfile.ZipFile(src)
-          inner = zipfile.ZipFile(io.BytesIO(zin.read('classes.jar')))
           buf = io.BytesIO()
           yo = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
           kept = 0
+          # classes.jar اصلی (io.lantern.sdk.*)
+          inner = zipfile.ZipFile(io.BytesIO(zin.read('classes.jar')))
           for n in inner.namelist():
               if n.startswith('go/'):
                   continue
-              yo.writestr(n, inner.read(n))
-              kept += 1
+              yo.writestr(n, inner.read(n)); kept += 1
+          # libs/liblantern.jar (go.* + lantern.* — بایندهای gobind هسته‌ی Go)
+          inner2 = zipfile.ZipFile(io.BytesIO(zin.read('libs/liblantern.jar')))
+          for n in inner2.namelist():
+              if n.startswith('go/'):
+                  continue
+              yo.writestr(n, inner2.read(n)); kept += 1
           yo.close()
           libs = os.path.join(ws, 'app', 'libs')
           os.makedirs(libs, exist_ok=True)
-          with open(os.path.join(libs, 'psiphon-classes.jar'), 'wb') as f:
+          with open(os.path.join(libs, 'lantern-classes.jar'), 'wb') as f:
               f.write(buf.getvalue())
           for abi in ('arm64-v8a', 'armeabi-v7a'):
               d = os.path.join(ws, 'app', 'src', 'main', 'jniLibs', abi)
               os.makedirs(d, exist_ok=True)
               with open(os.path.join(d, 'libgojni.so'), 'wb') as f:
                   f.write(zin.read('jni/' + abi + '/libgojni.so'))
-          print('psiphon-classes.jar:', kept, 'classes; libgojni.so extracted for arm64+armv7')
+          print('lantern-classes.jar:', kept, 'classes; libgojni.so (flashlight) extracted for arm64+armv7')
           # self-check
           zc = zipfile.ZipFile(io.BytesIO(buf.getvalue()))
-          assert 'ca/psiphon/PsiphonTunnel.class' in zc.namelist(), 'PsiphonTunnel missing!'
-          assert not any(n.startswith('go/') for n in zc.namelist()), 'go/* not stripped!'
+          names = zc.namelist()
+          assert 'lantern/LanternClient.class' in names, 'LanternClient missing!'
+          assert 'lantern/Lantern.class' in names, 'lantern.Lantern facade missing!'
+          assert 'lantern/StartResult.class' in names, 'StartResult missing!'
+          assert 'io/lantern/sdk/LanternManager.class' in names, 'LanternManager missing!'
+          assert not any(n.startswith('go/') for n in names), 'go/* not stripped!'
           so = os.path.join(ws, 'app', 'src', 'main', 'jniLibs', 'arm64-v8a', 'libgojni.so')
           assert os.path.getsize(so) > 10_000_000, 'libgojni.so too small'
           print('SELF-CHECK OK')
           PY
           # اعتبارسنجی با ابزار واقعی جاوا
-          cd /tmp && rm -rf psichk && mkdir psichk && cd psichk
-          cp "$GITHUB_WORKSPACE/app/libs/psiphon-classes.jar" .
+          cd /tmp && rm -rf lanchk && mkdir lanchk && cd lanchk
+          cp "$GITHUB_WORKSPACE/app/libs/lantern-classes.jar" .
           cat > T.java <<'J'
-          public class T { ca.psiphon.PsiphonTunnel.HostService h; }
+          public class T {
+            lantern.LanternClient c = lantern.Lantern.newLanternClient();
+            io.lantern.sdk.LanternManager m = new io.lantern.sdk.LanternManager();
+          }
           J
-          "$JAVA_HOME/bin/javac" -nowarn -cp psiphon-classes.jar T.java && echo "JAVAC RESOLVES PsiphonTunnel OK"
+          "$JAVA_HOME/bin/javac" -nowarn -cp lantern-classes.jar T.java && echo "JAVAC RESOLVES LanternClient OK"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: "Debug: verify psiphon on compile classpath"
+      - name: "Debug: verify lantern on compile classpath"
         run: |
           gradle :app:dependencies --configuration releaseCompileClasspath --no-daemon -q > /tmp/deps.txt || true
-          grep -iE "psiphon|libbox|app/libs" /tmp/deps.txt || echo "!! psiphon/libbox NOT on compile classpath"
+          grep -iE "lantern|libbox|app/libs" /tmp/deps.txt || echo "!! lantern/libbox NOT on compile classpath"
 
       - name: Read version
         id: ver

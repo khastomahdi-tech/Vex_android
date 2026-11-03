@@ -44,7 +44,7 @@ data class VexSettings(
     var pinLen: Int = 0,                // طول رمز (برای ارسال خودکار کیبورد اختصاصی)
     var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
     var freeRefreshSec: Int = 60,       // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
-    var engine: String = "auto",        // حالت اتصال: auto (بهترین پینگ) | vex | hybrid | psiphon
+    var engine: String = "auto",        // حالت اتصال: auto (استخر خودکار) | vex | hybrid | lantern (لنترن)
     var relockOnExit: Boolean = true,   // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
     var handoverReload: Boolean = true  // نوسازی بی‌صدای هسته هنگام تغییر شبکه (WiFi↔موبایل)
 )
@@ -148,9 +148,12 @@ class ServersStore(context: Context) {
                 keepScreenOn = o.optBoolean("keepScreenOn", false),
                 freeRefreshSec = when (o.optInt("freeRefreshSec", 60)) { 30 -> 30; 300 -> 300; 0 -> 0; else -> 60 },
                 engine = when (o.optString("engine", "auto")) {
-                    "psiphon" -> "psiphon"
-                    "hybrid" -> "hybrid"   // ترکیبی: سرور Vex از داخل تونل سایفون
-                    "auto" -> "auto"       // اتصال خودکار: بهترین سرور رایگان با بهترین پینگ
+                    // «psiphon» حذف شده → به «lantern» (هسته‌ی رسمی لنترن) مهاجرت می‌کند
+                    // «lantern» نسخه‌ی 5.5 (استخر urltest) → «auto»
+                    "lantern" -> "lantern" // لنترن واقعی — هسته‌ی رسمی Lantern، بدون انتخاب سرور
+                    "psiphon" -> "lantern"
+                    "hybrid" -> "hybrid"   // ترکیبی: سرور Vex از داخل تونل لنترن
+                    "auto" -> "auto"       // اتصال خودکار: استخر سرورها + انتخاب/سوییچ خودکار
                     else -> "vex"
                 },
                 relockOnExit = o.optBoolean("relockOnExit", true),

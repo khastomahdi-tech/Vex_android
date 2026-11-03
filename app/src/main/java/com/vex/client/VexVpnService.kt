@@ -86,8 +86,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
 
         // ---- آخرین بار اتصال (برای اتصال مجدد خودکار پس از کشته‌شدن سرویس) ----
         @Volatile var lastPayload: String? = null
-        /** جلسه‌ی فعلی/آخر با موتور سایفون اجرا شده است؟ (برای خاموش‌کردن تونل سایفون هنگام قطع) */
-        @Volatile var lastEnginePsiphon = false
+        /** جلسه‌ی فعلی/آخر با موتور لنترن اجرا شده است؟ (برای خاموش‌کردن هسته‌ی لنترن هنگام قطع) */
+        @Volatile var lastEngineLantern = false
 
         // ---- لاگ هسته (برای اشکال‌زدایی واقعی) ----
         private val logBuf = ArrayDeque<String>(400)
@@ -202,7 +202,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      */
     private fun startVpn(config: String, quiet: Boolean = false, isRetry: Boolean = false) {
         // باید سریع فورگراند شویم، وگرنه اندروید سرویس را می‌کشد
-        // موتور اتصال: «psiphon» = فقط سایفون · «hybrid» = ترکیبی (سرور Vex از داخل سایفون)
+        // موتور اتصال: «lantern» = فقط لنترن (هسته‌ی رسمی) · «hybrid» = ترکیبی (سرور Vex از داخل لنترن)
         val engMode = try { JSONObject(config).optString("engine") } catch (_: Throwable) { "" }
         // شروع تازه (از سمت کاربر/سیستم — نه فال‌بک داخلی): وضعیت فال‌بک از نو
         if (uiState == "stopped") {
@@ -211,18 +211,17 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             healStage = 0
             lastProbeBytes = 0
         }
-        val usePsiphonProc = engMode == "psiphon" || engMode == "hybrid"
-        lastEnginePsiphon = usePsiphonProc
+        val useLanternProc = engMode == "lantern" || engMode == "hybrid"
+        lastEngineLantern = useLanternProc
         if (!quiet) {
             startForeground(NOTIF_ID, notif(
                 when (engMode) {
-                    "hybrid" -> "در حال اتصال... (ترکیبی Vex + سایفون)"
-                    "psiphon" -> "در حال اتصال... (سایفون)"
-                    "lantern" -> "در حال اتصال... (موتور لنتر)"
+                    "hybrid" -> "در حال اتصال... (ترکیبی Vex + لنترن)"
+                    "lantern" -> "در حال اتصال... (لنترن)"
                     else -> "در حال اتصال..."
                 },
-                if (usePsiphonProc) "راه‌اندازی موتور سایفون..."
-                else if (engMode == "lantern") "انتخاب خودکار بهترین سرور..."
+                if (useLanternProc) "راه‌اندازی موتور لنترن..."
+                else if (engMode == "auto") "انتخاب خودکار بهترین سرور..."
                 else "راه‌اندازی هسته..."))
             uiState = "connecting"
             tileListener?.invoke("connecting")
@@ -243,24 +242,24 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     workingDir = getExternalFilesDir(null) ?: File(filesDir, "work"),
                     tempDir = cacheDir
                 )
-                val coreConfig = if (usePsiphonProc) {
-                    // موتور سایفون در پروسه‌ی جدا «:psiphon» بالا می‌آید و پورت SOCKS محلی‌اش
+                val coreConfig = if (useLanternProc) {
+                    // موتور لنترن در پروسه‌ی جدا «:lantern» بالا می‌آید و پورت پروکسی HTTP محلی‌اش
                     // را در فایل مشترک می‌نویسد؛ هسته‌ی sing-box ترافیک را به آن می‌فرستد
-                    // (tun → sing-box → سایفون). هیچ کتابخانه‌ی بومی مشترکی در این پروسه لود نمی‌شود.
+                    // (tun → sing-box → لنترن). هیچ کتابخانه‌ی بومی مشترکی در این پروسه لود نمی‌شود.
                     val ctx = applicationContext
-                    PsiphonEngine.clearPort(ctx)
+                    LanternEngine.clearPort(ctx)
                     ContextCompat.startForegroundService(
                         ctx,
-                        Intent(ctx, PsiphonService::class.java).setAction(PsiphonService.ACTION_START)
+                        Intent(ctx, LanternService::class.java).setAction(LanternService.ACTION_START)
                     )
-                    val port = awaitPsiphonPort(gen)
-                    if (port == 0) throw Exception("اتصال سایفون برقرار نشد — دوباره امتحان کن")
+                    val port = awaitLanternPort(gen)
+                    if (port == 0) throw Exception("اتصال لنترن برقرار نشد — دوباره امتحان کن")
                     if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
-                    else ConfigBuilder.buildPsiphon(port, config)
-                } else if (engMode == "lantern") {
-                    // موتور لنتر: استخر سرورها داخل همین هسته بالا می‌آید (پروسه‌ی اضافی ندارد)
+                    else ConfigBuilder.buildLanternProxy(port, config)
+                } else if (engMode == "auto") {
+                    // حالت خودکار: استخر سرورها داخل همین هسته بالا می‌آید (پروسه‌ی اضافی ندارد)
                     // و گروه urltest هسته، بهترین سرور را خودکار انتخاب/سوییچ می‌کند
-                    ConfigBuilder.buildLantern(config)
+                    ConfigBuilder.buildAutoPool(config)
                 } else {
                     ConfigBuilder.build(config)
                 }
@@ -476,11 +475,11 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private fun maybeFallbackEngine() {
         val payload = lastPayload ?: return
         val cur = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
-        // لنتر → سایفون (سایفون به raw و سرور نیازی ندارد و با شبه‌لینک کار می‌کند)
-        // سایفون/ترکیبی → مستقیم (رفتار قبلی)
+        // لنترن (هسته‌ی رسمی) → حالت خودکار (payload آن استخر سرورها را هم دارد)
+        // ترکیبی → مستقیم · خودکار → ترکیبی · مستقیم → ترکیبی
         val target = when (cur) {
-            "hybrid", "psiphon" -> ""
-            "lantern" -> "psiphon"
+            "hybrid" -> ""
+            "lantern" -> "auto"
             else -> "hybrid"
         }
         fallbackDone = true
@@ -488,8 +487,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         val np = try { JSONObject(payload).put("engine", target).toString() } catch (_: Throwable) { return }
         val targetName = when (target) {
             "" -> "مستقیم (Vex)"
-            "psiphon" -> "سایفون"
-            else -> "ترکیبی (Vex + سایفون)"
+            "auto" -> "اتصال خودکار (استخر سرورها)"
+            else -> "ترکیبی (Vex + لنترن)"
         }
         Log.w(TAG, "auto engine fallback (quiet): ${cur.ifEmpty { "direct" }} -> ${target.ifEmpty { "direct" }}")
         try {
@@ -541,7 +540,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      * v2rayNG/PattNG/ArasClient دقیقاً برای همین NetworkMonitor دارند:
      *  ۱) setUnderlyingNetworks با شبکه‌ی واقعی زیرین (نه اینترفیس VPN)،
      *  ۲) هنگام هنداور (با ۱ ثانیه ضدلرزش): بازسازی کامل هسته با جریان‌های نو.
-     * برای موتور سایفون/ترکیبی کاری نمی‌کنیم — tunnel-core سایفون خودش شبکه را مدیریت می‌کند.
+     * برای موتور لنترن/ترکیبی کاری نمی‌کنیم — هسته‌ی لنترن خودش شبکه را مدیریت می‌کند.
      */
     private fun startHandoverWatcher(gen: Int) {
         stopHandoverWatcher()
@@ -617,14 +616,14 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
         val payload = lastPayload ?: return
         val engMode = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
-        if (engMode == "psiphon" || engMode == "hybrid") return
+        if (engMode == "lantern" || engMode == "hybrid") return
         // تنظیم کاربر: اگر خاموش باشد فقط شبکه‌ی زیرین معرفی می‌شود و هسته دست نمی‌خورد
         if (!handoverReload) return
         Log.w(TAG, "underlying network handover — quiet core reload (v2rayNG reloadCore pattern)")
         performQuietReload(payload, "handover")
     }
 
-    /** توقف بی‌صدای هسته/تونل/سایفون — بدون تغییر وضعیت UI و بدون stopSelf (فقط برای فال‌بک) */
+    /** توقف بی‌صدای هسته/تونل/لنترن — بدون تغییر وضعیت UI و بدون stopSelf (فقط برای فال‌بک) */
     private fun stopCoreQuiet() {
         synchronized(stateLock) { generation++ }
         timer?.cancel(); timer = null
@@ -636,14 +635,14 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
-        if (lastEnginePsiphon) {
-            lastEnginePsiphon = false
+        if (lastEngineLantern) {
+            lastEngineLantern = false
             try {
                 applicationContext.startService(
-                    Intent(applicationContext, PsiphonService::class.java).setAction(PsiphonService.ACTION_STOP)
+                    Intent(applicationContext, LanternService::class.java).setAction(LanternService.ACTION_STOP)
                 )
             } catch (_: Throwable) {}
-            PsiphonEngine.clearPort(applicationContext)
+            LanternEngine.clearPort(applicationContext)
         }
     }
 
@@ -680,18 +679,18 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     /**
-     * انتظار برای پورت SOCKS سایفون (فایل مشترک بین پروسه‌ها) — حداکثر ۹۰ ثانیه.
+     * انتظار برای پورت HTTP لنترن (فایل مشترک بین پروسه‌ها) — حداکثر ۹۰ ثانیه.
      * اگر کاربر در این فاصله قطع کند (generation عوض شود)، ۰ برمی‌گردد.
      */
-    private fun awaitPsiphonPort(gen: Int): Int {
+    private fun awaitLanternPort(gen: Int): Int {
         val deadline = System.currentTimeMillis() + 90_000L
         while (System.currentTimeMillis() < deadline) {
             synchronized(stateLock) { if (gen != generation) return 0 }
-            val p = PsiphonEngine.readPort(applicationContext)
+            val p = LanternEngine.readPort(applicationContext)
             if (p > 0) return p
             try { Thread.sleep(500) } catch (_: InterruptedException) { return 0 }
         }
-        Log.w(TAG, "psiphon port timeout")
+        Log.w(TAG, "lantern port timeout")
         return 0
     }
 
@@ -718,15 +717,15 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
         releaseWakelock()
-        // اگر این جلسه با موتور سایفون بود، پروسه‌ی سایفون هم خاموش می‌شود
-        if (lastEnginePsiphon) {
-            lastEnginePsiphon = false
+        // اگر این جلسه با موتور لنترن بود، پروسه‌ی لنترن هم خاموش می‌شود
+        if (lastEngineLantern) {
+            lastEngineLantern = false
             try {
                 applicationContext.startService(
-                    Intent(applicationContext, PsiphonService::class.java).setAction(PsiphonService.ACTION_STOP)
+                    Intent(applicationContext, LanternService::class.java).setAction(LanternService.ACTION_STOP)
                 )
             } catch (_: Throwable) {}
-            PsiphonEngine.clearPort(applicationContext)
+            LanternEngine.clearPort(applicationContext)
         }
         tunIfaceName = null
         stopForeground(STOP_FOREGROUND_REMOVE)

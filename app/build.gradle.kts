@@ -11,8 +11,8 @@ android {
         applicationId = "com.vex.client"
         minSdk = 21
         targetSdk = 34
-        versionCode = 50
-        versionName = "5.5"
+        versionCode = 51
+        versionName = "5.6"
         // فقط گوشی‌های ARM — حذف کتابخانه‌های x86/x86_64 شبیه‌ساز → APK حدود ۱۶MB کوچک‌تر
         // (دانلود سبک‌تر = ریسک خرابی و خطای «بسته معتبر نیست» به‌مراتب کمتر)
         ndk {
@@ -64,7 +64,7 @@ dependencies {
     // libbox.aar (هسته‌ی sing-box) از app/libs — JAR کلاس‌های سایفون مستثنا می‌شود
     // (پایین با implementation صریح داده می‌شود)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"),
-        "exclude" to listOf("psiphon-classes.jar"))))
+        "exclude" to listOf("lantern-classes.jar"))))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.0")
     // ضربان پس‌زمینه‌ی اعلان‌های مدیر — حتی وقتی برنامه بسته است (سیستم هر ۱۵ دقیقه بیدار می‌کند)
@@ -77,8 +77,8 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
     // دیکودر QR به‌صورت آفلاین (مدل داخل APK؛ بدون نیاز به گوگل‌پلی)
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    // موتور سایفون (Psiphon tunnel core) — کلاس‌های استریپ‌شده (بدون go.* تکراری) به‌صورت
-    // JAR ساده از CI + کتابخانه‌ی بومی libgojni.so مستقیماً در src/main/jniLibs؛
-    // تونل در پروسه‌ی جدا «:psiphon» اجرا می‌شود (بدون هیچ ترنسفورم AAR)
-    implementation(files("libs/psiphon-classes.jar"))
+    // موتور لنترن (Lantern SDK رسمی — هسته‌ی flashlight v7) — کلاس‌های استریپ‌شده
+    // (بدون go.* تکراری) به‌صورت JAR ساده از CI + کتابخانه‌ی بومی libgojni.so
+    // مستقیماً در src/main/jniLibs؛ هسته در پروسه‌ی جدا «:lantern» اجرا می‌شود
+    implementation(files("libs/lantern-classes.jar"))
 }

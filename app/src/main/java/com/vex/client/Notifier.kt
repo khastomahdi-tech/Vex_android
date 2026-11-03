@@ -20,7 +20,7 @@ object Notifier {
     const val CHANNEL_ID = "vex_broadcast"
     const val STATUS_CHANNEL_ID = "vex_status"
 
-    /** ساخت کانال‌ها — از چند جای برنامه (اعلان‌ها + سرویس سایفون) صدا زده می‌شود */
+    /** ساخت کانال‌ها — از چند جای برنامه (اعلان‌ها + سرویس لنترن) صدا زده می‌شود */
     fun ensureChannels(ctx: Context) {
         if (Build.VERSION.SDK_INT < 26) return
         try {

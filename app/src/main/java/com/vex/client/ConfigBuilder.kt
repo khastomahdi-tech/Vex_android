@@ -66,36 +66,37 @@ object ConfigBuilder {
     }
 
     /**
-     * کانفیگ sing-box برای موتور «اتصال با سایفون»:
-     * همان پوسته‌ی tun/DNS/route، فقط outbound به SOCKS5 محلیِ سایفون
-     * (127.0.0.1:port — بازشده توسط PsiphonEngine) وصل می‌شود؛ یعنی
-     * tun → sing-box → سایفون → اینترنت.
+     * کانفیگ sing-box برای موتور «لنترن» (هسته‌ی رسمی Lantern):
+     * همان پوسته‌ی tun/DNS/route، فقط outbound به پروکسی HTTP محلیِ لنترن
+     * (127.0.0.1:port — بازشده توسط LanternEngine در پروسه‌ی :lantern) وصل می‌شود؛ یعنی
+     * tun → sing-box → لنترن → اینترنت.
+     * لنترن هیچ سروری از کاربر نمی‌خواهد — هسته‌ی flashlight خودش بهترین مسیر را
+     * از شبکه‌ی ابری لنترن (دامنه‌های فرانتینگ CDN + رله‌های پشتیبان) انتخاب می‌کند.
      */
-    fun buildPsiphon(socksPort: Int, input: String): String {
-        require(socksPort > 0) { "پورت سایفون آماده نیست" }
+    fun buildLanternProxy(httpPort: Int, input: String): String {
+        require(httpPort > 0) { "پورت لنترن آماده نیست" }
         val j = JSONObject(input)
         val outbound = JSONObject()
-            .put("type", "socks")
+            .put("type", "http")
             .put("tag", "proxy")
             .put("server", "127.0.0.1")
-            .put("server_port", socksPort)
-            .put("version", "5")
+            .put("server_port", httpPort)
         return assembleShell(outbound, j)
     }
 
     /**
-     * موتور «ترکیبی» (Vex + سایفون) — همان چیزی که کاربر می‌خواهد:
+     * موتور «ترکیبی» (Vex + لنترن) — همان چیزی که کاربر می‌خواهد:
      * کانفیگ کامل سرورِ انتخابیِ Vex (vmess/vless/trojan/ss/…) ساخته می‌شود،
-     * ولی اتصال به سرور از داخل تونل سایفون عبور داده می‌شود:
+     * ولی اتصال به سرور از داخل تونل لنترن عبور داده می‌شود:
      *
-     *   tun → sing-box → [سرور Vex] ⇐ detour ⇒ SOCKS محلی سایفون (127.0.0.1:port) → اینترنت
+     *   tun → sing-box → [سرور Vex] ⇐ detour ⇒ پروکسی HTTP محلی لنترن (127.0.0.1:port) → اینترنت
      *
-     * یعنی سایفون لایه‌ی زیرین می‌شود (عبور از فیلترینگ/تحریمِ IP سرور و جلوگیری از
+     * یعنی لنترن لایه‌ی زیرین می‌شود (عبور از فیلترینگ/تحریمِ IP سرور و جلوگیری از
      * شناسایی الگوی اتصال) و سرور Vex لایه‌ی رویی — نتیجه: پایداری و سرعت بیشتر.
      * زنجیره با «detour» استاندارد sing-box ساخته می‌شود (بدون دستکاری ترافیک).
      */
-    fun buildHybrid(socksPort: Int, input: String): String {
-        require(socksPort > 0) { "پورت سایفون آماده نیست" }
+    fun buildHybrid(httpPort: Int, input: String): String {
+        require(httpPort > 0) { "پورت لنترن آماده نیست" }
         val j = JSONObject(input)
         globalAllowInsecure = j.optBoolean("allowInsecure", true)
         val raw = j.optString("raw").trim()
@@ -106,20 +107,19 @@ object ConfigBuilder {
         val muxPad = j.optBoolean("muxPadding", false)
         applyMux(outbound, useMux, muxPad)
 
-        // حلقه‌ی دوم: پروکسی SOCKS5 محلی سایفون (در پروسه‌ی :psiphon بالا آمده)
-        val psiphonSocks = JSONObject()
-            .put("type", "socks")
-            .put("tag", "psiphon")
+        // حلقه‌ی دوم: پروکسی HTTP محلی لنترن (در پروسه‌ی :lantern بالا آمده)
+        val lanternHttp = JSONObject()
+            .put("type", "http")
+            .put("tag", "lantern")
             .put("server", "127.0.0.1")
-            .put("server_port", socksPort)
-            .put("version", "5")
-        // اتصال به سرور Vex از داخل سایفون عبور می‌کند
-        outbound.put("detour", "psiphon")
-        return assembleShell(outbound, j, listOf(psiphonSocks))
+            .put("server_port", httpPort)
+        // اتصال به سرور Vex از داخل تونل لنترن عبور می‌کند
+        outbound.put("detour", "lantern")
+        return assembleShell(outbound, j, listOf(lanternHttp))
     }
 
     /**
-     * موتور «لنتر» — الگوی Lantern/Psiphon: انتخاب خودکار سرور + failover فوری.
+     * موتور «اتصال خودکار» — الگوی Lantern/Psiphon: انتخاب خودکار سرور + failover فوری.
      * همه‌ی سرورهای رایگان (+ سرور انتخابی کاربر) هم‌زمان داخل هسته بالا می‌آیند و
      * یک گروه urltest («proxy») پیوسته پینگ می‌گیرد:
      *  • بهترین سرور (کم‌ترین تأخیر پاسخ‌گو) خودکار انتخاب می‌شود
@@ -128,7 +128,7 @@ object ConfigBuilder {
      * ورودی: {engine:"lantern", raw:<سرور انتخابی یا شبه‌لینک>, lanternServers:[raw،raw،...]}
      * لینک‌های خراب/ناپایدار بی‌سروصدا از استخر حذف می‌شوند (هرگز کل موتور نمی‌سوزد).
      */
-    fun buildLantern(input: String): String {
+    fun buildAutoPool(input: String): String {
         val j = JSONObject(input)
         globalAllowInsecure = j.optBoolean("allowInsecure", true)
 
@@ -143,7 +143,7 @@ object ConfigBuilder {
         addRaw(j.optString("raw"))
         val pool = j.optJSONArray("lanternServers")
         if (pool != null) for (i in 0 until pool.length()) addRaw(pool.optString(i))
-        require(raws.length() > 0) { "هیچ سروری برای موتور لنتر پیدا نشد" }
+        require(raws.length() > 0) { "هیچ سروری برای حالت خودکار پیدا نشد" }
 
         val obList = ArrayList<JSONObject>()
         val tags = JSONArray()
@@ -159,7 +159,7 @@ object ConfigBuilder {
             val host = ob.optString("server").trim()
             if (host.isNotEmpty() && !isIpAddress(host)) domains.add(host.lowercase())
         }
-        require(obList.isNotEmpty()) { "هیچ سرور سالمی برای موتور لنتر پیدا نشد" }
+        require(obList.isNotEmpty()) { "هیچ سرور سالمی برای حالت خودکار پیدا نشد" }
 
         // گروه انتخاب خودکار — قلب موتور لنتر
         val group = JSONObject()
@@ -177,7 +177,7 @@ object ConfigBuilder {
     /**
      * پوسته‌ی مشترک کانفیگ: tun inbound + DNS + قوانین مسیریابی + outbound مشخص.
      * outbound باید tag="proxy" داشته باشد؛ تنظیمات mtu/bypassLan/ipv6/dns/... از j خوانده می‌شود.
-     * extraOutbounds: خروجی‌های اضافی (مثلاً SOCKS سایفون برای موتور ترکیبی، یا استخر سرورهای لنتر) — بعد از proxy می‌آیند.
+     * extraOutbounds: خروجی‌های اضافی (مثلاً پروکسی HTTP لنترن برای موتور ترکیبی) — بعد از proxy می‌آیند.
      * extraDnsDomains: دامنه‌های سرورهایی که resolve‌شان باید مستقیم باشد (شکستن حلقه برای استخر لنتر).
      */
     private fun assembleShell(
