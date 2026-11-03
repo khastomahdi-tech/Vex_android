@@ -218,9 +218,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 when (engMode) {
                     "hybrid" -> "در حال اتصال... (ترکیبی Vex + سایفون)"
                     "psiphon" -> "در حال اتصال... (سایفون)"
+                    "lantern" -> "در حال اتصال... (موتور لنتر)"
                     else -> "در حال اتصال..."
                 },
-                if (usePsiphonProc) "راه‌اندازی موتور سایفون..." else "راه‌اندازی هسته..."))
+                if (usePsiphonProc) "راه‌اندازی موتور سایفون..."
+                else if (engMode == "lantern") "انتخاب خودکار بهترین سرور..."
+                else "راه‌اندازی هسته..."))
             uiState = "connecting"
             tileListener?.invoke("connecting")
             netState = 0; netMsg = ""; netMs = -1
@@ -254,6 +257,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     if (port == 0) throw Exception("اتصال سایفون برقرار نشد — دوباره امتحان کن")
                     if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
                     else ConfigBuilder.buildPsiphon(port, config)
+                } else if (engMode == "lantern") {
+                    // موتور لنتر: استخر سرورها داخل همین هسته بالا می‌آید (پروسه‌ی اضافی ندارد)
+                    // و گروه urltest هسته، بهترین سرور را خودکار انتخاب/سوییچ می‌کند
+                    ConfigBuilder.buildLantern(config)
                 } else {
                     ConfigBuilder.build(config)
                 }
@@ -469,11 +476,21 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private fun maybeFallbackEngine() {
         val payload = lastPayload ?: return
         val cur = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
-        val target = if (cur == "hybrid" || cur == "psiphon") "" else "hybrid"
+        // لنتر → سایفون (سایفون به raw و سرور نیازی ندارد و با شبه‌لینک کار می‌کند)
+        // سایفون/ترکیبی → مستقیم (رفتار قبلی)
+        val target = when (cur) {
+            "hybrid", "psiphon" -> ""
+            "lantern" -> "psiphon"
+            else -> "hybrid"
+        }
         fallbackDone = true
         if (target == cur) return
         val np = try { JSONObject(payload).put("engine", target).toString() } catch (_: Throwable) { return }
-        val targetName = if (target.isEmpty()) "مستقیم (Vex)" else "ترکیبی (Vex + سایفون)"
+        val targetName = when (target) {
+            "" -> "مستقیم (Vex)"
+            "psiphon" -> "سایفون"
+            else -> "ترکیبی (Vex + سایفون)"
+        }
         Log.w(TAG, "auto engine fallback (quiet): ${cur.ifEmpty { "direct" }} -> ${target.ifEmpty { "direct" }}")
         try {
             android.widget.Toast.makeText(

@@ -987,7 +987,7 @@ class MainActivity : ComponentActivity() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
             else -> {
-                // موتور سایفون: به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
+                // موتور سایفون/لنتر: به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
                 if (store.settings.engine == "psiphon") {
                     requestStart(Server(-99, "سایفون", "psiphon", "psiphon://engine"))
                     return
@@ -995,6 +995,11 @@ class MainActivity : ComponentActivity() {
                 // اتصال خودکار: پاور = پیدا کردن بهترین سرور رایگان (بهترین پینگ) و اتصال
                 if (store.settings.engine == "auto") {
                     startAutoConnectBest()
+                    return
+                }
+                // موتور لنتر: بدون سرور — استخر رایگان داخل هسته بالا می‌آید
+                if (store.settings.engine == "lantern") {
+                    requestStart(Server(-98, "لنتر", "lantern", "lantern://engine"))
                     return
                 }
                 // هیچ سروری انتخاب نشده → بهترین سرور رایگان (پیش‌فرض) خودکار انتخاب می‌شود
@@ -1073,8 +1078,12 @@ class MainActivity : ComponentActivity() {
             return
         }
         val s = store.selected() ?: ensureDefaultServer() ?: run {
-            // موتور سایفون به سرور نیاز ندارد — کانفیگ شبه‌ساز
-            if (store.settings.engine == "psiphon") Server(-99, "سایفون", "psiphon", "psiphon://engine") else null
+            // موتور سایفون/لنتر به سرور نیاز ندارند — کانفیگ شبه‌ساز
+            when (store.settings.engine) {
+                "psiphon" -> Server(-99, "سایفون", "psiphon", "psiphon://engine")
+                "lantern" -> Server(-98, "لنتر", "lantern", "lantern://engine")
+                else -> null
+            }
         } ?: return
         main.postDelayed({
             if (connectionState == "stopped") requestStart(s)
@@ -1103,6 +1112,28 @@ class MainActivity : ComponentActivity() {
         return best
     }
 
+    /**
+     * Payload موتور لنتر — استخر سرورها را ضمیمه می‌کند:
+     * سرور انتخابی کاربر (اولویت) + همه‌ی سرورهای رایگان؛ هسته با گروه urltest
+     * بهترین‌شان را خودکار انتخاب می‌کند و در صورت مردن، سوییچ می‌کند.
+     */
+    private fun lanternPayload(payload0: String): String {
+        return try {
+            val o = org.json.JSONObject(payload0)
+            o.put("engine", "lantern")
+            val arr = org.json.JSONArray()
+            val seen = HashSet<String>()
+            val selRaw = try { store.selected()?.raw?.trim().orEmpty() } catch (_: Throwable) { "" }
+            if (selRaw.isNotEmpty() && !selRaw.startsWith("lantern://") && !selRaw.startsWith("psiphon://") && seen.add(selRaw)) arr.put(selRaw)
+            for (s in store.freeServers) {
+                val r = try { s.raw.trim() } catch (_: Throwable) { "" }
+                if (r.isNotEmpty() && seen.add(r)) arr.put(r)
+            }
+            o.put("lanternServers", arr)
+            o.toString()
+        } catch (_: Throwable) { payload0 }
+    }
+
     fun requestStart(s: Server) {
         if (connectionState != "stopped") return
         // حالت per-app: اگر «فقط برنامه‌های انتخابی» خالی باشد اجازه‌ی اتصال نده
@@ -1114,9 +1145,11 @@ class MainActivity : ComponentActivity() {
         val payload0 = store.connectionPayload(s)
         // موتور اتصال — «سایفون» ترافیک را به تونل رسمی Psiphon می‌فرستد، نه به سرور انتخابی
         // «ترکیبی» — همان سرور انتخابی، ولی اتصال به آن از داخل تونل سایفون عبور می‌کند (سرعت/پایداری بیشتر)
+        // «لنتر» — استخر کل سرورهای رایگان داخل هسته بالا می‌آید و بهترین سرور خودکار انتخاب/سوییچ می‌شود
         val payload = when (store.settings.engine) {
             "psiphon" -> try { org.json.JSONObject(payload0).put("engine", "psiphon").toString() } catch (_: Throwable) { payload0 }
             "hybrid" -> try { org.json.JSONObject(payload0).put("engine", "hybrid").toString() } catch (_: Throwable) { payload0 }
+            "lantern" -> lanternPayload(payload0)
             else -> payload0
         }
         // تنظیمات رفتاری سرویس (پیش از شروع)

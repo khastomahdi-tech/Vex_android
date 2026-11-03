@@ -119,11 +119,73 @@ object ConfigBuilder {
     }
 
     /**
+     * موتور «لنتر» — الگوی Lantern/Psiphon: انتخاب خودکار سرور + failover فوری.
+     * همه‌ی سرورهای رایگان (+ سرور انتخابی کاربر) هم‌زمان داخل هسته بالا می‌آیند و
+     * یک گروه urltest («proxy») پیوسته پینگ می‌گیرد:
+     *  • بهترین سرور (کم‌ترین تأخیر پاسخ‌گو) خودکار انتخاب می‌شود
+     *  • اگر سرورِ انتخابی مرد، هسته بی‌سروصدا روی سرور سالم بعدی سوییچ می‌کند
+     *    (interrupt_exist_connections=true → اتصال‌های مرده فوراً قطع و مسیر تازه باز می‌شود)
+     * ورودی: {engine:"lantern", raw:<سرور انتخابی یا شبه‌لینک>, lanternServers:[raw،raw،...]}
+     * لینک‌های خراب/ناپایدار بی‌سروصدا از استخر حذف می‌شوند (هرگز کل موتور نمی‌سوزد).
+     */
+    fun buildLantern(input: String): String {
+        val j = JSONObject(input)
+        globalAllowInsecure = j.optBoolean("allowInsecure", true)
+
+        val seen = HashSet<String>()
+        val raws = JSONArray()
+        fun addRaw(r: String) {
+            val t = r.trim()
+            if (t.isEmpty() || t.startsWith("lantern://") || t.startsWith("psiphon://")) return
+            if (seen.add(t)) raws.put(t)
+        }
+        // سرور انتخابی کاربر اولویت دارد؛ بعد کل استخر رایگان
+        addRaw(j.optString("raw"))
+        val pool = j.optJSONArray("lanternServers")
+        if (pool != null) for (i in 0 until pool.length()) addRaw(pool.optString(i))
+        require(raws.length() > 0) { "هیچ سروری برای موتور لنتر پیدا نشد" }
+
+        val outbounds = JSONArray()
+        val tags = JSONArray()
+        val domains = LinkedHashSet<String>()
+        for (i in 0 until raws.length()) {
+            val ob = try { fromLink(raws.optString(i)) } catch (_: Throwable) { continue }
+            val tag = "srv-${i + 1}"
+            ob.put("tag", tag)
+            // صبوری بیشتر در handshake — روی شبکه‌ی موبایل شلوغ ایران (مثل build)
+            ob.put("connect_timeout", "15s")
+            outbounds.put(ob)
+            tags.put(tag)
+            val host = ob.optString("server").trim()
+            if (host.isNotEmpty() && !isIpAddress(host)) domains.add(host.lowercase())
+        }
+        require(outbounds.length() > 0) { "هیچ سرور سالمی برای موتور لنتر پیدا نشد" }
+
+        // گروه انتخاب خودکار — قلب موتور لنتر
+        val group = JSONObject()
+            .put("type", "urltest")
+            .put("tag", "proxy")
+            .put("outbounds", tags)
+            .put("url", "https://www.gstatic.com/generate_204")
+            .put("interval", "3m")          // هر ۳ دقیقه پینگ تازه
+            .put("tolerance", 50)           // تا ۵۰ms اختلاف → سوییچ نکن (ضد لرزش)
+            .put("idle_timeout", "30m")
+            .put("interrupt_exist_connections", true)
+        return assembleShell(group, j, outbounds, domains.toList())
+    }
+
+    /**
      * پوسته‌ی مشترک کانفیگ: tun inbound + DNS + قوانین مسیریابی + outbound مشخص.
      * outbound باید tag="proxy" داشته باشد؛ تنظیمات mtu/bypassLan/ipv6/dns/... از j خوانده می‌شود.
-     * extraOutbounds: خروجی‌های اضافی (مثلاً SOCKS سایفون برای موتور ترکیبی) — بعد از proxy می‌آیند.
+     * extraOutbounds: خروجی‌های اضافی (مثلاً SOCKS سایفون برای موتور ترکیبی، یا استخر سرورهای لنتر) — بعد از proxy می‌آیند.
+     * extraDnsDomains: دامنه‌های سرورهایی که resolve‌شان باید مستقیم باشد (شکستن حلقه برای استخر لنتر).
      */
-    private fun assembleShell(outbound: JSONObject, j: JSONObject, extraOutbounds: List<JSONObject> = emptyList()): String {
+    private fun assembleShell(
+        outbound: JSONObject,
+        j: JSONObject,
+        extraOutbounds: List<JSONObject> = emptyList(),
+        extraDnsDomains: List<String> = emptyList()
+    ): String {
         // MTU پیش‌فرض ۱۵۰۰ — همان عدد پیش‌فرض v2rayNG و PattNG (AppConfig.VPN_MTU).
         // MTU فقط روی هاپ «اپ ↔ تونل» اثر دارد (هرگز از گوشی خارج نمی‌شود)؛ عدد بزرگ‌تر =
         // بسته‌های پرتر و سرعت بیشتر. مسیر کوچک‌تر (PPPoE و...) توسط سوکت واقعیِ هسته که
@@ -188,10 +250,16 @@ object ConfigBuilder {
 
         val dnsRules = JSONArray()
         val serverHost = outbound.optString("server").trim()
+        val dnsLocalDomains = LinkedHashSet<String>()
         // اگر سرور دامنه است: resolve آن فقط از DNS محلی/مستقیم (حلقه‌ی مرگبار می‌شکند)
         if (serverHost.isNotEmpty() && !isIpAddress(serverHost)) {
+            dnsLocalDomains.add(serverHost.lowercase())
+        }
+        // استخر موتور لنتر: دامنه‌ی هر سرور هم باید مستقیم resolve شود
+        for (d in extraDnsDomains) if (d.isNotEmpty()) dnsLocalDomains.add(d)
+        for (d in dnsLocalDomains) {
             dnsRules.put(JSONObject()
-                .put("domain", JSONArray().put(serverHost.lowercase()))
+                .put("domain", JSONArray().put(d))
                 .put("server", "dns-local"))
         }
 

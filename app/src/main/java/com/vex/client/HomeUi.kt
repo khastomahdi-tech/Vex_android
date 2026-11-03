@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -66,20 +67,22 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var exitFlagBox: FrameLayout
     private lateinit var exitCountry: TextView
     private lateinit var exitIp: TextView
-    // ---- گزینش موتور اتصال (اتصال خودکار / Vex / ترکیبی / سایفون) — انتهای صفحه ----
+    // ---- گزینش موتور اتصال (اتصال خودکار / Vex / لنتر / ترکیبی / سایفون) — انتهای صفحه ----
     private lateinit var engAuto: LinearLayout
     private lateinit var engVex: LinearLayout
+    private lateinit var engLnt: LinearLayout
     private lateinit var engHyb: LinearLayout
     private lateinit var engPsi: LinearLayout
     private lateinit var engAutoIc: IconView
     private lateinit var engVexIc: IconView
+    private lateinit var engLntIc: IconView
     private lateinit var engHybIc: IconView
     private lateinit var engPsiIc: IconView
     private lateinit var engAutoTx: TextView
     private lateinit var engVexTx: TextView
+    private lateinit var engLntTx: TextView
     private lateinit var engHybTx: TextView
-    private lateinit var engPsiTx: TextView
-    private var exitInfo: ExitInfo? = null
+    private lateinit var engPsiTx: TextView    private var exitInfo: ExitInfo? = null
 
     // ---- بنر «نسخه‌ی جدید منتشر شده» + بروزرسانی خودکار درون‌برنامه‌ای ----
     private lateinit var updateWrap: LinearLayout
@@ -321,31 +324,46 @@ class HomeUi(private val act: MainActivity) {
         engAuto = a.first; engAutoIc = a.second; engAutoTx = a.third
         val v = pill("shield", "Vex")
         engVex = v.first; engVexIc = v.second; engVexTx = v.third
+        val ln = pill("sun", "لنتر")
+        engLnt = ln.first; engLntIc = ln.second; engLntTx = ln.third
         val hy = pill("link", "ترکیبی")
         engHyb = hy.first; engHybIc = hy.second; engHybTx = hy.third
         val ps = pill("onion", "سایفون")
         engPsi = ps.first; engPsiIc = ps.second; engPsiTx = ps.third
-
         engAuto.setOnClickListener { switchEngine("auto") }
         engVex.setOnClickListener { switchEngine("vex") }
+        engLnt.setOnClickListener { switchEngine("lantern") }
         engHyb.setOnClickListener { switchEngine("hybrid") }
         engPsi.setOnClickListener { switchEngine("psiphon") }
 
         val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap2 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap3 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        val gap4 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         row.addView(engAuto)
         row.addView(gap)
         row.addView(engVex)
         row.addView(gap2)
+        row.addView(engLnt)
+        row.addView(gap3)
+        row.addView(engHyb)
+        row.addView(gap4)
+        row.addView(engPsi)        row.addView(gap2)
         row.addView(engHyb)
         row.addView(gap3)
         row.addView(engPsi)
-        row.layoutParams = LinearLayout.LayoutParams(
+        row.layoutParams = HorizontalScrollView.LayoutParams(
+            HorizontalScrollView.LayoutParams.WRAP_CONTENT, HorizontalScrollView.LayoutParams.WRAP_CONTENT)
+        // پنج حالت در یک ردیف جا نمی‌شود — ردیف قابل اسکرول افقی است
+        val scroller = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+        }
+        scroller.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             setMargins(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 6))
         }
-        return row
+        return scroller
     }
 
     private fun switchEngine(which: String) {
@@ -362,6 +380,7 @@ class HomeUi(private val act: MainActivity) {
             act,
             when (which) {
                 "auto" -> "اتصال خودکار فعال شد — با زدن پاور، بهترین سرور رایگان پیدا و وصل می‌شود"
+                "lantern" -> "موتور لنتر فعال شد — بهترین سرور خودکار انتخاب می‌شود و در صورت قطعی، خودکار روی سرور سالم سوییچ می‌کند"
                 "hybrid" -> "حالت ترکیبی فعال شد — اتصال به سرور از داخل تونل سایفون عبور می‌کند؛ ضد فیلترینگ و سریع‌تر"
                 "psiphon" -> "موتور سایفون فعال شد — بدون نیاز به سرور وصل می‌شود"
                 else -> "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
@@ -385,9 +404,9 @@ class HomeUi(private val act: MainActivity) {
         }
         paint(engAuto, engAutoIc, engAutoTx, eng == "auto")
         paint(engVex, engVexIc, engVexTx, eng == "vex")
+        paint(engLnt, engLntIc, engLntTx, eng == "lantern")
         paint(engHyb, engHybIc, engHybTx, eng == "hybrid")
-        paint(engPsi, engPsiIc, engPsiTx, eng == "psiphon")
-    }
+        paint(engPsi, engPsiIc, engPsiTx, eng == "psiphon")    }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر
 
@@ -881,6 +900,10 @@ class HomeUi(private val act: MainActivity) {
                 serverName.text = "اتصال با سایفون"
                 serverName.setTextColor(p.accent)
                 serverIp.text = "بدون نیاز به سرور — پاور را بزن"
+            } else if (act.store.settings.engine == "lantern") {
+                serverName.text = "اتصال خودکار (موتور لنتر)"
+                serverName.setTextColor(p.accent)
+                serverIp.text = "بهترین سرور رایگان خودکار انتخاب می‌شود — پاور را بزن"
             } else if (act.store.settings.engine == "hybrid") {
                 serverName.text = "حالت ترکیبی (Vex + سایفون)"
                 serverName.setTextColor(p.accent)
