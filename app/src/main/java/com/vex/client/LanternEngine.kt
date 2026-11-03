@@ -7,6 +7,7 @@ import android.content.Intent
 import android.util.Log
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
 
