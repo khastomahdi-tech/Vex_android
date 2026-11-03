@@ -112,11 +112,10 @@ jobs:
           # ---- SELF-CHECK: کلاس go/Seq داخل AAR حتماً باید «:lantern» را چک کند ----
           # (اگر کش قدیمی برگردد یا پچ اعمال نشود، بیلد همان‌جا می‌شکند — نه بعداً روی گوشی)
           python3 - <<'PY'
-          import zipfile
-          z = zipfile.ZipFile('$GITHUB_WORKSPACE/app/libs/libbox.aar')
-          seq = z.read('classes.jar')
-          import io
-          inner = zipfile.ZipFile(io.BytesIO(seq))
+          import zipfile, io, os
+          p = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs', 'libbox.aar')
+          z = zipfile.ZipFile(p)
+          inner = zipfile.ZipFile(io.BytesIO(z.read('classes.jar')))
           raw = inner.read('go/Seq.class')
           assert b':lantern' in raw, 'FATAL: go/Seq.class lacks :lantern check — cache/patch problem!'
           print('SELF-CHECK OK: go/Seq process-aware loader contains :lantern')
