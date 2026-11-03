@@ -253,8 +253,15 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         Intent(ctx, LanternService::class.java).setAction(LanternService.ACTION_START)
                     )
                     val port = awaitLanternPort(gen)
-                    if (port == 0) throw Exception("اتصال لنترن برقرار نشد — دوباره امتحان کن")
-                    if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
+                    if (port == 0) {
+                        // فال‌بک خودکار (V5.7): اگر لنترن آماده نشد، کاربر بی‌اینترنت نمی‌ماند —
+                        // بی‌سروصدا با استخر سرورها (اتصال خودکار) وصل می‌شود؛
+                        // payload لنترن استخر سرورها را هم دارد (realLanternPayload).
+                        Log.w(TAG, "lantern not ready — quiet fallback to auto server pool")
+                        notifyFallbackToast()
+                        stopLanternQuiet()
+                        ConfigBuilder.buildAutoPool(config)
+                    } else if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
                     else ConfigBuilder.buildLanternProxy(port, config)
                 } else if (engMode == "auto") {
                     // حالت خودکار: استخر سرورها داخل همین هسته بالا می‌آید (پروسه‌ی اضافی ندارد)
@@ -679,19 +686,52 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     /**
-     * انتظار برای پورت HTTP لنترن (فایل مشترک بین پروسه‌ها) — حداکثر ۹۰ ثانیه.
+     * انتظار برای پورت HTTP لنترن (فایل مشترک بین پروسه‌ها) — حداکثر ۷۵ ثانیه.
+     * fail-fast: اگر فایل وضعیت «failed» شود (مثلاً کرش هسته)، فوراً ۰ برمی‌گردد
+     * تا به‌جای انتظار طولانی، فال‌بک خودکار به استخر سرورها انجام شود.
      * اگر کاربر در این فاصله قطع کند (generation عوض شود)، ۰ برمی‌گردد.
      */
     private fun awaitLanternPort(gen: Int): Int {
-        val deadline = System.currentTimeMillis() + 90_000L
+        val deadline = System.currentTimeMillis() + 75_000L
         while (System.currentTimeMillis() < deadline) {
             synchronized(stateLock) { if (gen != generation) return 0 }
             val p = LanternEngine.readPort(applicationContext)
             if (p > 0) return p
+            // شکست صریح پروسه‌ی لنترن → بدون انتظار، فال‌بک
+            if (LanternEngine.readState(applicationContext) == "failed") {
+                Log.w(TAG, "lantern state=failed — abort wait early")
+                return 0
+            }
             try { Thread.sleep(500) } catch (_: InterruptedException) { return 0 }
         }
         Log.w(TAG, "lantern port timeout")
         return 0
+    }
+
+    /** توست فال‌بک لنترن → استخر سرورها (روی ترد اصلی) */
+    private fun notifyFallbackToast() {
+        try {
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    android.widget.Toast.makeText(
+                        applicationContext,
+                        "اتصال لنترن برقرار نشد — بی‌سروصدا با بهترین سرور Vex وصل شدیم",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** توقف بی‌صدای فقط پروسه‌ی لنترن (برای فال‌بک هنگام اتصال) */
+    private fun stopLanternQuiet() {
+        lastEngineLantern = false
+        try {
+            applicationContext.startService(
+                Intent(applicationContext, LanternService::class.java).setAction(LanternService.ACTION_STOP)
+            )
+        } catch (_: Throwable) {}
+        LanternEngine.clearPort(applicationContext)
     }
 
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {

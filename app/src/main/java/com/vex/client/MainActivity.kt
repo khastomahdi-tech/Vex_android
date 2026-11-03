@@ -1150,6 +1150,17 @@ class MainActivity : ComponentActivity() {
             gotoSettings()
             return
         }
+        // قانون V5.7: وقتی کاربر یک «سرور واقعی» انتخاب می‌کند، اتصال روی موتور Vex می‌آید.
+        // موتور لنترن فقط از پاور (بدون سرور — کانفیگ شبه‌ساز id=-98) اجرا می‌شود.
+        if (store.settings.engine == "lantern" && s.id != -98) {
+            store.settings.engine = "vex"
+            store.saveSettings()
+            if (::homeUi.isInitialized) {
+                homeUi.renderEngineBar()
+                homeUi.renderServerCard()
+            }
+            UI.toast(this, "سرور انتخاب شد — اتصال روی موتور Vex آمد")
+        }
         val payload0 = store.connectionPayload(s)
         // موتور اتصال — «لنترن» ترافیک را به هسته‌ی رسمی Lantern می‌فرستد، نه به سرور انتخابی
         // «ترکیبی» — همان سرور انتخابی، ولی اتصال به آن از داخل تونل لنترن عبور می‌کند

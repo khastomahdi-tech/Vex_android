@@ -36,7 +36,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: app/libs/libbox.aar
-          key: libbox-v1.11.15-aar3
+          # aar4 — حیاتی: پچ Seq (لودر پروسه‌ای) عوض شده؛ کلید باید bump شود تا کشِ
+          # قدیمیِ دوران سایفون (که به‌جای «:lantern»، «:psiphon» را چک می‌کرد) استفاده نشود.
+          # همین باگ باعث می‌شد موتور لنترن هرگز پورت باز نکند (ریشه‌ی «اتصال برقرار نمیشه»).  
+          key: libbox-v1.11.15-aar4
           save-always: true
 
       - name: Build sing-box core (libbox AAR)
@@ -65,7 +68,8 @@ jobs:
               '\tstatic {\n'
               '\t\t// VEX PATCH: process-aware bridge library selection\n'
               '\t\tString __vp = vexProcessName();\n'
-              '\t\tif (__vp != null && __vp.endsWith(":lantern")) {\n'
+              '\t\tboolean __isLantern = __vp != null && (__vp.endsWith(":lantern") || __vp.endsWith(":psiphon"));\n'
+              '\t\tif (__isLantern) {\n'
               '\t\t\tSystem.loadLibrary("go" + "jni");\n'
               '\t\t} else {\n'
               '\t\t\tSystem.loadLibrary("gojni");\n'
@@ -105,6 +109,32 @@ jobs:
             -o "$GITHUB_WORKSPACE/app/libs/libbox.aar" \
             ./experimental/libbox
           ls -lh "$GITHUB_WORKSPACE/app/libs/"
+          # ---- SELF-CHECK: کلاس go/Seq داخل AAR حتماً باید «:lantern» را چک کند ----
+          # (اگر کش قدیمی برگردد یا پچ اعمال نشود، بیلد همان‌جا می‌شکند — نه بعداً روی گوشی)
+          python3 - <<'PY'
+          import zipfile
+          z = zipfile.ZipFile('$GITHUB_WORKSPACE/app/libs/libbox.aar')
+          seq = z.read('classes.jar')
+          import io
+          inner = zipfile.ZipFile(io.BytesIO(seq))
+          raw = inner.read('go/Seq.class')
+          assert b':lantern' in raw, 'FATAL: go/Seq.class lacks :lantern check — cache/patch problem!'
+          print('SELF-CHECK OK: go/Seq process-aware loader contains :lantern')
+          PY
+
+      - name: Verify cached libbox AAR has :lantern loader (skip-build path)
+        if: steps.aar.outputs.cache-hit == 'true'
+        run: |
+          python3 - <<'PY'
+          import zipfile, io, os
+          p = os.path.join(os.environ['GITHUB_WORKSPACE'], 'app', 'libs', 'libbox.aar')
+          z = zipfile.ZipFile(p)
+          inner = zipfile.ZipFile(io.BytesIO(z.read('classes.jar')))
+          raw = inner.read('go/Seq.class')
+          if b':lantern' not in raw:
+              raise SystemExit('FATAL: cached libbox.aar is stale (no :lantern loader) — bump cache key!')
+          print('SELF-CHECK OK: cached go/Seq contains :lantern')
+          PY
 
       - name: Prepare Lantern classes+native libs (strip duplicate gomobile runtime go.*)
         run: |
@@ -244,7 +274,7 @@ jobs:
 
           **SHA-256 (برای اطمینان):** ${SHA}
 
-          تازه در این نسخه: بازگشت پس‌زمینه به حالت عادی (حذف پرچم) · ۱۲ سرور رایگان جدید با لوکیشن‌های مختلف (ژاپن، هنگ‌کنگ، انگلیس، فنلاند، آلمان، ترکیه، هلند، آمریکا) — هر کانفیگ قبل از انتشار به‌صورت زنده تست شده · حذف سرورهای مرده از لیست رایگان · زیرساخت جدید گیت (vex-gate2) با پشتیبان سه‌گانه برای ضدقطعی
+          تازه در این نسخه: رفع کامل مشکل اتصال موتور لنترن (پروسه‌ی لنترن حالا هسته‌ی واقعی Lantern را بارگذاری می‌کند — ریشه‌ی «هرچقدر می‌چرخد وصل نمی‌شود») · فال‌بک خودکار: اگر لنترن آماده نشود بی‌سروصدا با بهترین سرور Vex وصل می‌شوید · پیش‌فرض موتور اتصال روی لنترن · سکشن جدید «موتور اتصال» با دکمه‌ی «انتخاب موتور اتصال» · حذف کارت طلایی زیر لنترن · حذف تمام ایموجی‌ها از کنار نام موتورها · با انتخاب هر سرور، اتصال خودکار روی موتور Vex می‌آید
 
           پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
 

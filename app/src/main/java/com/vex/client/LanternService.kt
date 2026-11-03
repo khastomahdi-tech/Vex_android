@@ -15,6 +15,9 @@ import android.os.IBinder
  *  ۳) نگه‌داشتن هسته در حین اتصال (سرویس پیش‌زمینه با اعلان بی‌صدا)
  *
  * خاموش‌کردن: Intent با ACTION_STOP از پروسه‌ی اصلی (VexVpnService هنگام قطع).
+ * پس از توقف، پروسه‌ی :lantern عمداً kill می‌شود تا:
+ *  • هیچ نمونه‌ی زامبی flashlight در پس‌زمینه نماند (باتری/ترافیک)،
+ *  • دفعه‌ی بعد همیشه بوتِ تمیز با state تازه شروع شود.
  */
 class LanternService : Service() {
 
@@ -29,10 +32,17 @@ class LanternService : Service() {
                 LanternEngine.stop(this)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
+                // پروسه‌ی اختصاصی لنترن — پس از توقف، kill تمیز (بدون زامبی flashlight)
+                mainHandler.postDelayed({
+                    try { android.os.Process.killProcess(android.os.Process.myPid()) } catch (_: Throwable) {}
+                }, 400)
                 return START_NOT_STICKY
             }
-            // راه‌اندازی مجدد توسط سیستم (بدون Intent) — اگر هسته زنده است کاری نکن
-            intent == null && LanternEngine.isRunning() -> return START_STICKY
+            // رستارت توسط سیستم بدون Intent — یعنی کاربر قطع کرده و نباید دوباره بوت شود
+            intent == null -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
             else -> {
                 // سرویس پیش‌زمینه — تا سیستم پروسه‌ی لنترن را وسط کار نکشد
                 if (Build.VERSION.SDK_INT >= 29) {
@@ -46,7 +56,7 @@ class LanternService : Service() {
                 if (!LanternEngine.isRunning()) LanternEngine.start(this)
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -57,6 +67,8 @@ class LanternService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     companion object {
         const val ACTION_START = "com.vex.client.LANTERN_START"

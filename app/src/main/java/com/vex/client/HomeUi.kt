@@ -80,8 +80,6 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var engVexTx: TextView
     private lateinit var engLntTx: TextView
     private lateinit var engHybTx: TextView
-    // ---- کارت موتور لنترن (مطابق طرح RADIANCE) — فقط وقتی موتور لنترن انتخاب شده باشد ----
-    private lateinit var lanCard: LinearLayout
     private var dlg: android.app.AlertDialog? = null
     private var exitInfo: ExitInfo? = null
 
@@ -298,19 +296,37 @@ class HomeUi(private val act: MainActivity) {
 
     // ---------------------------------------------------------- موتور اتصال (خودکار / Vex / لنترن / ترکیبی)
 
-    /** رنگ‌های طلایی کارت لنترن — مستقل از تم (مطابق کارت RADIANCE در طرح مرجع) */
-    private val goldC = 0xFFE8B54A.toInt()
-    private val goldSoft = 0xFFF5E9CE.toInt()
-    private val navyC = 0xFF0A1020.toInt()
-
     /**
-     * چهار قرص انتخاب حالت — انتهای صفحه‌ی اصلی، بدون ایموجی؛ آیکون‌ها SVG وکتوری‌اند:
-     *  «اتصال خودکار» (bolt) · «Vex» (shield) · «لنترن» (sun) · «ترکیبی» (link)
-     *  متن همه بولد است؛ حالت انتخاب‌شده با قاب accent مشخص می‌شود.
-     *  وقتی موتور «لنترن» انتخاب شده، زیر قرص‌ها کارت طلایی RADIANCE هم نمایش داده می‌شود.
+     * سکشن «موتور اتصال» — انتهای صفحه‌ی اصلی:
+     *  • عنوان «موتور اتصال» + توضیح «موتور اتصال شما میتونید دستی انتخاب کنید»
+     *  • چهار قرص انتخاب (بدون ایموجی — آیکون‌ها SVG وکتوری‌اند)
+     *  • دکمه‌ی «انتخاب موتور اتصال» → دیالوگ انتخاب
+     * کارت طلایی RADIANCE قبلی حذف شد (طبق درخواست کاربر).
      */
     private fun buildEngineBar(): View {
         val ctx = act
+        val sec = UI.col(ctx)
+
+        // ---- سرتیتر سکشن
+        val headRow = UI.row(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
+        val headIc = IconView(ctx, "gear").apply { iconColor = p.accent; bold = true }
+        headRow.addView(headIc, LinearLayout.LayoutParams(
+            UI.dp(ctx, 16), UI.dp(ctx, 16)).apply { marginEnd = UI.dp(ctx, 7) })
+        headRow.addView(UI.label(ctx, "موتور اتصال", 15f, p.text, bold = true))
+        headRow.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 6), 0, UI.dp(ctx, 2))
+        }
+        sec.addView(headRow)
+
+        val sub = UI.label(ctx, "موتور اتصال شما میتونید دستی انتخاب کنید", 11.5f, p.muted)
+        sub.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, UI.dp(ctx, 4))
+        }
+        sec.addView(sub)
+
+        // ---- قرص‌های انتخاب
         val row = UI.row(ctx).apply { gravity = Gravity.CENTER }
 
         fun pill(icon: String, title: String): Triple<LinearLayout, IconView, TextView> {
@@ -361,75 +377,37 @@ class HomeUi(private val act: MainActivity) {
         }
         scroller.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, UI.dp(ctx, 10), 0, UI.dp(ctx, 6))
+            setMargins(0, UI.dp(ctx, 6), 0, UI.dp(ctx, 10))
         }
+        sec.addView(scroller)
 
-        // ---- کارت موتور لنترن (RADIANCE) — زیر قرص‌ها؛ فقط برای موتور لنترن دیده می‌شود ----
-        lanCard = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 13), UI.dp(ctx, 16), UI.dp(ctx, 14))
-            visibility = View.GONE
-        }
-        val chip = TextView(ctx).apply {
-            id = View.generateViewId(); tag = "lanChip"
-            textSize = 9.5f
-            typeface = Fonts.bold(ctx)
-            letterSpacing = 0.14f
-            setPadding(UI.dp(ctx, 9), UI.dp(ctx, 3), UI.dp(ctx, 9), UI.dp(ctx, 3))
-            text = "RADIANCE"
-        }
-        val titleRow = UI.row(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
-        val ic = TextView(ctx).apply { textSize = 24f; text = "🏮" }
-        val tt = UI.label(ctx, "لنترن", 17f, goldSoft, bold = true)
-        val ss = UI.label(ctx, "Lantern", 12f, UI.alpha(goldC, 0.75f), bold = true)
-        titleRow.addView(ic)
-        titleRow.addView(TextView(ctx).apply { setPadding(UI.dp(ctx, 8), 0, UI.dp(ctx, 8), 0) })
-        titleRow.addView(tt)
-        titleRow.addView(TextView(ctx).apply { setPadding(UI.dp(ctx, 7), 0, UI.dp(ctx, 7), 0) })
-        titleRow.addView(ss)
-        val desc = UI.label(ctx,
-            "موتور لنترن درون خود برنامه اجرا می‌شود؛ بدون نیاز به برنامه‌ی جداگانه. بدون انتخاب سرور — خودش قوی‌ترین مسیر را پیدا می‌کند.",
-            12.5f, 0xFFC9D2E8.toInt())
-        desc.setLineSpacing(UI.dp(ctx, 2).toFloat(), 1f)
-        val btnRow = UI.row(ctx)
+        // ---- دکمه‌ی «انتخاب موتور اتصال» — دیالوگ انتخاب را باز می‌کند
         val btn = TextView(ctx).apply {
-            text = "انتخاب موتور"
-            textSize = 12.5f
+            text = "انتخاب موتور اتصال"
+            textSize = 13f
             typeface = Fonts.bold(ctx)
-            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 8), UI.dp(ctx, 16), UI.dp(ctx, 8))
+            gravity = Gravity.CENTER
+            setPadding(UI.dp(ctx, 16), UI.dp(ctx, 11), UI.dp(ctx, 16), UI.dp(ctx, 11))
             background = GradientDrawable().apply {
-                setColor(0); setStroke(UI.dp(ctx, 1), goldC); cornerRadius = UI.dp(ctx, 12).toFloat()
+                setColor(UI.alpha(p.accent, 0.10f))
+                setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.45f))
+                cornerRadius = UI.dp(ctx, 14).toFloat()
             }
-            setTextColor(goldC)
+            setTextColor(p.accent)
             setOnClickListener { showEnginePicker() }
         }
-        btnRow.addView(TextView(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(0, 1).apply { weight = 1f }
-        })
-        btnRow.addView(btn)
-        lanCard.addView(chip)
-        lanCard.addView(titleRow)
-        lanCard.addView(desc)
-        lanCard.addView(btnRow)
-        lanCard.background = GradientDrawable().apply {
-            setColor(navyC); setStroke(UI.dp(ctx, 1), goldC); cornerRadius = UI.dp(ctx, 18).toFloat()
-        }
-        chip.background = GradientDrawable().apply {
-            setColor(0); setStroke(UI.dp(ctx, 1), goldC); cornerRadius = UI.dp(ctx, 8).toFloat()
-        }
-        chip.setTextColor(goldC)
-        lanCard.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, UI.dp(ctx, 2), 0, UI.dp(ctx, 6))
-        }
+        btn.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        sec.addView(btn)
 
-        val col = UI.col(ctx)
-        col.addView(scroller)
-        col.addView(lanCard)
-        return col
+        sec.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, UI.dp(ctx, 8), 0, UI.dp(ctx, 8))
+        }
+        return sec
     }
 
-    /** دیالوگ انتخاب موتور — چهار حالت با توضیح */
+    /** دیالوگ انتخاب موتور — چهار حالت با توضیح (بدون ایموجی — آیکون‌های SVG) */
     private fun showEnginePicker() {
         val ctx = act
         val col = UI.col(ctx)
@@ -443,12 +421,16 @@ class HomeUi(private val act: MainActivity) {
                     fillColor = if (cur == tag) UI.alpha(p.accent, 0.14f) else p.card2,
                     stroke = if (cur == tag) p.accent else null)
             }
-            val ic = TextView(ctx).apply { text = icon; textSize = 20f }
+            val ic = IconView(ctx, icon).apply {
+                bold = true
+                iconColor = if (cur == tag) p.accent else p.muted
+            }
             val txt = UI.col(ctx)
             val t1 = UI.label(ctx, title, 14.5f, if (cur == tag) p.accent else p.text, bold = true)
             val t2 = UI.label(ctx, sub, 11.5f, p.muted)
             txt.addView(t1); txt.addView(t2)
-            rowC.addView(ic)
+            rowC.addView(ic, LinearLayout.LayoutParams(
+                UI.dp(ctx, 20), UI.dp(ctx, 20)))
             rowC.addView(TextView(ctx).apply { setPadding(UI.dp(ctx, 10), 0, UI.dp(ctx, 10), 0) })
             rowC.addView(txt, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT).apply { weight = 1f })
             rowC.setOnClickListener {
@@ -461,10 +443,10 @@ class HomeUi(private val act: MainActivity) {
             col.addView(rowC)
         }
 
-        opt("⚡", "اتصال خودکار", "استخر سرورها + انتخاب و سوییچ خودکار بهترین سرور", "auto")
-        opt("🛡️", "Vex", "اتصال با سرور انتخابی شما", "vex")
-        opt("🏮", "لنترن (Lantern)", "موتور رسمی لنترن — بدون انتخاب سرور، خودش وصل می‌شود", "lantern")
-        opt("🔗", "ترکیبی (Vex + لنترن)", "اتصال به سرور از داخل تونل لنترن — ضد فیلترینگ", "hybrid")
+        opt("bolt", "اتصال خودکار", "استخر سرورها + انتخاب و سوییچ خودکار بهترین سرور", "auto")
+        opt("shield", "Vex", "اتصال با سرور انتخابی شما", "vex")
+        opt("sun", "لنترن (Lantern)", "موتور رسمی لنترن — بدون انتخاب سرور، خودش وصل می‌شود", "lantern")
+        opt("link", "ترکیبی (Vex + لنترن)", "اتصال به سرور از داخل تونل لنترن — ضد فیلترینگ", "hybrid")
 
         val titleView = UI.label(ctx, "انتخاب موتور اتصال", 17f, p.text, bold = true)
         titleView.setPadding(UI.dp(ctx, 22), UI.dp(ctx, 18), UI.dp(ctx, 22), UI.dp(ctx, 4))
@@ -520,8 +502,6 @@ class HomeUi(private val act: MainActivity) {
         paint(engVex, engVexIc, engVexTx, eng == "vex")
         paint(engLnt, engLntIc, engLntTx, eng == "lantern")
         paint(engHyb, engHybIc, engHybTx, eng == "hybrid")
-        // کارت طلایی RADIANCE فقط برای موتور لنترن
-        if (::lanCard.isInitialized) lanCard.visibility = if (eng == "lantern") View.VISIBLE else View.GONE
     }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر

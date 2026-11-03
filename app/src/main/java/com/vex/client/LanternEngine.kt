@@ -20,9 +20,15 @@ import java.net.URL
  *  بین دو کتابخانه‌ی بومی تداخل می‌کند. با جداکردن پروسه:
  *   • پروسه‌ی اصلی → فقط libbox (VPN و هسته‌ی اصلی)
  *   • پروسه‌ی :lantern → فقط libgojni (هسته‌ی رسمی Lantern / flashlight)
- *  ارتباط بین دو پروسه از طریق فایل پورت HTTP (filesDir/lantern_port.txt) انجام می‌شود —
- *  چون پروکسی محلی لنترن روی 127.0.0.1 گوش می‌دهد، هسته‌ی sing-box پروسه‌ی اصلی می‌تواند
- *  بدون هیچ واسطه‌ای به آن وصل شود (loopback بین پروسه‌های یک اپ مشترک است).
+ *  ارتباط بین دو پروسه از طریق فایل پورت HTTP (filesDir/lantern_port.txt) و فایل وضعیت
+ *  (filesDir/lantern_state.txt) انجام می‌شود — چون پروکسی محلی لنترن روی 127.0.0.1 گوش
+ *  می‌دهد، هسته‌ی sing-box پروسه‌ی اصلی می‌تواند بدون هیچ واسطه‌ای به آن وصل شود.
+ *
+ * نکته‌ی حیاتی (رفع «اتصال برقرار نمیشه»):
+ *  Go SDK فقط «یک» نمونه‌ی flashlight در هر پروسه بالا می‌آورد — پنجره‌ی داخلی Start فقط
+ *  ۵ ثانیه است؛ اگر در این پنجره جا نیفتد، بوت در پس‌زمینه ادامه پیدا می‌کند. پس هرگز
+ *  نمونه‌ی دوم نمی‌سازیم (نمونه‌ی دوم روی قفل فایل کانفیگ می‌میرد و پروسه را می‌کشد)
+ *  و به‌جایش پورت را با httpProxyPort() تا آماده شدن واقعی پول می‌کنیم.
  *
  * لنترن هیچ سروری از کاربر نمی‌خواهد — هسته‌ی flashlight خودش بهترین مسیر را از
  * شبکه‌ی ابری لنترن (دامنه‌های فرانتینگ CDN + رله‌های پشتیبان) انتخاب می‌کند.
@@ -34,6 +40,17 @@ object LanternEngine {
     /** فایل پورت — بین پروسه‌ها مشترک است */
     fun portFile(ctx: Context): File = File(ctx.filesDir, "lantern_port.txt")
 
+    /** فایل وضعیت — starting | ready | failed | stopped */
+    private fun stateFile(ctx: Context): File = File(ctx.filesDir, "lantern_state.txt")
+
+    fun readState(ctx: Context): String {
+        return try { stateFile(ctx).readText().trim() } catch (_: Throwable) { "" }
+    }
+
+    private fun writeState(ctx: Context, v: String) {
+        try { stateFile(ctx).writeText(v) } catch (_: Throwable) {}
+    }
+
     fun readPort(ctx: Context): Int {
         return try {
             val t = portFile(ctx).readText().trim()
@@ -44,6 +61,7 @@ object LanternEngine {
 
     fun clearPort(ctx: Context) {
         try { portFile(ctx).delete() } catch (_: Throwable) {}
+        try { stateFile(ctx).delete() } catch (_: Throwable) {}
     }
 
     /** پورت HTTP محلی لنترن — ۰ یعنی هنوز آماده نشده */
@@ -67,9 +85,12 @@ object LanternEngine {
     private var appCtx: Context? = null
 
     /**
-     * راه‌اندازی هسته‌ی لنترن (در پروسه‌ی :lantern) — بلاک نمی‌کند؛
-     * پورت به‌محض آماده‌شدن پروکسی HTTP در فایل و httpPort نوشته می‌شود.
-     * تا ۳ تلاش — روی شبکه‌های شلوغ ممکن است بار اول جا نیفتد.
+     * راه‌اندازی هسته‌ی لنترن (در پروسه‌ی :lantern) — بلاک نمی‌کند.
+     * حیاتی: فقط «یک» نمونه‌ی flashlight در عمر پروسه ساخته می‌شود.
+     *  • پنجره‌ی داخلی Start در Go فقط ۵ ثانیه است — اگر رد شد، بوت هنوز در جریان است؛
+     *    پس با httpProxyPort() تا ~۵۰ ثانیه پول می‌کنیم (هر فراخوانی خودش تا ۵ ثانیه صبر می‌کند).
+     *  • ساختن نمونه‌ی دوم flashlight ممنوع: روی قفل انحصاری فایل کانفیگ (bbolt) می‌میرد
+     *    و با log.Fatalf کل پروسه‌ی :lantern را می‌کشد — ریشه‌ی «اتصال برقرار نمیشه».
      */
     fun start(ctx: Context) {
         synchronized(this) {
@@ -78,57 +99,66 @@ object LanternEngine {
             state = "connecting"
             appCtx = ctx.applicationContext
             clearPort(ctx)
+            val ctx0 = appCtx ?: return
+            writeState(ctx0, "starting")
             Thread {
-                var attempt = 0
-                while (attempt < 3 && client == null && state != "stopped") {
-                    attempt++
-                    var lc: lantern.LanternClient? = null
+                var c: lantern.LanternClient? = null
+                try {
+                    val c0 = lantern.Lantern.newLanternClient()
+                    c = c0
+                    synchronized(this@LanternEngine) {
+                        if (state == "stopped") return@Thread
+                        pending = c0
+                    }
+                    val app = appCtx ?: return@Thread
+                    // کانفیگ لنترن داخل حافظه‌ی خود اپ — بدون برنامه‌ی جداگانه
+                    val cfgDir = File(app.filesDir, "lantern_config")
+                    try { cfgDir.mkdirs() } catch (_: Throwable) {}
+                    c0.setup("VexVPN", cfgDir.absolutePath)
+                    // پورت ۰ = سیستم خودش پورت آزاد انتخاب می‌کند؛ آدرس واقعی از StartResult می‌آید
+                    // proxyAll=true ⇒ همه‌ی ترافیک از شبکه‌ی ضدسانچر لنترن عبور کند
+                    var port = 0
                     try {
-                        val c = lantern.Lantern.newLanternClient()
-                        lc = c
-                        synchronized(this@LanternEngine) {
-                            if (state == "stopped") return@Thread
-                            pending = c
-                        }
-                        val ctx0 = appCtx ?: break
-                        // کانفیگ لنترن داخل حافظه‌ی خود اپ — بدون برنامه‌ی جداگانه
-                        val cfgDir = File(ctx0.filesDir, "lantern_config")
-                        try { cfgDir.mkdirs() } catch (_: Throwable) {}
-                        c.setup("VexVPN", cfgDir.absolutePath)
-                        // پورت ۰ = سیستم خودش پورت آزاد انتخاب می‌کند؛ آدرس واقعی از StartResult می‌آید
-                        // proxyAll=true ⇒ همه‌ی ترافیک از شبکه‌ی ضدسانچر لنترن عبور کند
-                        val res = c.start(":0", true)
-                        val addr = res?.getAddr() ?: throw Exception("Lantern returned null addr")
-                        // addr مثل «127.0.0.1:53210» است — پورت مستقیم از رشته خوانده می‌شود
-                        val port = addr.substringAfterLast(':').toIntOrNull() ?: 0
-                        if (port <= 0) throw Exception("bad lantern addr: $addr")
-                        synchronized(this@LanternEngine) {
-                            if (state == "stopped") { // کاربر وسط راه قطع کرده
-                                try { c.stop() } catch (_: Throwable) {}
-                            } else {
-                                client = c
-                                pending = null
-                                httpPort = port
-                                state = "connected"
-                                val ctx1 = appCtx
-                                if (ctx1 != null) {
-                                    try { portFile(ctx1).writeText(port.toString()) } catch (_: Throwable) {}
-                                }
-                                Log.i(TAG, "lantern http proxy listening on 127.0.0.1:$port")
-                                // گرم‌کردن مسیر در پس‌زمینه (اولین اتصال به کانفیگ ابری لنترن)
-                                warmUp(port)
-                            }
-                        }
+                        val res = c0.start(":0", true)
+                        port = res?.getAddr()?.substringAfterLast(':')?.toIntOrNull() ?: 0
                     } catch (e: Throwable) {
-                        Log.e(TAG, "lantern start attempt $attempt failed: ${e.message}")
-                        synchronized(this@LanternEngine) { if (pending === lc) pending = null }
-                        try { lc?.stop() } catch (_: Throwable) {}
-                        if (attempt >= 3) {
-                            state = "failed"
-                        } else {
-                            try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
+                        // پنجره‌ی ۵ ثانیه‌ای رد شد — بوت flashlight هنوز ادامه دارد؛
+                        // پول‌کردن پورت همین‌جا معنا دارد، ساختن نمونه‌ی جدید هرگز.
+                        Log.w(TAG, "start() window missed (${e.message}) — keep polling the same instance")
+                    }
+                    if (port <= 0) {
+                        for (i in 0 until 9) {
+                            synchronized(this@LanternEngine) { if (state == "stopped") return@Thread }
+                            port = try { c0.httpProxyPort().toInt() } catch (_: Throwable) { 0 }
+                            if (port > 0) break
+                            try { Thread.sleep(1200) } catch (_: InterruptedException) { return@Thread }
                         }
                     }
+                    if (port <= 0) throw Exception("Lantern HTTP proxy never became ready")
+                    synchronized(this@LanternEngine) {
+                        if (state == "stopped") { // کاربر وسط راه قطع کرده
+                            try { c0.stop() } catch (_: Throwable) {}
+                            return@Thread
+                        }
+                        client = c0
+                        pending = null
+                        httpPort = port
+                        state = "connected"
+                        try { portFile(app).writeText(port.toString()) } catch (_: Throwable) {}
+                        writeState(app, "ready")
+                        Log.i(TAG, "lantern http proxy listening on 127.0.0.1:$port")
+                        // گرم‌کردن مسیر در پس‌زمینه (اولین اتصال به کانفیگ ابری لنترن)
+                        warmUp(port)
+                    }
+                } catch (e: Throwable) {
+                    Log.e(TAG, "lantern start failed: ${e.message}")
+                    synchronized(this@LanternEngine) { pending = null }
+                    try { c?.stop() } catch (_: Throwable) {}
+                    val app = appCtx
+                    synchronized(this@LanternEngine) {
+                        if (state != "stopped") state = "failed"
+                    }
+                    if (app != null) writeState(app, "failed")
                 }
             }.start()
         }
@@ -159,7 +189,10 @@ object LanternEngine {
         pending = null
         httpPort = 0
         state = "stopped"
-        if (ctx != null) clearPort(ctx)
+        if (ctx != null) {
+            clearPort(ctx)
+            writeState(ctx, "stopped")
+        }
         Thread {
             try { c?.stop() } catch (_: Throwable) {}
             try { pnd?.stop() } catch (_: Throwable) {}
