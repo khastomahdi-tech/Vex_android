@@ -314,6 +314,8 @@ $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox     = $false
 $form.BackColor       = [System.Drawing.Color]::FromArgb(21, 24, 33)
 $form.RightToLeft     = [System.Windows.Forms.RightToLeft]::Yes
+$IconFile = Join-Path $PSScriptRoot 'vex.ico'
+if (Test-Path $IconFile) { try { $form.Icon = New-Object System.Drawing.Icon($IconFile) } catch { } }
 
 $title                = New-Object System.Windows.Forms.Label
 $title.Text           = 'Vex VPN'
