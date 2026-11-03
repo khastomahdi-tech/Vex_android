@@ -159,7 +159,7 @@ object ConfigBuilder {
             val host = ob.optString("server").trim()
             if (host.isNotEmpty() && !isIpAddress(host)) domains.add(host.lowercase())
         }
-        require(outbounds.length() > 0) { "هیچ سرور سالمی برای موتور لنتر پیدا نشد" }
+        require(obList.isNotEmpty()) { "هیچ سرور سالمی برای موتور لنتر پیدا نشد" }
 
         // گروه انتخاب خودکار — قلب موتور لنتر
         val group = JSONObject()
