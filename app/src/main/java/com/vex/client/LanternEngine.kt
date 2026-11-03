@@ -7,7 +7,6 @@ import android.content.Intent
 import android.util.Log
 import java.io.File
 import java.net.HttpURLConnection
-import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
 
@@ -99,11 +98,8 @@ object LanternEngine {
                         // proxyAll=true ⇒ همه‌ی ترافیک از شبکه‌ی ضدسانچر لنترن عبور کند
                         val res = c.start(":0", true)
                         val addr = res?.getAddr() ?: throw Exception("Lantern returned null addr")
-                        val port = try {
-                            InetSocketAddress(addr).port
-                        } catch (_: Throwable) {
-                            addr.substringAfterLast(':').toIntOrNull() ?: 0
-                        }
+                        // addr مثل «127.0.0.1:53210» است — پورت مستقیم از رشته خوانده می‌شود
+                        val port = addr.substringAfterLast(':').toIntOrNull() ?: 0
                         if (port <= 0) throw Exception("bad lantern addr: $addr")
                         synchronized(this@LanternEngine) {
                             if (state == "stopped") { // کاربر وسط راه قطع کرده
