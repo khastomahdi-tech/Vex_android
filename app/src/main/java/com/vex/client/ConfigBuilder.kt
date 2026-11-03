@@ -145,7 +145,7 @@ object ConfigBuilder {
         if (pool != null) for (i in 0 until pool.length()) addRaw(pool.optString(i))
         require(raws.length() > 0) { "هیچ سروری برای موتور لنتر پیدا نشد" }
 
-        val outbounds = JSONArray()
+        val obList = ArrayList<JSONObject>()
         val tags = JSONArray()
         val domains = LinkedHashSet<String>()
         for (i in 0 until raws.length()) {
@@ -154,7 +154,7 @@ object ConfigBuilder {
             ob.put("tag", tag)
             // صبوری بیشتر در handshake — روی شبکه‌ی موبایل شلوغ ایران (مثل build)
             ob.put("connect_timeout", "15s")
-            outbounds.put(ob)
+            obList.add(ob)
             tags.put(tag)
             val host = ob.optString("server").trim()
             if (host.isNotEmpty() && !isIpAddress(host)) domains.add(host.lowercase())
@@ -171,7 +171,7 @@ object ConfigBuilder {
             .put("tolerance", 50)           // تا ۵۰ms اختلاف → سوییچ نکن (ضد لرزش)
             .put("idle_timeout", "30m")
             .put("interrupt_exist_connections", true)
-        return assembleShell(group, j, outbounds, domains.toList())
+        return assembleShell(group, j, obList, domains.toList())
     }
 
     /**

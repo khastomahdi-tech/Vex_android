@@ -82,7 +82,8 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var engVexTx: TextView
     private lateinit var engLntTx: TextView
     private lateinit var engHybTx: TextView
-    private lateinit var engPsiTx: TextView    private var exitInfo: ExitInfo? = null
+    private lateinit var engPsiTx: TextView
+    private var exitInfo: ExitInfo? = null
 
     // ---- بنر «نسخه‌ی جدید منتشر شده» + بروزرسانی خودکار درون‌برنامه‌ای ----
     private lateinit var updateWrap: LinearLayout
@@ -349,8 +350,10 @@ class HomeUi(private val act: MainActivity) {
         row.addView(engHyb)
         row.addView(gap4)
         row.addView(engPsi)
-        row.layoutParams = HorizontalScrollView.LayoutParams(
-            HorizontalScrollView.LayoutParams.WRAP_CONTENT, HorizontalScrollView.LayoutParams.WRAP_CONTENT)
+        // نکته: Kotlin به nested class ارث‌بری‌شده از سوپرکلاس جاوا اجازه‌ی دسترسی نمی‌دهد
+        // (HorizontalScrollView.LayoutParams resolve نمی‌شود) → FrameLayout.LayoutParams
+        row.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT)
         // پنج حالت در یک ردیف جا نمی‌شود — ردیف قابل اسکرول افقی است
         val scroller = HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
