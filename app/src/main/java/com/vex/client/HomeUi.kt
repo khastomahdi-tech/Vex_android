@@ -348,9 +348,6 @@ class HomeUi(private val act: MainActivity) {
         row.addView(gap3)
         row.addView(engHyb)
         row.addView(gap4)
-        row.addView(engPsi)        row.addView(gap2)
-        row.addView(engHyb)
-        row.addView(gap3)
         row.addView(engPsi)
         row.layoutParams = HorizontalScrollView.LayoutParams(
             HorizontalScrollView.LayoutParams.WRAP_CONTENT, HorizontalScrollView.LayoutParams.WRAP_CONTENT)
