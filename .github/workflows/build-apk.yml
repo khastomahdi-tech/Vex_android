@@ -165,7 +165,8 @@ jobs:
           cat > T.java <<'J'
           public class T {
             lantern.LanternClient c = lantern.Lantern.newLanternClient();
-            io.lantern.sdk.LanternManager m = new io.lantern.sdk.LanternManager();
+            // کانستراکتور LanternManager خصوصی است — فقط رزولوشن نوع چک می‌شود
+            io.lantern.sdk.LanternManager m = null;
           }
           J
           "$JAVA_HOME/bin/javac" -nowarn -cp lantern-classes.jar T.java && echo "JAVAC RESOLVES LanternClient OK"
