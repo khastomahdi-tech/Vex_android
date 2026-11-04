@@ -136,10 +136,173 @@ object LanternEngine {
     var httpPort: Int = 0
         private set
 
-    /** idle | connecting | connected | failed | stopped */
+    /** idle | connecting | connected | failed | stopped | exhausted */
     @Volatile
     var state: String = "idle"
         private set
+
+    // ------------------------------------------------------------------ پایش سلامت (V5.10)
+
+    /**
+     * سپر سلامت مسیر لنترن — ریشه‌ی «وصل میشه ولی کار نمیکنه»:
+     * پورت HTTP لنترن باز می‌شود ولی ممکن است مسیر خروجیِ flashlight (سرور انتخابی از
+     * شبکه‌ی ابری) روی اپراتور کاربر از کار بیفتد. واچ‌داگ هر ۵ ثانیه یک پروب واقعی از
+     * «داخل» پروکسی لنترن می‌زند (بدون واسطه‌ی هسته/تونل)؛ ۴ شکست پشت‌سرهم یعنی مسیر مرده
+     * ⇒ بوت مجدد درون-پروسه‌ای = انتخاب تازه‌ی بهترین سرور از شبکه‌ی ابری لنترن — کاملاً
+     * بی‌صدا، بدون هیچ پیام و بدون ساخت پروسه‌ی جدید (ضد «process is bad»).
+     * بعد از ۴ بوت مجدد ناموفق → وضعیت «exhausted» تا پروسه‌ی اصلی سریع و بی‌صدا فال‌بک کند.
+     */
+    private const val WATCHDOG_PROBE_INTERVAL_MS = 5_000L
+    private const val WATCHDOG_FAIL_STREAK = 4
+    private const val WATCHDOG_MAX_REBOOTS = 4
+    private const val PROBE_TIMEOUT_MS = 9_000
+
+    @Volatile
+    private var watchdogThread: Thread? = null
+    private val watchdogBusy = AtomicBoolean(false)
+
+    /** نتیجه‌ی ۶ پروب آخر برای گزارش تشخیصی (۲۰۰ تا ۳۹۹ = سلامت) */
+    private val probeHistory = ArrayDeque<String>(8)
+    @Volatile
+    var lastProbeCode: Int = -2
+        private set
+
+    private fun recordProbe(code: Int) {
+        lastProbeCode = code
+        synchronized(bootLogLock) {
+            if (probeHistory.size >= 6) probeHistory.removeFirst()
+            probeHistory.addLast(if (code in 200..399) "$code OK" else "$code FAIL")
+        }
+    }
+
+    fun probeStats(): String = synchronized(bootLogLock) {
+        if (probeHistory.isEmpty()) "—" else probeHistory.joinToString(" · ")
+    }
+
+    /**
+     * یک پروب واقعی HTTP از داخل پروکسی لنترن (۱۲۷.۰.۰.۱:port) — خارج از تونل.
+     * خروجی: کد HTTP (۲۰۰..۳۹۹ = مسیر سالم) یا -1 = شکست اتصال/تایم‌اوت.
+     */
+    fun probeThrough(port: Int): Int {
+        if (port <= 0) return -1
+        var code = -1
+        try {
+            val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))
+            val conn = URL("https://www.gstatic.com/generate_204").openConnection(proxy) as HttpURLConnection
+            conn.connectTimeout = PROBE_TIMEOUT_MS
+            conn.readTimeout = PROBE_TIMEOUT_MS
+            conn.instanceFollowRedirects = false
+            conn.useCaches = false
+            conn.setRequestProperty("User-Agent", "VexVPN-health")
+            code = try { conn.responseCode } catch (_: Throwable) { -1 }
+            try { conn.inputStream?.close() } catch (_: Throwable) {}
+            try { conn.errorStream?.close() } catch (_: Throwable) {}
+            try { conn.disconnect() } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+            code = -1
+        }
+        return code
+    }
+
+    /**
+     * شروع واچ‌داگ — فقط در پروسه‌ی :lantern بعد از READY صدا زده می‌شود.
+     * هر پروب موفق شمارنده‌ها را صفر می‌کند؛ شکست پشت‌سرهم = بوت مجدد درون-پروسه‌ای.
+     * V5.10 — واچ‌داگ در برابر بوت‌مجدها مقاوم است: restartInProcess آن را نمی‌کشد و
+     * فقط پورت تازه را برمی‌دارد؛ تنها توقف کامل (stop) آن را جمع می‌کند.
+     */
+    private fun ensureWatchdog(app: Context) {
+        if (watchdogThread?.isAlive == true) return
+        val th = Thread {
+            var reboots = 0
+            var failStreak = 0
+            try {
+                while (!Thread.currentThread().isInterrupted) {
+                    try { Thread.sleep(WATCHDOG_PROBE_INTERVAL_MS) } catch (_: InterruptedException) { return@Thread }
+                    // توقف کامل موتور (قطع کاربر) → پایان پایش؛ پورت صفر وسط بوت مجدد = صبر
+                    if (state == "stopped" && httpPort <= 0 && !booting.get() && !isRunning()) return@Thread
+                    val port = httpPort
+                    if (port <= 0) {
+                        // بوت در جریان است؛ اگر بوت قبلی صریحاً شکست خورده (state=failed)،
+                        // واچ‌داگ خودش بوت مجدد بی‌صدا را امتحان می‌کند (با بودجه‌ی خودش)
+                        if (state == "failed" && !booting.get() && !isRunning()) {
+                            if (reboots >= WATCHDOG_MAX_REBOOTS) {
+                                bootLog(app, "watchdog: boot-failure reboot budget exhausted — exhausted")
+                                synchronized(this@LanternEngine) {
+                                    state = "exhausted"
+                                    writeState(app, "exhausted")
+                                }
+                                return@Thread
+                            }
+                            if (watchdogBusy.compareAndSet(false, true)) {
+                                reboots++
+                                bootLog(app, "watchdog: boot failed — silent reboot #$reboots (fresh best-server pick)")
+                                try {
+                                    restartInProcess(app)
+                                    val deadline = System.currentTimeMillis() + 60_000L
+                                    while (System.currentTimeMillis() < deadline) {
+                                        if (Thread.currentThread().isInterrupted) return@Thread
+                                        if (httpPort > 0) break
+                                        try { Thread.sleep(800) } catch (_: InterruptedException) { return@Thread }
+                                    }
+                                } finally {
+                                    watchdogBusy.set(false)
+                                }
+                            }
+                        }
+                        continue
+                    }
+                    val code = probeThrough(port)
+                    recordProbe(code)
+                    if (code in 200..399) {
+                        failStreak = 0
+                        reboots = 0 // مسیر سالم شد — سقف بوت مجدد از نو
+                        continue
+                    }
+                    failStreak++
+                    bootLog(app, "watchdog: probe FAIL ($failStreak/$WATCHDOG_FAIL_STREAK) code=$code")
+                    if (failStreak < WATCHDOG_FAIL_STREAK) continue
+                    // مسیر مرده — بوت مجدد بی‌صدا در همان پروسه
+                    if (reboots >= WATCHDOG_MAX_REBOOTS) {
+                        bootLog(app, "watchdog: reboot budget exhausted — engine marked exhausted")
+                        synchronized(this@LanternEngine) {
+                            if (client != null || pending != null) {
+                                state = "exhausted"
+                                writeState(app, "exhausted")
+                            }
+                        }
+                        return@Thread
+                    }
+                    if (!watchdogBusy.compareAndSet(false, true)) continue
+                    reboots++
+                    failStreak = 0
+                    bootLog(app, "watchdog: silent in-process reboot #$reboots (fresh best-server pick)")
+                    try {
+                        restartInProcess(app)
+                        // صبر تا بوت جدید پورت تازه بدهد (حداکثر ~۶۰ ثانیه)
+                        val deadline = System.currentTimeMillis() + 60_000L
+                        while (System.currentTimeMillis() < deadline) {
+                            if (Thread.currentThread().isInterrupted) return@Thread
+                            val p = httpPort
+                            if (p > 0) break
+                            try { Thread.sleep(800) } catch (_: InterruptedException) { return@Thread }
+                        }
+                    } finally {
+                        watchdogBusy.set(false)
+                    }
+                }
+            } catch (_: Throwable) {}
+        }.apply {
+            name = "vex-lnt-watchdog"
+            isDaemon = true
+        }
+        watchdogThread = th
+        th.start()
+    }
+
+    private fun stopWatchdog() {
+        try { watchdogThread?.interrupt() } catch (_: Throwable) {}
+        watchdogThread = null
+    }
 
     @Volatile
     private var client: lantern.LanternClient? = null
@@ -180,6 +343,7 @@ object LanternEngine {
         sb.append("وضعیت: ").append(if (state != "idle") state else readState(ctx)).append('\n')
         sb.append("پورت: ").append(if (httpPort > 0) httpPort else readPort(ctx)).append('\n')
         sb.append("پروسه‌ی :lantern: ").append(if (isProcessAlive(ctx)) "زنده" else "مرده").append('\n')
+        sb.append("پروب‌های اخیر مسیر: ").append(probeStats()).append('\n')
         try {
             val crash = crashFile(ctx)
             if (crash.exists() && crash.length() > 0) {
@@ -294,6 +458,9 @@ object LanternEngine {
                         try { portFile(app).writeText(port.toString()) } catch (_: Throwable) {}
                         writeState(app, "ready")
                         bootLog(app, "READY — lantern http proxy listening on 127.0.0.1:$port")
+                        // V5.10 — واچ‌داگ سلامت مسیر: پروب هر ۵ ثانیه + بوت مجدد بی‌صدای
+                        // flashlight روی مسیر مرده (ریشه‌ی «وصل میشه ولی کار نمیکنه»)
+                        ensureWatchdog(app)
                         // گرم‌کردن مسیر در پس‌زمینه (اولین اتصال به کانفیگ ابری لنترن)
                         warmUp(app, port)
                     }
@@ -335,9 +502,29 @@ object LanternEngine {
      * وقتی سرور لنترن قطع می‌شود، نمونه‌ی فعلی متوقف و نمونه‌ای نو با کانفیگ تازه بوت
      * می‌شود = انتخاب تازه‌ی بهترین سرور از شبکه‌ی ابری لنترن. بدون ساخت پروسه‌ی جدید
      * (ریسک «process is bad» = صفر) و بدون هیچ پیامی به کاربر.
+     *
+     * V5.10 — واچ‌داگ در این مسیر «زنده می‌ماند» (فقط نمونه عوض می‌شود، نه پایش).
      */
     fun restartInProcess(ctx: Context) {
-        stop(ctx)
+        synchronized(this) {
+            bootCounter.incrementAndGet() // هر بوتِ در جریان را نامعتبر کن
+            booting.set(false)
+            val c = client
+            val pnd = pending
+            client = null
+            pending = null
+            httpPort = 0
+            // «connecting» به‌جای «stopped» — تا واچ‌داگ وسط بوت مجدد، توقف کامل تشخیص ندهد
+            state = "connecting"
+            if (ctx != null) {
+                clearPort(ctx)
+                writeState(ctx, "starting")
+            }
+            Thread {
+                try { c?.stop() } catch (_: Throwable) {}
+                try { pnd?.stop() } catch (_: Throwable) {}
+            }.start()
+        }
         Thread {
             try { Thread.sleep(400) } catch (_: InterruptedException) {}
             start(ctx)
@@ -346,6 +533,8 @@ object LanternEngine {
 
     fun stop(ctx: Context?) {
         synchronized(this) {
+            // توقف کامل — واچ‌داگ هم جمع می‌شود (قطع از سمت کاربر/پروسه‌ی اصلی)
+            stopWatchdog()
             bootCounter.incrementAndGet() // هر بوتِ در جریان را نامعتبر کن
             booting.set(false)
             val c = client

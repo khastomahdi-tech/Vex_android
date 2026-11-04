@@ -153,6 +153,8 @@ class ServersStore(context: Context) {
                     "psiphon" -> "lantern"
                     "hybrid" -> "hybrid"   // ترکیبی: سرور Vex از داخل تونل لنترن
                     "auto" -> "auto"       // اتصال خودکار: استخر سرورها + انتخاب/سوییچ خودکار
+                    "warp" -> "warp"       // V5.10 — وارپ: تونل رایگان کلودفلر، بدون انتخاب سرور
+                    "smart" -> "smart"     // V5.10 — هوشمند: زنجیره‌ی لنترن ← وارپ ← بهترین سرور
                     else -> "vex"
                 },
                 relockOnExit = o.optBoolean("relockOnExit", true),

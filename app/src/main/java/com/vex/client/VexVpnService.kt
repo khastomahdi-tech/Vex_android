@@ -223,27 +223,35 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             healStage = 0
             lastProbeBytes = 0
         }
-        val useLanternProc = engMode == "lantern" || engMode == "hybrid"
+        // V5.10 — موتورهای جدید: «warp» (کلودفلر وارپ بدون انتخاب سرور) و «smart»
+        // (زنجیره‌ی هوشمند: لنترن ← وارپ ← بهترین سرور Vex — همه بی‌صدا)
+        val useLanternProc = engMode == "lantern" || engMode == "hybrid" || engMode == "smart"
         lastEngineLantern = useLanternProc
         if (!quiet) {
             startForeground(NOTIF_ID, notif(
                 when (engMode) {
                     "hybrid" -> "در حال اتصال... (ترکیبی Vex + لنترن)"
                     "lantern" -> "در حال اتصال... (لنترن)"
+                    "warp" -> "در حال اتصال... (وارپ)"
+                    "smart" -> "در حال اتصال... (هوشمند)"
                     else -> "در حال اتصال..."
                 },
-                if (useLanternProc) "راه‌اندازی موتور لنترن..."
-                else if (engMode == "auto") "انتخاب خودکار بهترین سرور..."
-                else "راه‌اندازی هسته..."))
+                when {
+                    useLanternProc -> "راه‌اندازی موتور لنترن..."
+                    engMode == "warp" -> "ثبت‌نام و راه‌اندازی وارپ..."
+                    engMode == "auto" -> "انتخاب خودکار بهترین سرور..."
+                    else -> "راه‌اندازی هسته..."
+                }))
             uiState = "connecting"
             tileListener?.invoke("connecting")
             netState = 0; netMsg = ""; netMs = -1
         }
         // پنجره‌ی تثبیت: در این بازه شکست تست‌ها شمرده نمی‌شود — شروع تونل روی شبکه‌ی
-        // موبایل پرلرزش است. برای موتور لنترن بلندتر (۱۲۰ ثانیه): بوتِ flashlight و
-        // اولین handshake با شبکه‌ی ابری لنترن (فرانتینگ) روی اپراتورهای ایران کُند است
-        // و نباید باعث «نوسازی/قطع کاذب» در همان دقیقه‌های اول شود
-        stabilizeUntilMs = System.currentTimeMillis() + (if (useLanternProc) 120_000L else 60_000L)
+        // موبایل پرلرزش است. برای موتور لنترن ۶۰ ثانیه: بوتِ flashlight و اولین
+        // handshake با شبکه‌ی ابری لنترن (فرانتینگ) روی اپراتورهای ایران کُند است؛
+        // از V5.10 واچ‌داگ پروسه‌ی لنترن مسیر مرده را بی‌صدا عوض می‌کند، پس پنجره‌ی
+        // طولانی دیگر لازم نیست و شکست زودتر دیده می‌شود
+        stabilizeUntilMs = System.currentTimeMillis() + (if (useLanternProc) 60_000L else 45_000L)
         acquireWakelock()
         lastPayload = config
         clearCoreLogs()
@@ -261,18 +269,43 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     // را در فایل مشترک می‌نویسد؛ هسته‌ی sing-box ترافیک را به آن می‌فرستد
                     // (tun → sing-box → لنترن).
                     //
-                    // V5.9 — قانون کاربر:
+                    // V5.10 — قانون کاربر + زنجیره‌ی هوشمند:
                     //  • لنترن فقط لنترن — هر بوت = کانفیگ تازه = انتخاب تازه‌ی بهترین سرور
                     //    از شبکه‌ی ابری لنترن؛ هیچ سرور خودمان در حالت عادی؛
-                    //  • سرور لنترن قطع شد → بوت مجدد درون-پروسه‌ای = سرور جایگزین، بی‌صدا؛
-                    //  • حداکثر ۲ پروسه + ۲ بوت درون-پروسه‌ای — هرگز «process is bad» نمی‌شویم؛
-                    //  • فقط وقتی لنترن «کلاً» نشد → فال‌بک نهایی و بی‌صدا به بهترین سرور خودمان.
+                    //  • «تأیید واقعی بوت»: پورت باز شده با یک پروب واقعی چک می‌شود — پورتِ
+                    //    بی‌مسیر دیگر «موفق» حساب نمی‌شود (ریشه‌ی «وصل میشه ولی کار نمیکنه»)؛
+                    //  • واچ‌داگ پروسه‌ی لنترن مسیر مرده را بی‌صدا با بوت تازه عوض می‌کند؛
+                    //  • موتور «smart»: لنترن نشد → وارپ (کلودفلر) نشد → بهترین سرور Vex؛
+                    //  • فقط وقتی همه‌چیز «کلاً» نشد → فال‌بک نهایی و بی‌صدا به بهترین سرور خودمان.
                     val ctx = applicationContext
-                    val port = bootLantern(ctx, gen)
-                    if (port > 0) {
+                    // زنجیره‌ی هوشمند: نردبان بوت لنترن سریع‌تر (۱ پروسه + ۱ بوت درون-پروسه‌ای)
+                    val port = bootLantern(ctx, gen, quick = engMode == "smart")
+                    if (port > 0 && verifyLanternPath(port)) {
                         lastEngineLantern = true // اطمینان: قطعِ بعدی، پروسه‌ی لنترن را هم جمع می‌کند
+                        smartStage = "lantern"
                         if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
                         else ConfigBuilder.buildLanternProxy(port, config)
+                    } else if (engMode == "smart") {
+                        // زنجیره‌ی هوشمند — مرحله‌ی بعدی: وارپ (کلودفلر، بدون انتخاب سرور)
+                        synchronized(stateLock) { if (gen != generation) return@thread }
+                        stopLanternQuiet()
+                        lastEngineLantern = false
+                        pushCoreLog("هوشمند: لنترن برقرار نشد — سوییچ بی‌صدای وارپ (کلودفلر)")
+                        if (!quiet) startForeground(NOTIF_ID, notif(
+                            "در حال اتصال... (هوشمند · وارپ)",
+                            "لنترن پاسخ نداد — تلاش با موتور وارپ"))
+                        val warp = tryWarp(ctx, gen)
+                        if (warp != null) {
+                            smartStage = "warp"
+                            ConfigBuilder.buildWarp(warp, config)
+                        } else {
+                            synchronized(stateLock) { if (gen != generation) return@thread }
+                            smartStage = "vex"
+                            val fb = bestServerPayload(config)
+                                ?: throw Exception("هیچ مسیری در زنجیره‌ی هوشمند برقرار نشد")
+                            pushCoreLog("هوشمند: وارپ هم برقرار نشد — سوییچ بی‌صدای بهترین سرور Vex")
+                            ConfigBuilder.buildAutoPool(fb)
+                        }
                     } else {
                         synchronized(stateLock) { if (gen != generation) return@thread }
                         // لنترن کلاً نشد — فال‌بک نهایی به بهترین سرور خودمان (خواسته‌ی صریح کاربر)
@@ -291,6 +324,24 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                                 ?: throw Exception("لنترن برقرار نشد و هیچ سروری برای فال‌بک نهایی پیدا نشد")
                             ConfigBuilder.buildAutoPool(fb) // بهترین سرور (urltest)
                         }
+                    }
+                } else if (engMode == "warp") {
+                    // V5.10 — موتور وارپ: کلودفلر وارپ (رایگان، بدون انتخاب سرور) با
+                    // تونل WireGuard داخل همین هسته‌ی sing-box؛ ثبت‌نام خودکار دستگاه
+                    synchronized(stateLock) { if (gen != generation) return@thread }
+                    val warp = tryWarp(applicationContext, gen)
+                    if (warp != null) {
+                        ConfigBuilder.buildWarp(warp, config)
+                    } else {
+                        synchronized(stateLock) { if (gen != generation) return@thread }
+                        fallbackDone = true
+                        pushCoreLog("وارپ: ثبت‌نام/کانفیگ ناموفق — فال‌بک نهایی به بهترین سرور Vex")
+                        if (!quiet) startForeground(NOTIF_ID, notif(
+                            "در حال اتصال... (بهترین سرور Vex)",
+                            "وارپ برقرار نشد — سوییچ خودکار به بهترین سرور"))
+                        val fb = bestServerPayload(config)
+                            ?: throw Exception("وارپ برقرار نشد و هیچ سروری برای فال‌بک پیدا نشد")
+                        ConfigBuilder.buildAutoPool(fb)
                     }
                 } else if (engMode == "auto") {
                     // حالت خودکار: استخر سرورها داخل همین هسته بالا می‌آید (پروسه‌ی اضافی ندارد)
@@ -424,7 +475,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         // ---- ۳) نردبان نوسازی — مثل reloadCore کلاینت‌های NG ولی خودآگاه ----
                         // V5.8: در موتور لنترن هیچ مرحله‌ای موتور را عوض نمی‌کند —
                         // لنترن با بوت تازه، «سرور جایگزین لنترن» برمی‌دارد (بی‌سروصدا)
-                        if (System.currentTimeMillis() >= stabilizeUntilMs && failStreak >= 4) {
+                        // V5.10: آستانه‌ی موتورهای بدون سرور سریع‌تر شد (۳ شکست × ۱۵ ثانیه)
+                        val maxFails = if (engineOf(lastPayload).isLanternFamily()) 3 else 4
+                        if (System.currentTimeMillis() >= stabilizeUntilMs && failStreak >= maxFails) {
                             failStreak = 0
                             if (healStage < 5) healStage++
                             when (healStage) {
@@ -434,9 +487,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                                 // لنترن → بوت مجدد درون-پروسه‌ای (سرور جایگزین لنترن، بی‌صدا)
                                 // بقیه → فال‌بک موتور
                                 3 -> healSwitchEngine()
-                                // مرحله‌ی نهایی: لنترن چند بار سرور جایگزین گرفت و هنوز نشد →
+                                // مرحله‌ی نهایی: لنترن/هوشمند/وارپ چند بار مسیر جایگزین گرفت و هنوز نشد →
                                 // فال‌بک نهایی به بهترین سرور خودمان (خواسته‌ی صریح کاربر، بی‌صدا)
-                                4 -> if (engineOf(lastPayload) == "lantern") fallbackToBestServerQuiet()
+                                4 -> when (engineOf(lastPayload)) {
+                                    "lantern", "smart", "warp" -> fallbackToBestServerQuiet()
+                                    else -> {}
+                                }
                                 // مرحله‌ی ۵ به بعد: خودکار نمی‌چرخیم؛ فقط پایش —
                                 // با برگشتن ترافیک واقعی یا اتصال مجدد دستی، لدر ریست می‌شود
                                 else -> {}
@@ -445,8 +501,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         }
                     }
                 }
-                // اگر آخرین تست رد شده، زودتر دوباره چک کن (۲۰ ثانیه) — ریکاوری سریع‌تر دیده می‌شود
-                waitNextProbe(gen, if (failed) 20_000L else 45_000L + kotlin.random.Random.nextLong(-5_000L, 5_000L))
+                // اگر آخرین تست رد شده، زودتر دوباره چک کن (۱۵ ثانیه برای موتورهای بدون سرور) —
+                // ریکاوری سریع‌تر دیده می‌شود
+                waitNextProbe(gen, if (failed) (if (engineOf(lastPayload).isLanternFamily()) 15_000L else 20_000L) else 45_000L + kotlin.random.Random.nextLong(-5_000L, 5_000L))
             }
         }
         testThread = th
@@ -507,14 +564,45 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     /**
-     * مرحله‌ی ۳ نردبان نوسازی (V5.9):
+     * مرحله‌ی ۳ نردبان نوسازی (V5.10):
      *  • موتور لنترن → بوت مجدد درون-پروسه‌ای flashlight (سرور جایگزین از شبکه‌ی ابری لنترن)
      *    — بدون ساخت پروسه‌ی جدید، کاملاً بی‌سروصدا.
+     *  • هوشمند → اجرای تازه‌ی کل زنجیره (لنترن نو ← وارپ ← بهترین سرور) — بی‌صدا.
+     *  • وارپ → فال‌بک به بهترین سرور خودمان (سشن WireGuard تازه با quiet-reload معمولاً
+     *    در مرحله‌های ۱/۲ جا می‌افتد؛ اینجا دیگر مسیر وارپ جواب نمی‌دهد).
      *  • بقیه‌ی موتورها → فال‌بک موتور (مستقیم ↔ ترکیبی) مثل قبل.
      */
     private fun healSwitchEngine() {
-        if (engineOf(lastPayload) == "lantern") restartLanternQuiet() else maybeFallbackEngine()
+        when (engineOf(lastPayload)) {
+            "lantern" -> restartLanternQuiet()
+            "smart" -> smartChainReboot()
+            "warp" -> fallbackToBestServerQuiet()
+            else -> maybeFallbackEngine()
+        }
     }
+
+    /** اجرای تازه‌ی کل زنجیره‌ی هوشمند — بی‌صدا، آمار جلسه حفظ می‌شود */
+    private fun smartChainReboot() {
+        val payload = lastPayload ?: return
+        if (!reloadBusy.compareAndSet(false, true)) return
+        Log.w(TAG, "smart chain reboot — fresh lantern → warp → best Vex (silent)")
+        thread(name = "vex-smart-heal") {
+            try {
+                if (uiState != "connected") return@thread
+                stopLanternQuiet()
+                stopCoreQuiet()
+                startVpn(payload, quiet = true)
+                failStreak = 0
+                stabilizeUntilMs = System.currentTimeMillis() + 120_000L
+            } finally {
+                reloadBusy.set(false)
+            }
+        }
+    }
+
+    /** موتورهایی که بدون انتخاب سرور کار می‌کنند (لنترن/هوشمند/ترکیبی/وارپ) */
+    private fun String.isLanternFamily(): Boolean =
+        this == "lantern" || this == "smart" || this == "hybrid" || this == "warp"
 
     /** خواندن موتور از payload — "lantern" | "hybrid" | "auto" | "" (مستقیم) */
     private fun engineOf(payload: String?): String = try {
@@ -571,7 +659,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             val seen = HashSet<String>()
             val st = ServersStore(applicationContext)
             val selRaw = try { st.selected()?.raw?.trim().orEmpty() } catch (_: Throwable) { "" }
-            if (selRaw.isNotEmpty() && !selRaw.startsWith("lantern://") && !selRaw.startsWith("psiphon://") && seen.add(selRaw)) arr.put(selRaw)
+            if (selRaw.isNotEmpty() && !selRaw.startsWith("lantern://") && !selRaw.startsWith("psiphon://") &&
+                !selRaw.startsWith("warp://") && !selRaw.startsWith("smart://") && seen.add(selRaw)) arr.put(selRaw)
             try {
                 for (s in st.freeServers) {
                     val r = try { s.raw.trim() } catch (_: Throwable) { "" }
@@ -774,7 +863,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
         val payload = lastPayload ?: return
         val engMode = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
-        if (engMode == "lantern" || engMode == "hybrid") return
+        // لنترن/هوشمند/وارپ شبکه‌ی زیرین را خودشان مدیریت می‌کنند (flashlight و wireguard-go
+        // هنداور خودشان را دارند) — نوسازی هسته اینجا لازم نیست
+        if (engMode == "lantern" || engMode == "hybrid" || engMode == "smart" || engMode == "warp") return
         // تنظیم کاربر: اگر خاموش باشد فقط شبکه‌ی زیرین معرفی می‌شود و هسته دست نمی‌خورد
         if (!handoverReload) return
         Log.w(TAG, "underlying network handover — quiet core reload (v2rayNG reloadCore pattern)")
@@ -864,6 +955,34 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     /**
+     * V5.10 — تأیید واقعی مسیر لنترن با پروب خارج از تونل (خواسته‌ی کاربر:
+     * «وصل میشه ولی کار نمیکنه» دیگر اتفاق نمی‌افتد). پورت باز فقط یعنی سوکت گوش می‌دهد؛
+     * این پروب تضمین می‌کند ترافیک واقعاً از شبکه‌ی ابری لنترن رد می‌شود.
+     * ۲ تلاش × ۱۰ ثانیه — هر دو شکست = بوت لنترن واقعاً نشده (نردبان ادامه می‌یابد).
+     * UID خودِ اپ از تونل مستثنی است، پس این پروب همیشه مستقیم از مسیر لنترن می‌رود.
+     */
+    private fun verifyLanternPath(port: Int): Boolean {
+        val c1 = LanternEngine.probeThrough(port)
+        if (c1 in 200..399) {
+            Log.i(TAG, "lantern path verified: HTTP $c1 on 127.0.0.1:$port")
+            return true
+        }
+        Log.w(TAG, "lantern path probe #1 failed (code=$c1) — retry after 3s")
+        try { Thread.sleep(3_000) } catch (_: InterruptedException) { return false }
+        val c2 = LanternEngine.probeThrough(port)
+        if (c2 in 200..399) {
+            Log.i(TAG, "lantern path verified on retry: HTTP $c2")
+            return true
+        }
+        Log.w(TAG, "lantern path DEAD (codes $c1/$c2) — boot counts as failed")
+        return false
+    }
+
+    /** مرحله‌ی فعلی زنجیره‌ی هوشمند: lantern | warp | vex — برای اعلان/تشخیص */
+    @Volatile
+    private var smartStage: String = "lantern"
+
+    /**
      * سیاست بوت لنترن V5.9 — ریشه‌ی «Unable to launch app ... process is bad»:
      *  کرش‌های بومی Go (log.Fatalf/panic در flashlight) پروسه‌ی :lantern را می‌کشند و با
      *  try/catch قابل‌گرفتن نیستند. V5.8 بعد از هر شکست فوراً پروسه‌ی تازه می‌ساخت؛ دو کرش
@@ -876,7 +995,10 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      *     black-list اندروید حدود یک دقیقه است)؛ رد دوباره = خروج با 0 (فال‌بک نهایی).
      * خروجی: پورت (>0) یا 0 = لنترن کلاً نشد.
      */
-    private fun bootLantern(ctx: android.content.Context, gen: Int): Int {
+    private fun bootLantern(ctx: android.content.Context, gen: Int, quick: Boolean = false): Int {
+        val maxSpawns = if (quick) 1 else LANTERN_MAX_SPAWNS
+        val maxReboots = if (quick) 1 else LANTERN_MAX_REBOOTS
+        val bootWait = if (quick) 40_000L else LANTERN_BOOT_WAIT_MS
         val reused = reuseLiveLantern(ctx)
         if (reused > 0) {
             Log.i(TAG, "lantern already live on 127.0.0.1:$reused — reusing (no spawn)")
@@ -889,12 +1011,12 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             val alive = LanternEngine.isProcessAlive(ctx)
             if (alive && spawns == 0) {
                 // پروسه زنده است (مثلاً بعد از قطع قبلی هنوز kill نشده) → فقط بوت درون-پروسه‌ای
-                if (reboots >= LANTERN_MAX_REBOOTS) return 0
+                if (reboots >= maxReboots) return 0
                 reboots++
                 Log.i(TAG, "lantern process alive — in-process boot #$reboots (no spawn)")
                 safeStartLanternService(ctx, LanternService.ACTION_START)
             } else {
-                if (spawns >= LANTERN_MAX_SPAWNS) return 0
+                if (spawns >= maxSpawns) return 0
                 // قبل از هر spawn: مطمئن شو پروسه‌ی قبلی واقعاً مرده (ضد تداخل بوت/کانفیگ)
                 if (!alive) LanternEngine.waitProcessGone(ctx, 5_000L)
                 if (spawns > 0) {
@@ -903,7 +1025,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     synchronized(stateLock) { if (gen != generation) return 0 }
                 }
                 spawns++
-                Log.w(TAG, "lantern fresh process spawn #$spawns/$LANTERN_MAX_SPAWNS (fresh config dir = fresh best-server pick)")
+                Log.w(TAG, "lantern fresh process spawn #$spawns/$maxSpawns (fresh config dir = fresh best-server pick)")
                 if (!safeStartLanternService(ctx, LanternService.ACTION_START)) {
                     // معمولاً «process is bad» یا محدودیت FGS — یک فرصت دوباره بعد از ۱۲ ثانیه
                     try { Thread.sleep(12_000) } catch (_: InterruptedException) { return 0 }
@@ -911,15 +1033,15 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     if (!safeStartLanternService(ctx, LanternService.ACTION_START)) return 0
                 }
             }
-            val r = awaitLanternBoot(ctx, gen, LANTERN_BOOT_WAIT_MS)
+            val r = awaitLanternBoot(ctx, gen, bootWait)
             if (r > 0) return r
             if (r == -1) continue // پروسه در حین بوت مرد (کرش بومی) — spawn بعدی با فاصله‌ی امن
             // r == 0: پروسه زنده است ولی بوت شکست خورد → بوت مجدد درون-پروسه‌ای
-            if (reboots < LANTERN_MAX_REBOOTS) {
+            if (reboots < maxReboots) {
                 reboots++
                 Log.w(TAG, "lantern boot failed while process alive — in-process reboot #$reboots (fresh config dir)")
                 safeStartLanternService(ctx, LanternService.ACTION_START)
-                val r2 = awaitLanternBoot(ctx, gen, LANTERN_BOOT_WAIT_MS)
+                val r2 = awaitLanternBoot(ctx, gen, bootWait)
                 if (r2 > 0) return r2
                 if (r2 == -1) continue
             }
@@ -937,8 +1059,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             synchronized(stateLock) { if (gen != generation) return 0 }
             val p = LanternEngine.readPort(ctx)
             if (p > 0) return p
-            // شکست صریح و قابل‌گرفتن بوت → تصمیم بعدی با bootLantern (بوت مجدد درون-پروسه‌ای)
-            if (LanternEngine.readState(ctx) == "failed") return 0
+            // شکست صریح و قابل‌گرفتن بوت یا اتمام بودجه‌ی بوت مجدد → تصمیم بعدی با bootLantern
+            val st = LanternEngine.readState(ctx)
+            if (st == "failed" || st == "exhausted") return 0
             // مرگ پروسه (کرش بومی/بستن توسط سیستم) — جدا از شکست قابل‌گرفتن گزارش می‌شود
             if (!LanternEngine.isProcessAlive(ctx)) {
                 Log.w(TAG, "lantern process DIED during boot (native/Go fatal) — will respawn with safe spacing")
@@ -960,6 +1083,22 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             )
         } catch (_: Throwable) {}
         LanternEngine.clearPort(applicationContext)
+    }
+
+    /**
+     * V5.10 — آماده‌سازی موتور وارپ (کلودفلر): ثبت‌نام خودکار دستگاه (کش‌شده) و تحویل
+     * کانفیگ wireguard برای هسته. رجیستر مستقیم از api.cloudflareclient.com؛ اگر مسیر
+     * مستقیم روی اپراتور کاربر باز نبود، از رله‌ی گیت خودمان (/warp-reg) رد می‌شود.
+     * null = ثبت‌نام/کانفیگ نشد.
+     */
+    private fun tryWarp(ctx: android.content.Context, gen: Int): JSONObject? {
+        return try {
+            WarpEngine.ensureRegistration(ctx)
+        } catch (t: Throwable) {
+            Log.e(TAG, "warp registration failed: ${t.message}")
+            try { pushCoreLog("وارپ: ثبت‌نام ناموفق (${t.message})") } catch (_: Throwable) {}
+            null
+        }
     }
 
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {

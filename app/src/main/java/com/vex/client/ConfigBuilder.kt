@@ -85,6 +85,30 @@ object ConfigBuilder {
     }
 
     /**
+     * موتور «وارپ» (V5.10) — کلودفلر WARP: رایگان، بدون انتخاب سرور.
+     * تونل WireGuard داخل همین هسته‌ی sing-box بالا می‌آید و ترافیک از شبکه‌ی
+     * کلودفلر عبور می‌کند: tun → sing-box → wireguard → cloudflare edge.
+     * reg از WarpEngine.ensureRegistration می‌آید:
+     * {private_key, peer_public_key, reserved:[a,b,c], address_v4, address_v6, mtu}
+     */
+    fun buildWarp(reg: JSONObject, input: String): String {
+        val j = JSONObject(input)
+        val outbound = JSONObject()
+            .put("type", "wireguard")
+            .put("tag", "proxy")
+            .put("server", reg.optString("endpoint_host", "engage.cloudflareclient.com"))
+            .put("server_port", reg.optInt("endpoint_port", 2408))
+            .put("local_address", JSONArray()
+                .put(reg.optString("address_v4", "172.16.0.2/32"))
+                .put(reg.optString("address_v6", "fd01:5ca1:ab1e:80fa:ab85:eeeb:309f:1c8d/128")))
+            .put("private_key", reg.getString("private_key"))
+            .put("peer_public_key", reg.getString("peer_public_key"))
+            .put("reserved", reg.optJSONArray("reserved") ?: JSONArray().put(0).put(0).put(0))
+            .put("mtu", reg.optInt("mtu", 1280))
+        return assembleShell(outbound, j)
+    }
+
+    /**
      * موتور «ترکیبی» (Vex + لنترن) — همان چیزی که کاربر می‌خواهد:
      * کانفیگ کامل سرورِ انتخابیِ Vex (vmess/vless/trojan/ss/…) ساخته می‌شود،
      * ولی اتصال به سرور از داخل تونل لنترن عبور داده می‌شود:
@@ -136,7 +160,8 @@ object ConfigBuilder {
         val raws = JSONArray()
         fun addRaw(r: String) {
             val t = r.trim()
-            if (t.isEmpty() || t.startsWith("lantern://") || t.startsWith("psiphon://")) return
+            if (t.isEmpty() || t.startsWith("lantern://") || t.startsWith("psiphon://") ||
+                t.startsWith("warp://") || t.startsWith("smart://")) return
             if (seen.add(t)) raws.put(t)
         }
         // سرور انتخابی کاربر اولویت دارد؛ بعد کل استخر رایگان

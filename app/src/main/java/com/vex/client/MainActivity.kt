@@ -54,6 +54,14 @@ class MainActivity : ComponentActivity() {
 
         /** فاصله‌ی بازبینی دوره‌ای وضعیت ربات (۵ دقیقه) */
         private const val GATE_WATCH_INTERVAL_MS = 5 * 60_000L
+
+        // ═════════════════════════════════════════════════════════════════════════
+        // [TESTBUILD-KEYGATE] نسخه‌ی تست V5.10 — «وارد کردن کلید» حذف شده است.
+        // درخواست کاربر: بدون کلید باید بشود وارد شد؛ هر وقت گفت «برگردون»، همین
+        // پرچم را false کنید — همه‌ی منطق اشتراک (گیت ورود + کیک دوره‌ای) سر جایش است.
+        // ⚠️ فقط برای نسخه‌ی تست؛ قبل از انتشار عمومی حتماً false شود.
+        const val TEST_BUILD_NO_KEY_GATE = true
+        // ═════════════════════════════════════════════════════════════════════════
     }
 
     lateinit var store: ServersStore
@@ -276,6 +284,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
+                // ══════ [TESTBUILD-KEYGATE] نسخه‌ی تست — ورود بدون کلید ══════
+                // درخواست کاربر: «بخش وارد کردن کلید رو داخل این نسخه حذفش کن؛ هر وقت
+                // گفتم برگردونش» → گیت اشتراک کامل برداشته شد. برای برگرداندن فقط همین
+                // پرچم را false کن (کل بلاک اشتراک زیر دست‌نخورده باقی است).
+                if (TEST_BUILD_NO_KEY_GATE) {
+                    main.post { if (!isFinishing) enterApp() }
+                    startGateWatch()
+                    return@Thread
+                }
                 // ---- اشتراک: بدون توکنِ فعال (۳۰ حرف انگلیسی / ۲۷ حرفِ قدیمی)، برنامه وارد نمی‌شود ----
                 val sc = SubStore.code(this)
                 if (!SubStore.valid(sc)) {
@@ -339,23 +356,26 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     // ---- چک دوره‌ای اشتراک: حذف/انقضا وسط کار هم بیرون می‌اندازد ----
-                    val sc = SubStore.code(this@MainActivity)
-                    if (SubStore.valid(sc)) {
-                        val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(this@MainActivity))
-                        if (sub.kicked || sub.expired || sub.notFound) {
-                            SubStore.clear(this@MainActivity)
-                            subLockReason = when {
-                                sub.kicked -> "نشست شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
-                                sub.expired -> "کد اشتراک شما منقضی شده است. برای گرفتن کد جدید، وارد ربات شو."
-                                else -> "این کد اشتراک دیگر معتبر نیست. یک کد معتبر وارد کن."
-                            }
-                            main.post {
-                                if (!isFinishing) {
-                                    requestStop()
-                                    setGateUi("subscription")
+                    // [TESTBUILD-KEYGATE] نسخه‌ی تست — گیت اشتراک خاموش است (بدون کلید هم وسط کار بیرون انداخته نمی‌شود)
+                    if (!TEST_BUILD_NO_KEY_GATE) {
+                        val sc = SubStore.code(this@MainActivity)
+                        if (SubStore.valid(sc)) {
+                            val sub = TelegramGate.subStatus(sc, TelegramGate.deviceId(this@MainActivity))
+                            if (sub.kicked || sub.expired || sub.notFound) {
+                                SubStore.clear(this@MainActivity)
+                                subLockReason = when {
+                                    sub.kicked -> "نشست شما توسط مدیریت حذف شده است. کد اشتراک را دوباره وارد کن."
+                                    sub.expired -> "کد اشتراک شما منقضی شده است. برای گرفتن کد جدید، وارد ربات شو."
+                                    else -> "این کد اشتراک دیگر معتبر نیست. یک کد معتبر وارد کن."
                                 }
+                                main.post {
+                                    if (!isFinishing) {
+                                        requestStop()
+                                        setGateUi("subscription")
+                                    }
+                                }
+                                return@Thread
                             }
-                            return@Thread
                         }
                     }
                     main.post { startGateWatch() }
@@ -987,10 +1007,12 @@ class MainActivity : ComponentActivity() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
             else -> {
-                // موتور لنترن (هسته‌ی رسمی Lantern): به سرور نیاز نیست — کانفیگ شبه‌ساز می‌آید
-                if (store.settings.engine == "lantern") {
-                    requestStart(Server(-98, "لنترن", "lantern", "lantern://engine"))
-                    return
+                // موتورهای بدون انتخاب سرور (لنترن/وارپ/هوشمند): کانفیگ شبه‌ساز می‌آید
+                when (store.settings.engine) {
+                    "lantern", "warp", "smart" -> {
+                        requestStart(pseudoServerForEngine(store.settings.engine))
+                        return
+                    }
                 }
                 // اتصال خودکار: پاور = پیدا کردن بهترین سرور رایگان (بهترین پینگ) و اتصال
                 if (store.settings.engine == "auto") {
@@ -1073,15 +1095,22 @@ class MainActivity : ComponentActivity() {
             return
         }
         val s = store.selected() ?: ensureDefaultServer() ?: run {
-            // موتور لنترن به سرور نیاز ندارد — کانفیگ شبه‌ساز
+            // موتورهای بدون سرور (لنترن/وارپ/هوشمند) — کانفیگ شبه‌ساز
             when (store.settings.engine) {
-                "lantern" -> Server(-98, "لنترن", "lantern", "lantern://engine")
+                "lantern", "warp", "smart" -> pseudoServerForEngine(store.settings.engine)
                 else -> null
             }
         } ?: return
         main.postDelayed({
             if (connectionState == "stopped") requestStart(s)
         }, 350)
+    }
+
+    /** کانفیگ شبه‌ساز موتورهای بدون سرور (لنترن/وارپ/هوشمند) — هرگز به هسته‌ی واقعی نمی‌رود */
+    private fun pseudoServerForEngine(engine: String): Server = when (engine) {
+        "warp" -> Server(-98, "وارپ", "warp", "warp://engine")
+        "smart" -> Server(-98, "هوشمند", "smart", "smart://engine")
+        else -> Server(-98, "لنترن", "lantern", "lantern://engine")
     }
 
     /**
@@ -1149,9 +1178,9 @@ class MainActivity : ComponentActivity() {
             gotoSettings()
             return
         }
-        // قانون V5.7: وقتی کاربر یک «سرور واقعی» انتخاب می‌کند، اتصال روی موتور Vex می‌آید.
-        // موتور لنترن فقط از پاور (بدون سرور — کانفیگ شبه‌ساز id=-98) اجرا می‌شود.
-        if (store.settings.engine == "lantern" && s.id != -98) {
+        // قانون V5.7 + V5.10: وقتی کاربر یک «سرور واقعی» انتخاب می‌کند، اتصال روی موتور Vex می‌آید.
+        // موتورهای بدون سرور (لنترن/وارپ/هوشمند) فقط از پاور (کانفیگ شبه‌ساز id=-98) اجرا می‌شوند.
+        if (store.settings.engine in setOf("lantern", "warp", "smart") && s.id != -98) {
             store.settings.engine = "vex"
             store.saveSettings()
             if (::homeUi.isInitialized) {
@@ -1162,11 +1191,15 @@ class MainActivity : ComponentActivity() {
         }
         val payload0 = store.connectionPayload(s)
         // موتور اتصال — «لنترن» ترافیک را به هسته‌ی رسمی Lantern می‌فرستد، نه به سرور انتخابی
+        // «وارپ» — تونل رایگان کلودفلر (وایرگارد داخل هسته)
+        // «هوشمند» — زنجیره‌ی لنترن ← وارپ ← بهترین سرور Vex (همه بی‌صدا)
         // «ترکیبی» — همان سرور انتخابی، ولی اتصال به آن از داخل تونل لنترن عبور می‌کند
         // «خودکار» — استخر کل سرورهای رایگان داخل هسته بالا می‌آید و بهترین سرور خودکار انتخاب/سوییچ می‌شود
         val payload = when (store.settings.engine) {
             "auto" -> autoPoolPayload(payload0)
             "lantern" -> realLanternPayload(payload0)
+            "warp" -> try { org.json.JSONObject(payload0).put("engine", "warp").toString() } catch (_: Throwable) { payload0 }
+            "smart" -> try { org.json.JSONObject(payload0).put("engine", "smart").toString() } catch (_: Throwable) { payload0 }
             "hybrid" -> try { org.json.JSONObject(payload0).put("engine", "hybrid").toString() } catch (_: Throwable) { payload0 }
             else -> payload0
         }

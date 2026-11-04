@@ -72,14 +72,20 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var engVex: LinearLayout
     private lateinit var engLnt: LinearLayout
     private lateinit var engHyb: LinearLayout
+    private lateinit var engWarp: LinearLayout
+    private lateinit var engSmart: LinearLayout
     private lateinit var engAutoIc: IconView
     private lateinit var engVexIc: IconView
     private lateinit var engLntIc: IconView
     private lateinit var engHybIc: IconView
+    private lateinit var engWarpIc: IconView
+    private lateinit var engSmartIc: IconView
     private lateinit var engAutoTx: TextView
     private lateinit var engVexTx: TextView
     private lateinit var engLntTx: TextView
     private lateinit var engHybTx: TextView
+    private lateinit var engWarpTx: TextView
+    private lateinit var engSmartTx: TextView
     private var dlg: android.app.AlertDialog? = null
     private var exitInfo: ExitInfo? = null
 
@@ -345,26 +351,38 @@ class HomeUi(private val act: MainActivity) {
 
         val a = pill("bolt", "اتصال خودکار")
         engAuto = a.first; engAutoIc = a.second; engAutoTx = a.third
+        val sm = pill("target", "هوشمند")
+        engSmart = sm.first; engSmartIc = sm.second; engSmartTx = sm.third
         val v = pill("shield", "Vex")
         engVex = v.first; engVexIc = v.second; engVexTx = v.third
         val ln = pill("sun", "لنترن")
         engLnt = ln.first; engLntIc = ln.second; engLntTx = ln.third
+        val wp = pill("globe", "وارپ")
+        engWarp = wp.first; engWarpIc = wp.second; engWarpTx = wp.third
         val hy = pill("link", "ترکیبی")
         engHyb = hy.first; engHybIc = hy.second; engHybTx = hy.third
         engAuto.setOnClickListener { switchEngine("auto") }
+        engSmart.setOnClickListener { switchEngine("smart") }
         engVex.setOnClickListener { switchEngine("vex") }
         engLnt.setOnClickListener { switchEngine("lantern") }
+        engWarp.setOnClickListener { switchEngine("warp") }
         engHyb.setOnClickListener { switchEngine("hybrid") }
 
         val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap2 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap3 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        val gap4 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        val gap5 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        row.addView(engSmart)
+        row.addView(gap4)
         row.addView(engAuto)
         row.addView(gap)
         row.addView(engVex)
         row.addView(gap2)
         row.addView(engLnt)
         row.addView(gap3)
+        row.addView(engWarp)
+        row.addView(gap5)
         row.addView(engHyb)
         // نکته: Kotlin به nested class ارث‌بری‌شده از سوپرکلاس جاوا اجازه‌ی دسترسی نمی‌دهد
         // (HorizontalScrollView.LayoutParams resolve نمی‌شود) → FrameLayout.LayoutParams
@@ -444,8 +462,10 @@ class HomeUi(private val act: MainActivity) {
         }
 
         opt("bolt", "اتصال خودکار", "استخر سرورها + انتخاب و سوییچ خودکار بهترین سرور", "auto")
+        opt("target", "هوشمند (زنجیره)", "لنترن ← وارپ ← بهترین سرور Vex — خودش هر مسیر مرده را عوض می‌کند", "smart")
         opt("shield", "Vex", "اتصال با سرور انتخابی شما", "vex")
         opt("sun", "لنترن (Lantern)", "موتور رسمی لنترن — بدون انتخاب سرور، خودش وصل می‌شود", "lantern")
+        opt("globe", "وارپ (Cloudflare)", "تونل رایگان کلودفلر — بدون انتخاب سرور، هسته‌ی وایرگارد", "warp")
         opt("link", "ترکیبی (Vex + لنترن)", "اتصال به سرور از داخل تونل لنترن — ضد فیلترینگ", "hybrid")
 
         val titleView = UI.label(ctx, "انتخاب موتور اتصال", 17f, p.text, bold = true)
@@ -478,6 +498,8 @@ class HomeUi(private val act: MainActivity) {
             when (which) {
                 "auto" -> "اتصال خودکار فعال شد — بهترین سرور خودکار انتخاب و در صورت قطعی سوییچ می‌شود"
                 "lantern" -> "موتور لنترن فعال شد — بدون نیاز به سرور، خودش قوی‌ترین مسیر را پیدا می‌کند"
+                "warp" -> "موتور وارپ فعال شد — تونل رایگان کلودفلر، بدون انتخاب سرور"
+                "smart" -> "موتور هوشمند فعال شد — لنترن ← وارپ ← بهترین سرور، همه بی‌صدا"
                 "hybrid" -> "حالت ترکیبی فعال شد — اتصال به سرور از داخل تونل لنترن عبور می‌کند؛ ضد فیلترینگ و پایدارتر"
                 else -> "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
             }
@@ -498,9 +520,11 @@ class HomeUi(private val act: MainActivity) {
             iv.iconColor = if (selected) p.accent else p.muted
             tv.setTextColor(if (selected) p.accent else p.muted)
         }
+        paint(engSmart, engSmartIc, engSmartTx, eng == "smart")
         paint(engAuto, engAutoIc, engAutoTx, eng == "auto")
         paint(engVex, engVexIc, engVexTx, eng == "vex")
         paint(engLnt, engLntIc, engLntTx, eng == "lantern")
+        paint(engWarp, engWarpIc, engWarpTx, eng == "warp")
         paint(engHyb, engHybIc, engHybTx, eng == "hybrid")
     }
 
@@ -992,22 +1016,37 @@ class HomeUi(private val act: MainActivity) {
     fun renderServerCard() {
         val s = act.store.selected()
         if (s == null) {
-            if (act.store.settings.engine == "lantern") {
-                serverName.text = "اتصال با لنترن"
-                serverName.setTextColor(p.accent)
-                serverIp.text = "بدون نیاز به سرور — پاور را بزن"
-            } else if (act.store.settings.engine == "hybrid") {
-                serverName.text = "حالت ترکیبی (Vex + لنترن)"
-                serverName.setTextColor(p.accent)
-                serverIp.text = "اول یک سرور انتخاب کن — اتصالش از لنترن می‌گذرد"
-            } else if (act.store.settings.engine == "auto") {
-                serverName.text = "اتصال خودکار"
-                serverName.setTextColor(p.accent)
-                serverIp.text = "بهترین سرور رایگان خودش پیدا و انتخاب می‌شود"
-            } else {
-                serverName.text = "سروری انتخاب نشده"
-                serverName.setTextColor(p.muted)
-                serverIp.text = "برای انتخاب، کارت را لمس کن"
+            when (act.store.settings.engine) {
+                "lantern" -> {
+                    serverName.text = "اتصال با لنترن"
+                    serverName.setTextColor(p.accent)
+                    serverIp.text = "بدون نیاز به سرور — پاور را بزن"
+                }
+                "warp" -> {
+                    serverName.text = "اتصال با وارپ (کلودفلر)"
+                    serverName.setTextColor(p.accent)
+                    serverIp.text = "بدون نیاز به سرور — پاور را بزن"
+                }
+                "smart" -> {
+                    serverName.text = "اتصال هوشمند"
+                    serverName.setTextColor(p.accent)
+                    serverIp.text = "لنترن ← وارپ ← بهترین سرور — خودش انتخاب می‌کند"
+                }
+                "hybrid" -> {
+                    serverName.text = "حالت ترکیبی (Vex + لنترن)"
+                    serverName.setTextColor(p.accent)
+                    serverIp.text = "اول یک سرور انتخاب کن — اتصالش از لنترن می‌گذرد"
+                }
+                "auto" -> {
+                    serverName.text = "اتصال خودکار"
+                    serverName.setTextColor(p.accent)
+                    serverIp.text = "بهترین سرور رایگان خودش پیدا و انتخاب می‌شود"
+                }
+                else -> {
+                    serverName.text = "سروری انتخاب نشده"
+                    serverName.setTextColor(p.muted)
+                    serverIp.text = "برای انتخاب، کارت را لمس کن"
+                }
             }
             serverBadgeText.text = "—"
             serverBadge.background = UI.card(act, p, 10, fillColor = p.card2)

@@ -4,6 +4,12 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "انتشار عمومی (Release + آینه) — برای نسخه‌های تست خاموش بماند"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -247,7 +253,9 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
 
       - name: Publish GitHub Release (public download link)
-        if: github.ref == 'refs/heads/main'
+        # [V5.10-TEST] انتشار فقط با اجازه‌ی صریح (workflow_dispatch با publish_release=true)
+        # — نسخه‌های تست فقط artifact می‌شوند و هیچ Release/آینه‌ای ساخته نمی‌شود
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -278,7 +286,8 @@ jobs:
           پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
 
       - name: Refresh APK mirror on Cloudflare Pages (vex-gate2 /apk)
-        if: github.ref == 'refs/heads/main'
+        # [V5.10-TEST] مثل Release — فقط با انتشار صریح (نسخه‌ی تست آینه را دست نمی‌زند)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

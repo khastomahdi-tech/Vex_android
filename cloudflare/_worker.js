@@ -178,6 +178,49 @@ async function handleVex(request, env) {
     }
 
     // ---------------- App API (X-Vex-Key protected) ----------------
+    // [V5.10] رله‌ی ثبت‌نام WARP — /warp-reg
+    // اپ کلاینت (موتور «وارپ») وقتی مسیر مستقیم api.cloudflareclient.com روی اپراتور
+    // کاربر باز نباشد، ثبت‌نام را از همین رله می‌گذراند (کلید برنامه اجباری است).
+    // بدنه همان بدنه‌ی رسمی API وارپ است (کلید عمومی X25519 داخلش)؛ پاسخ هم بدون
+    // تغییر برمی‌گردد. هیچ داده‌ای در D1 ذخیره نمی‌شود.
+    if (path === "/warp-reg" && request.method === "POST") {
+      if (!env.APP_KEY || request.headers.get("X-Vex-Key") !== env.APP_KEY) {
+        return json({ ok: false, error: "unauthorized" }, 401);
+      }
+      let body;
+      try { body = await request.json(); } catch (e) { return json({ ok: false, error: "bad json" }, 400); }
+      if (!body || typeof body.key !== "string" || body.key.length < 40 || body.key.length > 60) {
+        return json({ ok: false, error: "invalid key" }, 400);
+      }
+      const regBody = JSON.stringify({
+        key: body.key,
+        install_id: "",
+        fcm_token: "",
+        warp_enabled: true,
+        tos: typeof body.tos === "string" ? body.tos : new Date().toISOString(),
+        model: typeof body.model === "string" ? body.model.slice(0, 40) : "PC",
+        serial_number: typeof body.serial_number === "string" ? body.serial_number.slice(0, 64) : "",
+        locale: "en_US",
+      });
+      try {
+        const r = await fetch("https://api.cloudflareclient.com/v0a2158/reg", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json; charset=UTF-8",
+            "User-Agent": "okhttp/3.12.1",
+            "CF-Client-Version": "a-6.10-2158",
+          },
+          body: regBody,
+        });
+        const text = await r.text();
+        return new Response(text, {
+          status: r.status,
+          headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+        });
+      } catch (e) {
+        return json({ ok: false, error: "relay failed: " + (e && e.message) }, 502);
+      }
+    }
     if (path.startsWith("/v1/")) {
       if (!env.APP_KEY || request.headers.get("X-Vex-Key") !== env.APP_KEY) {
         return json({ ok: false, error: "unauthorized" }, 401);
