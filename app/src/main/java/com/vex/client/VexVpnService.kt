@@ -149,6 +149,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     // ---- فال‌بک خودکار موتور اتصال (رفع «وصل شد ولی دیتا رد و بدل نشد» روی برخی اپراتورها) ----
     private var failStreak = 0
     private var fallbackDone = false
+    /** V5.13 — «فقط رایگان»: یک‌بار در هر جلسه‌ی شروع، زنجیره‌ی کامل دوباره امتحان می‌شود */
+    @Volatile private var freeChainRetried = false
 
     /** پنجره‌ی تثبیت: تا این لحظه، شکست تست‌ها شمرده نمی‌شود (الگوی v2rayNG — مزاحم تونل نشو) */
     @Volatile private var stabilizeUntilMs = 0L
@@ -222,6 +224,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             fallbackDone = false
             healStage = 0
             lastProbeBytes = 0
+            freeChainRetried = false // شروع تازه از سمت کاربر — تلاش دوباره‌ی زنجیره از نو مجاز
         }
         // V5.10 — موتورهای جدید: «warp» (کلودفلر وارپ بدون انتخاب سرور) و «smart»
         // (زنجیره‌ی هوشمند: لنترن ← وارپ ← بهترین سرور Vex — همه بی‌صدا)
@@ -281,41 +284,77 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     //  • فقط وقتی همه‌چیز «کلاً» نشد → فال‌بک نهایی و بی‌صدا به بهترین سرور خودمان.
                     val ctx = applicationContext
                     // زنجیره‌ی هوشمند: نردبان بوت لنترن سریع‌تر (۱ پروسه + ۱ بوت درون-پروسه‌ای)
-                    val port = bootLantern(ctx, gen, quick = engMode == "smart")
+                    // V5.13 — بوت اول برای «فقط رایگان» هم نردبان سریع است (شکست نباید دقیقه‌ها طول بکشد)
+                    val port = bootLantern(ctx, gen, quick = engMode == "smart" || engMode == "free")
                     if (port > 0 && verifyLanternPath(port)) {
                         lastEngineLantern = true // اطمینان: قطعِ بعدی، پروسه‌ی لنترن را هم جمع می‌کند
                         smartStage = "lantern"
                         if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
                         else ConfigBuilder.buildLanternProxy(port, config)
                     } else if (engMode == "free") {
-                        // V5.11 — زنجیره‌ی «فقط رایگان» (خواسته‌ی صریح کاربر):
-                        // لنترن نشد → وارپ → نشد → دوباره لنترن → نشد؟ خطا — و هیچ‌وقت سرور خودمان
-                        synchronized(stateLock) { if (gen != generation) return@thread }
-                        stopLanternQuiet()
-                        lastEngineLantern = false
-                        pushCoreLog("فقط‌رایگان: لنترن برقرار نشد — سوییچ بی‌صدای وارپ (کلودفلر)")
-                        if (!quiet) startForeground(NOTIF_ID, notif(
-                            "در حال اتصال... (فقط رایگان · وارپ)",
-                            "لنترن پاسخ نداد — تلاش با موتور وارپ"))
-                        val warpF = tryWarp(ctx, gen)
-                        if (warpF != null) {
-                            smartStage = "warp"
-                            ConfigBuilder.buildWarp(warpF, config)
+                        // V5.13 — زنجیره‌ی «فقط رایگان» — بازسازی‌شده (خواسته‌ی صریح کاربر: «وصل بشه»):
+                        //  A) لنترن (بوت سریع + اگر پورت بود ولی مسیر مرده، یک احیای درون-پروسه‌ای)
+                        //  B) وارپ (کلودفلر — ثبت‌نام کش‌شده یا تازه)
+                        //  C) لنترن دوباره — بوت کاملاً تازه = انتخاب سرور جدید از شبکه‌ی ابری لنترن
+                        //  D) وارپ دوباره — با ثبت‌نام کاملاً نو (کلید و endpoint جدید)
+                        //  هیچ مرحله‌ای به سرورهای خودمان نمی‌رود (قانون صریح کاربر)
+                        // اگر A تا D کامل نشد، catch یک‌بار کل زنجیره را از نو اجرا می‌کند (freeChainRetried)
+                        var revived = 0
+                        if (port > 0) {
+                            // پورت باز بود ولی مسیر مرده — یک احیای درون-پروسه‌ای با کانفیگ تازه
+                            revived = reviveLanternAndVerify(ctx, gen)
+                        }
+                        if (revived > 0) {
+                            lastEngineLantern = true
+                            smartStage = "lantern"
+                            ConfigBuilder.buildLanternProxy(revived, config)
                         } else {
-                            synchronized(stateLock) { if (gen != generation) return@thread }
-                            pushCoreLog("فقط‌رایگان: وارپ هم برقرار نشد — تلاش دوباره با لنترن")
-                            if (!quiet) startForeground(NOTIF_ID, notif(
-                                "در حال اتصال... (فقط رایگان · لنترن)",
-                                "وارپ پاسخ نداد — تلاش دوباره با لنترن"))
-                            val port2 = bootLantern(ctx, gen, quick = true)
-                            if (port2 > 0 && verifyLanternPath(port2)) {
+                            stopLanternQuiet()
+                            lastEngineLantern = false
+
+                            fun freeWarp(freshReg: Boolean): Boolean {
+                                synchronized(stateLock) { if (gen != generation) return false }
+                                pushCoreLog(if (freshReg) "فقط‌رایگان: تلاش دوباره‌ی وارپ با ثبت‌نام کاملاً نو" else "فقط‌رایگان: لنترن برقرار نشد — سوییچ بی‌صدای وارپ (کلودفلر)")
+                                if (!quiet) startForeground(NOTIF_ID, notif(
+                                    "در حال اتصال... (فقط رایگان · وارپ)",
+                                    if (freshReg) "ثبت‌نام جدید وارپ و تلاش دوباره..." else "لنترن پاسخ نداد — تلاش با موتور وارپ"))
+                                val reg = try {
+                                    WarpEngine.ensureRegistration(ctx, forceFresh = freshReg)
+                                } catch (t: Throwable) {
+                                    Log.e(TAG, "warp registration failed: ${t.message}")
+                                    pushCoreLog("وارپ: ثبت‌نام ناموفق (${t.message})")
+                                    null
+                                } ?: return false
+                                lastEngineLantern = false
+                                smartStage = "warp"
+                                ConfigBuilder.buildWarp(reg, config)
+                                return true
+                            }
+
+                            fun freeLanternFresh(): Boolean {
+                                synchronized(stateLock) { if (gen != generation) return false }
+                                stopLanternQuiet()
+                                pushCoreLog("فقط‌رایگان: تلاش دوباره‌ی لنترن با بوت کاملاً تازه (سرور ابری جدید)")
+                                if (!quiet) startForeground(NOTIF_ID, notif(
+                                    "در حال اتصال... (فقط رایگان · لنترن)",
+                                    "لنترن دوباره با انتخاب سرور تازه از شبکه‌ی ابری..."))
+                                val p = lanternReady(ctx, gen)
+                                if (p <= 0) return false
                                 lastEngineLantern = true
                                 smartStage = "lantern"
-                                ConfigBuilder.buildLanternProxy(port2, config)
-                            } else {
-                                stopLanternQuiet()
-                                throw Exception(
-                                    "هیچ موتور رایگانی (لنترن/وارپ) برقرار نشد — طبق تنظیم «فقط رایگان»، به سرورهای خودمان وصل نمی‌شویم؛ چند لحظه بعد دوباره امتحان کن یا موتور «هوشمند» را برگزین")
+                                ConfigBuilder.buildLanternProxy(p, config)
+                                return true
+                            }
+
+                            if (!freeWarp(freshReg = false)) {
+                                if (!freeLanternFresh()) {
+                                    if (!freeWarp(freshReg = true)) {
+                                        stopLanternQuiet()
+                                        lastEngineLantern = false
+                                        throw Exception(
+                                            "هیچ موتور رایگانی (لنترن/وارپ) با ۴ تلاش بی‌صدا برقرار نشد — طبق تنظیم «فقط رایگان» به سرورهای خودمان وصل نمی‌شویم؛ یک‌بار دیگر پاور را بزن یا موتور «هوشمند» را برگزین")
+                                    }
+                                }
                             }
                         }
                     } else if (engMode == "smart") {
@@ -423,6 +462,26 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 if (gen == generation) {
+                    // V5.13 — «فقط رایگان»: پیش از نمایش خطا، کل زنجیره یک‌بار از نو اجرا می‌شود —
+                    // روی شبکه‌های ناپایدار، دور دوم لنترن/وارپ معمولاً جا می‌افتد
+                    if (!quiet && engineOf(config) == "free" && !freeChainRetried) {
+                        freeChainRetried = true
+                        pushCoreLog("فقط‌رایگان: زنجیره کامل نشد — تلاش کامل دوباره به‌صورت خودکار...")
+                        try {
+                            startForeground(NOTIF_ID, notif(
+                                "در حال اتصال... (فقط رایگان · تلاش دوباره)",
+                                "کل زنجیره‌ی رایگان از نو اجرا می‌شود..."))
+                        } catch (_: Throwable) {}
+                        try { tun?.close() } catch (_: Exception) {}
+                        tun = null
+                        try { engine?.stop() } catch (_: Exception) {}
+                        engine = null
+                        stopLanternQuiet()
+                        try { Thread.sleep(4000) } catch (_: InterruptedException) {}
+                        synchronized(stateLock) { if (gen != generation) return@thread }
+                        startVpn(config)
+                        return@thread
+                    }
                     if (quiet && !isRetry) {
                         // یک تلاش دوباره برای نوسازی بی‌صدا — قطع نشدن کاربر به‌خاطر لرزش شروع
                         try { Thread.sleep(3000) } catch (_: InterruptedException) {}
@@ -1021,6 +1080,34 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     /** مرحله‌ی فعلی زنجیره‌ی هوشمند: lantern | warp | vex — برای اعلان/تشخیص */
     @Volatile
     private var smartStage: String = "lantern"
+
+    /**
+     * V5.13 — احیای درون-پروسه‌ای + تأیید مسیر: وقتی بوت لنترن پورت داده ولی مسیر مرده است
+     * (پورت باز ≠ مسیر سالم)، یک بوت مجدد درون-پروسه‌ای با کانفیگ تازه (انتخاب سرور ابری
+     * جدید) انجام می‌شود و مسیر دوباره تأیید می‌شود. خروجی: پورت سالم یا 0.
+     */
+    private fun reviveLanternAndVerify(ctx: android.content.Context, gen: Int): Int {
+        synchronized(stateLock) { if (gen != generation) return 0 }
+        pushCoreLog("لنترن: پورت باز شد ولی مسیر مرده بود — احیای بی‌صدای درون-پروسه‌ای (سرور ابری جدید)")
+        safeStartLanternService(ctx, LanternService.ACTION_RESTART)
+        val p = awaitLanternBoot(ctx, gen, 45_000L)
+        if (p <= 0) return 0
+        return if (verifyLanternPath(p)) p else 0
+    }
+
+    /**
+     * V5.13 — «لنترن آماده» با بودجه‌ی مشخص: بوت سریع → تأیید مسیر → در صورت مسیر مرده،
+     * یک احیای درون-پروسه‌ای → تأیید دوباره. خروجی: پورت سالم یا 0 (برای زنجیره‌ی فقط‌رایگان).
+     */
+    private fun lanternReady(ctx: android.content.Context, gen: Int): Int {
+        val p = bootLantern(ctx, gen, quick = true)
+        if (p > 0) {
+            if (verifyLanternPath(p)) return p
+            val r = reviveLanternAndVerify(ctx, gen)
+            if (r > 0) return r
+        }
+        return 0
+    }
 
     /**
      * سیاست بوت لنترن V5.9 — ریشه‌ی «Unable to launch app ... process is bad»:

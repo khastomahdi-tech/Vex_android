@@ -529,11 +529,17 @@ class MainActivity : ComponentActivity() {
             askNotifPermissionOnce()
 
             // پیش‌فرض اولین ورود — بهترین پینگ بین سرورهای رایگان (اگر چیزی انتخاب نباشد)
-            ensureDefaultServer()
+            // V5.13 — در موتور «فقط رایگان» هیچ سروری انتخاب نمی‌شود (خواسته‌ی صریح کاربر)
+            if (store.settings.engine != "free") ensureDefaultServer()
 
             // اتصال خودکار
             if (store.settings.autoConnect && connectionState == "stopped") {
-                store.selected()?.let { s ->
+                // V5.13 — «فقط رایگان»: اتصال همیشه با کانفیگ شبه‌ساز موتور — نه سرور انتخابی
+                if (store.settings.engine == "free") {
+                    main.postDelayed({
+                        if (connectionState == "stopped") requestStart(pseudoServerForEngine("free"))
+                    }, 350)
+                } else store.selected()?.let { s ->
                     main.postDelayed({ if (connectionState == "stopped") requestStart(s) }, 350)
                 }
             }
@@ -1133,10 +1139,17 @@ class MainActivity : ComponentActivity() {
             main.postDelayed({ if (connectionState == "stopped") startAutoConnectBest() }, 350)
             return
         }
+        // V5.13 — «فقط رایگان»: بدون هیچ سروری — کانفیگ شبه‌ساز موتور
+        if (store.settings.engine == "free") {
+            main.postDelayed({
+                if (connectionState == "stopped") requestStart(pseudoServerForEngine("free"))
+            }, 350)
+            return
+        }
         val s = store.selected() ?: ensureDefaultServer() ?: run {
-            // موتورهای بدون سرور (لنترن/وارپ/هوشمند/فقط‌رایگان) — کانفیگ شبه‌ساز
+            // موتورهای بدون سرور (لنترن/وارپ/هوشمند) — کانفیگ شبه‌ساز
             when (store.settings.engine) {
-                "lantern", "warp", "smart", "free" -> pseudoServerForEngine(store.settings.engine)
+                "lantern", "warp", "smart" -> pseudoServerForEngine(store.settings.engine)
                 else -> null
             }
         } ?: return
@@ -1160,6 +1173,9 @@ class MainActivity : ComponentActivity() {
      */
     private fun ensureDefaultServer(): Server? {
         if (!::store.isInitialized) return null
+        // V5.13 — «فقط رایگان»: هیچ سروری به‌عنوان پیش‌فرض انتخاب نمی‌شود؛
+        // اتصال کاملاً بدون سرور است (لنترن ← وارپ — شبکه‌ی رایگان خود موتورها)
+        if (store.settings.engine == "free") return null
         if (store.selected() != null) return store.selected()
         val alive = store.freeServers.filter { it.ping >= 0 }
         val pool = alive.ifEmpty { store.freeServers }

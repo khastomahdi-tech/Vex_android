@@ -44,7 +44,7 @@ data class VexSettings(
     var pinLen: Int = 0,                // طول رمز (برای ارسال خودکار کیبورد اختصاصی)
     var keepScreenOn: Boolean = false,  // روشن ماندن صفحه در حین اتصال
     var freeRefreshSec: Int = 60,       // بازه‌ی به‌روزرسانی خودکار سرورهای رایگان (۰ = فقط هنگام باز شدن)
-    var engine: String = "lantern",        // حالت اتصال (پیش‌فرض V5.7: لنترن — بدون انتخاب سرور): auto (استخر خودکار) | vex | hybrid | lantern (لنترن)
+    var engine: String = "free",         // V5.13 — پیش‌فرض ورود اول: «فقط رایگان» — بدون انتخاب سرور (auto | vex | hybrid | lantern | warp | smart | free)
     var relockOnExit: Boolean = true,   // بعد از ترک برنامه (بیش از چند ثانیه) دوباره رمز بخواهد
     var handoverReload: Boolean = true  // نوسازی بی‌صدای هسته هنگام تغییر شبکه (WiFi↔موبایل)
 )
@@ -203,6 +203,16 @@ class ServersStore(context: Context) {
             prefs.edit().putBoolean("engine_default_lantern_v57", true).apply()
             if (settings.engine == "auto") {
                 settings.engine = "lantern"
+                saveSettings()
+            }
+        }
+        // مهاجرت v5.13 (درخواست صریح کاربر): پیش‌فرض موتور اتصال «فقط رایگان» است —
+        // نصب‌هایی که هنوز روی پیش‌فرض قدیمی «لنترن» هستند یک‌بار به «فقط رایگان»
+        // منتقل می‌شوند؛ انتخاب‌های صریح دیگر (vex/hybrid/warp/smart/auto) محترم است.
+        if (!prefs.getBoolean("engine_default_free_v513", false)) {
+            prefs.edit().putBoolean("engine_default_free_v513", true).apply()
+            if (settings.engine == "lantern") {
+                settings.engine = "free"
                 saveSettings()
             }
         }

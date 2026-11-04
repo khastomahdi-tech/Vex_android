@@ -435,6 +435,9 @@ class HomeUi(private val act: MainActivity) {
     }
 
     /** دیالوگ انتخاب موتور — چهار حالت با توضیح (بدون ایموجی — آیکون‌های SVG) */
+    /** V5.13 — بازکردن انتخابگر موتور از بیرون (کارت سرور در حالت فقط‌رایگان) */
+    fun openEnginePicker() = showEnginePicker()
+
     private fun showEnginePicker() {
         val ctx = act
         val col = UI.col(ctx)
@@ -476,7 +479,7 @@ class HomeUi(private val act: MainActivity) {
         opt("sun", "لنترن (Lantern)", "موتور رسمی لنترن — بدون انتخاب سرور، خودش وصل می‌شود", "lantern")
         opt("globe", "وارپ (Cloudflare)", "تونل رایگان کلودفلر — بدون انتخاب سرور، هسته‌ی وایرگارد", "warp")
         opt("link", "ترکیبی (Vex + لنترن)", "اتصال به سرور از داخل تونل لنترن — ضد فیلترینگ", "hybrid")
-        opt("crown", "فقط رایگان (بدون سرور خودمان)", "لنترن ← وارپ ← لنترن — هیچ‌وقت به سرورهای خودمان وصل نمی‌شود", "free")
+        opt("crown", "فقط رایگان (بدون سرور خودمان)", "لنترن ← وارپ ← لنترن ← وارپ — تا وصل‌شدن بی‌صدا تلاش می‌کند؛ هیچ سروری از خودمان استفاده نمی‌شود", "free")
 
         val titleView = UI.label(ctx, "انتخاب موتور اتصال", 17f, p.text, bold = true)
         titleView.setPadding(UI.dp(ctx, 22), UI.dp(ctx, 18), UI.dp(ctx, 22), UI.dp(ctx, 4))
@@ -501,6 +504,12 @@ class HomeUi(private val act: MainActivity) {
         if (act.store.settings.engine == which) return
         act.store.settings.engine = which
         act.store.saveSettings()
+        // V5.13 — ورود به «فقط رایگان» = خروج از حالت سرور‌محور: انتخاب سرور پاک می‌شود
+        // تا هیچ سروری (از جمله سرورهای رایگان خودمان) نه نشان داده شود نه استفاده
+        if (which == "free") {
+            act.store.select(-1)
+            act.serversUi.render()
+        }
         renderEngineBar()
         renderServerCard()
         UI.toast(
@@ -510,7 +519,7 @@ class HomeUi(private val act: MainActivity) {
                 "lantern" -> "موتور لنترن فعال شد — بدون نیاز به سرور، خودش قوی‌ترین مسیر را پیدا می‌کند"
                 "warp" -> "موتور وارپ فعال شد — تونل رایگان کلودفلر، بدون انتخاب سرور"
                 "smart" -> "موتور هوشمند فعال شد — لنترن ← وارپ ← بهترین سرور، همه بی‌صدا"
-                "free" -> "موتور فقط‌رایگان فعال شد — لنترن ← وارپ؛ هیچ سروری از خودمان استفاده نمی‌شود"
+                "free" -> "موتور فقط‌رایگان فعال شد — بدون انتخاب سرور؛ لنترن ← وارپ تا وصل‌شدن بی‌صدا تلاش می‌کند و هیچ سروری از خودمان استفاده نمی‌شود"
                 "hybrid" -> "حالت ترکیبی فعال شد — اتصال به سرور از داخل تونل لنترن عبور می‌کند؛ ضد فیلترینگ و پایدارتر"
                 else -> "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
             }
@@ -815,7 +824,11 @@ class HomeUi(private val act: MainActivity) {
         serverCard = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(UI.dp(ctx, 14), UI.dp(ctx, 11), UI.dp(ctx, 14), UI.dp(ctx, 12))
-            setOnClickListener { act.gotoServers() }
+            // V5.13 — در حالت «فقط رایگان» لمس کارت = انتخاب موتور (چون سروری برای انتخاب نیست)
+            setOnClickListener {
+                if (act.store.settings.engine == "free") openEnginePicker()
+                else act.gotoServers()
+            }
         }
 
         serverLabel = UI.label(ctx, "سرور انتخابشده", 12f, p.muted)
@@ -1026,8 +1039,24 @@ class HomeUi(private val act: MainActivity) {
     }
 
     fun renderServerCard() {
+        // V5.13 — «فقط رایگان»: کارت همیشه وضعیت موتور را نشان می‌دهد — حتی اگر قبلاً
+        // سروری انتخاب شده باشد؛ در این حالت هیچ سروری انتخاب/نمایش داده نمی‌شود
+        if (act.store.settings.engine == "free") {
+            serverLabel.text = "موتور اتصال"
+            serverName.text = "اتصال فقط‌رایگان"
+            serverName.setTextColor(p.accent)
+            serverIp.text = "بدون انتخاب سرور — لنترن ← وارپ — پاور را بزن"
+            serverBadgeText.text = "—"
+            serverBadge.background = UI.card(act, p, 10, fillColor = p.card2)
+            serverBadgeText.setTextColor(p.muted)
+            serverPing.text = "—"
+            serverPing.setTextColor(p.muted)
+            serverPingIc.iconColor = p.muted
+            return
+        }
         val s = act.store.selected()
         if (s == null) {
+            serverLabel.text = "سرور انتخابشده"
             when (act.store.settings.engine) {
                 "lantern" -> {
                     serverName.text = "اتصال با لنترن"
@@ -1073,6 +1102,7 @@ class HomeUi(private val act: MainActivity) {
             serverPingIc.iconColor = p.muted
             return
         }
+        serverLabel.text = "سرور انتخابشده"
         serverName.text = s.name
         serverName.setTextColor(p.text)
         if (act.store.isFree(s)) {

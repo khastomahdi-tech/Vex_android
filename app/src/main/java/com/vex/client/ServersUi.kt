@@ -63,6 +63,9 @@ class ServersUi(private val act: MainActivity) {
     private val checked = mutableSetOf<Int>()
     private var p: Palette = Themes.dark()
 
+    /** نوار تب‌ها — در حالت «فقط رایگان» کل صفحه جایگزین می‌شود و تب‌ها پنهان‌اند */
+    private lateinit var tabsRow: LinearLayout
+
     fun build(): View {
         val ctx = act
         p = Themes.resolve(ctx, act.store.settings.theme)
@@ -95,7 +98,7 @@ class ServersUi(private val act: MainActivity) {
         content.addView(top)
 
         // ---- تب‌ها: سرورهای من | سرورهای رایگان
-        val tabsRow = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 8), 0, 0) }
+        tabsRow = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 8), 0, 0) }
         tabMine = tabPill("سرورهای من")
         tabFree = tabPill("سرورهای رایگان")
         tabsRow.addView(tabMine, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -245,9 +248,11 @@ class ServersUi(private val act: MainActivity) {
 
     /** وقتی سروری انتخاب شد: نوار انتخاب می‌آید و دکمه‌ی + پنهان می‌شود */
     private fun syncSelectionMode() {
+        // V5.13 — حالت «فقط رایگان»: نه افزودن سرور نه انتخاب — همه‌چیز پنهان
+        val freeOnly = act.store.settings.engine == "free"
         val selecting = tab == 0 && checked.isNotEmpty()
-        bottomBar.visibility = if (selecting) View.VISIBLE else View.GONE
-        fab.visibility = if (tab == 0 && !selecting) View.VISIBLE else View.GONE
+        bottomBar.visibility = if (selecting && !freeOnly) View.VISIBLE else View.GONE
+        fab.visibility = if (tab == 0 && !selecting && !freeOnly) View.VISIBLE else View.GONE
         if (selecting) selCount.text = "${checked.size} سرور انتخاب شد"
     }
 
@@ -275,6 +280,14 @@ class ServersUi(private val act: MainActivity) {
         listContainer.removeAllViews()
         val ctx = act
         syncSelectionMode()
+        // V5.13 — موتور «فقط رایگان»: هیچ لیستی از سرورها (داد/داکوت و...) نشان داده نمی‌شود؛
+        // کل صفحه یک کارت توضیح است — اتصال بدون انتخاب سرور انجام می‌شود
+        if (act.store.settings.engine == "free") {
+            renderFreeOnly()
+            return
+        }
+        tabsRow.visibility = View.VISIBLE
+        timerBtn.visibility = View.VISIBLE
         if (tab == 0) renderMine() else renderFree()
 
         // تمپ چیپ‌های تب
@@ -296,6 +309,70 @@ class ServersUi(private val act: MainActivity) {
                         "حالت انتخاب: لمس = افزودن/حذف از انتخاب"
                 } else
                     "لمس = اتصال · لیست هر دقیقه خودکار به‌روزرسانی می‌شود"
+            }
+        }
+    }
+
+    /**
+     * V5.13 — نمای صفحه‌ی سرورها در حالت «فقط رایگان»:
+     * تب‌ها و لیست سرورها (از جمله سرورهای رایگان خودمان) کاملاً پنهان می‌شود و
+     * یک کارت توضیح جای همه را می‌گیرد — «اتصال بدون انتخاب سرور».
+     */
+    private fun renderFreeOnly() {
+        val ctx = act
+        title.text = "فقط رایگان"
+        tabsRow.visibility = View.GONE
+        timerBtn.visibility = View.GONE
+        emptyHint.visibility = View.GONE
+        freeProgress.visibility = View.GONE
+
+        val card = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        card.setPadding(UI.dp(ctx, 22), UI.dp(ctx, 26), UI.dp(ctx, 22), UI.dp(ctx, 24))
+        card.background = UI.card(ctx, p, 24, stroke = UI.alpha(p.accent, 0.55f), fillColor = UI.alpha(p.accent, 0.06f), strokeW = 1.5f)
+
+        val icBox = FrameLayout(ctx)
+        val icBack = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(UI.alpha(p.accent, 0.16f))
+            setStroke(UI.dp(ctx, 1), UI.alpha(p.accent, 0.5f))
+        }
+        icBox.background = icBack
+        val ic = IconView(ctx, "crown").apply { iconColor = p.accent; bold = true }
+        icBox.addView(ic, FrameLayout.LayoutParams(
+            UI.dp(ctx, 26), UI.dp(ctx, 26), Gravity.CENTER))
+        val icRow = UI.row(ctx).apply { gravity = Gravity.CENTER }
+        icRow.addView(icBox, LinearLayout.LayoutParams(UI.dp(ctx, 56), UI.dp(ctx, 56)))
+        card.addView(icRow)
+
+        card.addView(UI.label(ctx, "حالت فقط رایگان فعال است", 17f, p.text, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, UI.dp(ctx, 14), 0, 0)
+        })
+        card.addView(UI.label(ctx,
+            "در این حالت هیچ سروری انتخاب یا استفاده نمی‌شود — نه سرورهای خودت، نه سرورهای رایگان اضافه‌شده. " +
+                    "اتصال مستقیم از شبکه‌ی رایگان خود موتورها برقرار می‌شود: لنترن ← وارپ ← لنترن؛ تا وصل شود بی‌صدا تلاش می‌کند.",
+            13.5f, p.muted).apply {
+            gravity = Gravity.CENTER
+            setPadding(UI.dp(ctx, 6), UI.dp(ctx, 10), UI.dp(ctx, 6), 0)
+        })
+
+        val btn = UI.softButton(ctx, "انتخاب موتور دیگر", p)
+        btn.setOnClickListener { act.homeUi.openEnginePicker() }
+        val btnRow = UI.row(ctx).apply { setPadding(0, UI.dp(ctx, 18), 0, 0) }
+        btnRow.addView(btn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        card.addView(btnRow)
+
+        listContainer.addView(card, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = UI.dp(ctx, 10)
+        })
+
+        // متن راهنمای بالای کارت
+        for (i in 0 until content.childCount) {
+            val v = content.getChildAt(i)
+            if (v is TextView && v.tag == "hint") {
+                v.text = "بدون انتخاب سرور — موتور خودش از شبکه‌ی رایگان وصل می‌شود"
             }
         }
     }
