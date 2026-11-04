@@ -199,12 +199,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /** true یعنی باید همین الان پرسیده شود (معاف نیستیم و سهمیه‌ی پرسش باقی است) */
-    private fun batteryOptimizationShouldAsk(): Boolean = try {
-        val pm = getSystemService(android.os.PowerManager::class.java) ?: return false
-        if (Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(packageName)) return false
-        val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
-        prefs.getInt("battery_ask_count", 0) < 2
-    } catch (_: Throwable) { false }
+    private fun batteryOptimizationShouldAsk(): Boolean {
+        return try {
+            val pm = getSystemService(android.os.PowerManager::class.java) ?: return false
+            if (Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(packageName)) return false
+            val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
+            prefs.getInt("battery_ask_count", 0) < 2
+        } catch (_: Throwable) { false }
+    }
 
     private fun markBatteryAsked() {
         try {
