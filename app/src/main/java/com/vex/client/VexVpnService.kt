@@ -225,7 +225,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
         // V5.10 — موتورهای جدید: «warp» (کلودفلر وارپ بدون انتخاب سرور) و «smart»
         // (زنجیره‌ی هوشمند: لنترن ← وارپ ← بهترین سرور Vex — همه بی‌صدا)
-        val useLanternProc = engMode == "lantern" || engMode == "hybrid" || engMode == "smart"
+        // V5.11 — موتور «free»: فقط موتورهای رایگان (لنترن ← وارپ ← لنترن) — هرگز سرورهای خودمان
+        val useLanternProc = engMode == "lantern" || engMode == "hybrid" || engMode == "smart" || engMode == "free"
         lastEngineLantern = useLanternProc
         if (!quiet) {
             startForeground(NOTIF_ID, notif(
@@ -234,6 +235,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                     "lantern" -> "در حال اتصال... (لنترن)"
                     "warp" -> "در حال اتصال... (وارپ)"
                     "smart" -> "در حال اتصال... (هوشمند)"
+                    "free" -> "در حال اتصال... (فقط رایگان)"
                     else -> "در حال اتصال..."
                 },
                 when {
@@ -285,6 +287,37 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         smartStage = "lantern"
                         if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
                         else ConfigBuilder.buildLanternProxy(port, config)
+                    } else if (engMode == "free") {
+                        // V5.11 — زنجیره‌ی «فقط رایگان» (خواسته‌ی صریح کاربر):
+                        // لنترن نشد → وارپ → نشد → دوباره لنترن → نشد؟ خطا — و هیچ‌وقت سرور خودمان
+                        synchronized(stateLock) { if (gen != generation) return@thread }
+                        stopLanternQuiet()
+                        lastEngineLantern = false
+                        pushCoreLog("فقط‌رایگان: لنترن برقرار نشد — سوییچ بی‌صدای وارپ (کلودفلر)")
+                        if (!quiet) startForeground(NOTIF_ID, notif(
+                            "در حال اتصال... (فقط رایگان · وارپ)",
+                            "لنترن پاسخ نداد — تلاش با موتور وارپ"))
+                        val warpF = tryWarp(ctx, gen)
+                        if (warpF != null) {
+                            smartStage = "warp"
+                            ConfigBuilder.buildWarp(warpF, config)
+                        } else {
+                            synchronized(stateLock) { if (gen != generation) return@thread }
+                            pushCoreLog("فقط‌رایگان: وارپ هم برقرار نشد — تلاش دوباره با لنترن")
+                            if (!quiet) startForeground(NOTIF_ID, notif(
+                                "در حال اتصال... (فقط رایگان · لنترن)",
+                                "وارپ پاسخ نداد — تلاش دوباره با لنترن"))
+                            val port2 = bootLantern(ctx, gen, quick = true)
+                            if (port2 > 0 && verifyLanternPath(port2)) {
+                                lastEngineLantern = true
+                                smartStage = "lantern"
+                                ConfigBuilder.buildLanternProxy(port2, config)
+                            } else {
+                                stopLanternQuiet()
+                                throw Exception(
+                                    "هیچ موتور رایگانی (لنترن/وارپ) برقرار نشد — طبق تنظیم «فقط رایگان»، به سرورهای خودمان وصل نمی‌شویم؛ چند لحظه بعد دوباره امتحان کن یا موتور «هوشمند» را برگزین")
+                            }
+                        }
                     } else if (engMode == "smart") {
                         // زنجیره‌ی هوشمند — مرحله‌ی بعدی: وارپ (کلودفلر، بدون انتخاب سرور)
                         synchronized(stateLock) { if (gen != generation) return@thread }
@@ -386,7 +419,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 startHandoverWatcher(gen)
                 // V5.11 — نگهبان سریع حیات پروسه‌ی لنترن (فقط موتورهای خانواده‌ی لنترن؛ وارپ ندارند)
                 val engNow = engineOf(lastPayload)
-                if (engNow == "lantern" || engNow == "hybrid" || engNow == "smart") startLanternGuard(gen)
+                if (engNow == "lantern" || engNow == "hybrid" || engNow == "smart" || engNow == "free") startLanternGuard(gen)
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 if (gen == generation) {
@@ -494,6 +527,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                                 // فال‌بک نهایی به بهترین سرور خودمان (خواسته‌ی صریح کاربر، بی‌صدا)
                                 4 -> when (engineOf(lastPayload)) {
                                     "lantern", "smart", "warp" -> fallbackToBestServerQuiet()
+                                    // V5.11 — «فقط رایگان» هرگز به سرورهای خودمان نمی‌رود؛
+                                    // زنجیره از نو (لنترن ← وارپ ← لنترن) اجرا می‌شود
+                                    "free" -> smartChainReboot()
                                     else -> {}
                                 }
                                 // مرحله‌ی ۵ به بعد: خودکار نمی‌چرخیم؛ فقط پایش —
@@ -578,7 +614,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     private fun healSwitchEngine() {
         when (engineOf(lastPayload)) {
             "lantern" -> restartLanternQuiet()
-            "smart" -> smartChainReboot()
+            "smart", "free" -> smartChainReboot()
             "warp" -> fallbackToBestServerQuiet()
             else -> maybeFallbackEngine()
         }
@@ -603,9 +639,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
     }
 
-    /** موتورهایی که بدون انتخاب سرور کار می‌کنند (لنترن/هوشمند/ترکیبی/وارپ) */
+    /** موتورهایی که بدون انتخاب سرور کار می‌کنند (لنترن/هوشمند/ترکیبی/وارپ/فقط‌رایگان) */
     private fun String.isLanternFamily(): Boolean =
-        this == "lantern" || this == "smart" || this == "hybrid" || this == "warp"
+        this == "lantern" || this == "smart" || this == "hybrid" || this == "warp" || this == "free"
 
     /** خواندن موتور از payload — "lantern" | "hybrid" | "auto" | "" (مستقیم) */
     private fun engineOf(payload: String?): String = try {
@@ -868,7 +904,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         val engMode = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
         // لنترن/هوشمند/وارپ شبکه‌ی زیرین را خودشان مدیریت می‌کنند (flashlight و wireguard-go
         // هنداور خودشان را دارند) — نوسازی هسته اینجا لازم نیست
-        if (engMode == "lantern" || engMode == "hybrid" || engMode == "smart" || engMode == "warp") return
+        if (engMode == "lantern" || engMode == "hybrid" || engMode == "smart" || engMode == "warp" || engMode == "free") return
         // تنظیم کاربر: اگر خاموش باشد فقط شبکه‌ی زیرین معرفی می‌شود و هسته دست نمی‌خورد
         if (!handoverReload) return
         Log.w(TAG, "underlying network handover — quiet core reload (v2rayNG reloadCore pattern)")
@@ -1132,7 +1168,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 }
                 synchronized(stateLock) { if (gen != generation) return@thread }
                 val eng = engineOf(lastPayload)
-                if (eng != "lantern" && eng != "hybrid" && eng != "smart") return@thread
+                if (eng != "lantern" && eng != "hybrid" && eng != "smart" && eng != "free") return@thread
                 if (uiState != "connected") continue
                 // بوت در جریان است؟ این دور را بی‌اثر رد کن
                 val st = LanternEngine.readState(applicationContext)

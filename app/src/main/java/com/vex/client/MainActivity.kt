@@ -1046,9 +1046,9 @@ class MainActivity : ComponentActivity() {
         when (connectionState) {
             "connected", "connecting" -> requestStop()
             else -> {
-                // موتورهای بدون انتخاب سرور (لنترن/وارپ/هوشمند): کانفیگ شبه‌ساز می‌آید
+                // موتورهای بدون انتخاب سرور (لنترن/وارپ/هوشمند/فقط‌رایگان): کانفیگ شبه‌ساز می‌آید
                 when (store.settings.engine) {
-                    "lantern", "warp", "smart" -> {
+                    "lantern", "warp", "smart", "free" -> {
                         requestStart(pseudoServerForEngine(store.settings.engine))
                         return
                     }
@@ -1134,9 +1134,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         val s = store.selected() ?: ensureDefaultServer() ?: run {
-            // موتورهای بدون سرور (لنترن/وارپ/هوشمند) — کانفیگ شبه‌ساز
+            // موتورهای بدون سرور (لنترن/وارپ/هوشمند/فقط‌رایگان) — کانفیگ شبه‌ساز
             when (store.settings.engine) {
-                "lantern", "warp", "smart" -> pseudoServerForEngine(store.settings.engine)
+                "lantern", "warp", "smart", "free" -> pseudoServerForEngine(store.settings.engine)
                 else -> null
             }
         } ?: return
@@ -1145,10 +1145,11 @@ class MainActivity : ComponentActivity() {
         }, 350)
     }
 
-    /** کانفیگ شبه‌ساز موتورهای بدون سرور (لنترن/وارپ/هوشمند) — هرگز به هسته‌ی واقعی نمی‌رود */
+    /** کانفیگ شبه‌ساز موتورهای بدون سرور (لنترن/وارپ/هوشمند/فقط‌رایگان) — هرگز به هسته‌ی واقعی نمی‌رود */
     private fun pseudoServerForEngine(engine: String): Server = when (engine) {
         "warp" -> Server(-98, "وارپ", "warp", "warp://engine")
         "smart" -> Server(-98, "هوشمند", "smart", "smart://engine")
+        "free" -> Server(-98, "فقط رایگان", "free", "free://engine")
         else -> Server(-98, "لنترن", "lantern", "lantern://engine")
     }
 
@@ -1217,9 +1218,9 @@ class MainActivity : ComponentActivity() {
             gotoSettings()
             return
         }
-        // قانون V5.7 + V5.10: وقتی کاربر یک «سرور واقعی» انتخاب می‌کند، اتصال روی موتور Vex می‌آید.
-        // موتورهای بدون سرور (لنترن/وارپ/هوشمند) فقط از پاور (کانفیگ شبه‌ساز id=-98) اجرا می‌شوند.
-        if (store.settings.engine in setOf("lantern", "warp", "smart") && s.id != -98) {
+        // قانون V5.7 + V5.10 + V5.11: وقتی کاربر یک «سرور واقعی» انتخاب می‌کند، اتصال روی موتور Vex می‌آید.
+        // موتورهای بدون سرور (لنترن/وارپ/هوشمند/فقط‌رایگان) فقط از پاور (کانفیگ شبه‌ساز id=-98) اجرا می‌شوند.
+        if (store.settings.engine in setOf("lantern", "warp", "smart", "free") && s.id != -98) {
             store.settings.engine = "vex"
             store.saveSettings()
             if (::homeUi.isInitialized) {
@@ -1239,6 +1240,7 @@ class MainActivity : ComponentActivity() {
             "lantern" -> realLanternPayload(payload0)
             "warp" -> try { org.json.JSONObject(payload0).put("engine", "warp").toString() } catch (_: Throwable) { payload0 }
             "smart" -> try { org.json.JSONObject(payload0).put("engine", "smart").toString() } catch (_: Throwable) { payload0 }
+            "free" -> try { org.json.JSONObject(payload0).put("engine", "free").toString() } catch (_: Throwable) { payload0 }
             "hybrid" -> try { org.json.JSONObject(payload0).put("engine", "hybrid").toString() } catch (_: Throwable) { payload0 }
             else -> payload0
         }

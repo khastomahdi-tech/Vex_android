@@ -155,6 +155,7 @@ class ServersStore(context: Context) {
                     "auto" -> "auto"       // اتصال خودکار: استخر سرورها + انتخاب/سوییچ خودکار
                     "warp" -> "warp"       // V5.10 — وارپ: تونل رایگان کلودفلر، بدون انتخاب سرور
                     "smart" -> "smart"     // V5.10 — هوشمند: زنجیره‌ی لنترن ← وارپ ← بهترین سرور
+                    "free" -> "free"       // V5.11 — فقط رایگان: لنترن ← وارپ — هیچ سروری از خودمان
                     else -> "vex"
                 },
                 relockOnExit = o.optBoolean("relockOnExit", true),

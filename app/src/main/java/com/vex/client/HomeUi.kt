@@ -74,18 +74,21 @@ class HomeUi(private val act: MainActivity) {
     private lateinit var engHyb: LinearLayout
     private lateinit var engWarp: LinearLayout
     private lateinit var engSmart: LinearLayout
+    private lateinit var engFree: LinearLayout
     private lateinit var engAutoIc: IconView
     private lateinit var engVexIc: IconView
     private lateinit var engLntIc: IconView
     private lateinit var engHybIc: IconView
     private lateinit var engWarpIc: IconView
     private lateinit var engSmartIc: IconView
+    private lateinit var engFreeIc: IconView
     private lateinit var engAutoTx: TextView
     private lateinit var engVexTx: TextView
     private lateinit var engLntTx: TextView
     private lateinit var engHybTx: TextView
     private lateinit var engWarpTx: TextView
     private lateinit var engSmartTx: TextView
+    private lateinit var engFreeTx: TextView
     private var dlg: android.app.AlertDialog? = null
     private var exitInfo: ExitInfo? = null
 
@@ -361,18 +364,22 @@ class HomeUi(private val act: MainActivity) {
         engWarp = wp.first; engWarpIc = wp.second; engWarpTx = wp.third
         val hy = pill("link", "ترکیبی")
         engHyb = hy.first; engHybIc = hy.second; engHybTx = hy.third
+        val fr = pill("crown", "فقط رایگان")
+        engFree = fr.first; engFreeIc = fr.second; engFreeTx = fr.third
         engAuto.setOnClickListener { switchEngine("auto") }
         engSmart.setOnClickListener { switchEngine("smart") }
         engVex.setOnClickListener { switchEngine("vex") }
         engLnt.setOnClickListener { switchEngine("lantern") }
         engWarp.setOnClickListener { switchEngine("warp") }
         engHyb.setOnClickListener { switchEngine("hybrid") }
+        engFree.setOnClickListener { switchEngine("free") }
 
         val gap = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap2 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap3 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap4 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         val gap5 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
+        val gap6 = TextView(ctx).apply { setPadding(UI.dp(ctx, 4), 0, UI.dp(ctx, 4), 0) }
         row.addView(engSmart)
         row.addView(gap4)
         row.addView(engAuto)
@@ -384,6 +391,8 @@ class HomeUi(private val act: MainActivity) {
         row.addView(engWarp)
         row.addView(gap5)
         row.addView(engHyb)
+        row.addView(gap6)
+        row.addView(engFree)
         // نکته: Kotlin به nested class ارث‌بری‌شده از سوپرکلاس جاوا اجازه‌ی دسترسی نمی‌دهد
         // (HorizontalScrollView.LayoutParams resolve نمی‌شود) → FrameLayout.LayoutParams
         row.layoutParams = FrameLayout.LayoutParams(
@@ -467,6 +476,7 @@ class HomeUi(private val act: MainActivity) {
         opt("sun", "لنترن (Lantern)", "موتور رسمی لنترن — بدون انتخاب سرور، خودش وصل می‌شود", "lantern")
         opt("globe", "وارپ (Cloudflare)", "تونل رایگان کلودفلر — بدون انتخاب سرور، هسته‌ی وایرگارد", "warp")
         opt("link", "ترکیبی (Vex + لنترن)", "اتصال به سرور از داخل تونل لنترن — ضد فیلترینگ", "hybrid")
+        opt("crown", "فقط رایگان (بدون سرور خودمان)", "لنترن ← وارپ ← لنترن — هیچ‌وقت به سرورهای خودمان وصل نمی‌شود", "free")
 
         val titleView = UI.label(ctx, "انتخاب موتور اتصال", 17f, p.text, bold = true)
         titleView.setPadding(UI.dp(ctx, 22), UI.dp(ctx, 18), UI.dp(ctx, 22), UI.dp(ctx, 4))
@@ -500,6 +510,7 @@ class HomeUi(private val act: MainActivity) {
                 "lantern" -> "موتور لنترن فعال شد — بدون نیاز به سرور، خودش قوی‌ترین مسیر را پیدا می‌کند"
                 "warp" -> "موتور وارپ فعال شد — تونل رایگان کلودفلر، بدون انتخاب سرور"
                 "smart" -> "موتور هوشمند فعال شد — لنترن ← وارپ ← بهترین سرور، همه بی‌صدا"
+                "free" -> "موتور فقط‌رایگان فعال شد — لنترن ← وارپ؛ هیچ سروری از خودمان استفاده نمی‌شود"
                 "hybrid" -> "حالت ترکیبی فعال شد — اتصال به سرور از داخل تونل لنترن عبور می‌کند؛ ضد فیلترینگ و پایدارتر"
                 else -> "موتور Vex فعال شد — با سرور انتخابی وصل می‌شود"
             }
@@ -526,6 +537,7 @@ class HomeUi(private val act: MainActivity) {
         paint(engLnt, engLntIc, engLntTx, eng == "lantern")
         paint(engWarp, engWarpIc, engWarpTx, eng == "warp")
         paint(engHyb, engHybIc, engHybTx, eng == "hybrid")
+        paint(engFree, engFreeIc, engFreeTx, eng == "free")
     }
 
     // ---------------------------------------------------------- وضعیت اتصال + تایمر
@@ -1031,6 +1043,11 @@ class HomeUi(private val act: MainActivity) {
                     serverName.text = "اتصال هوشمند"
                     serverName.setTextColor(p.accent)
                     serverIp.text = "لنترن ← وارپ ← بهترین سرور — خودش انتخاب می‌کند"
+                }
+                "free" -> {
+                    serverName.text = "اتصال فقط‌رایگان"
+                    serverName.setTextColor(p.accent)
+                    serverIp.text = "لنترن ← وارپ — بدون هیچ سروری از خودمان — پاور را بزن"
                 }
                 "hybrid" -> {
                     serverName.text = "حالت ترکیبی (Vex + لنترن)"
