@@ -121,8 +121,18 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         private const val HANDOVER_DEBOUNCE_MS = 1000L
         /** اگر از دور تست قبلی این حجم ترافیک واقعی عبور کرده باشد، تونل قطعاً زنده است */
         private const val TRAFFIC_ALIVE_BYTES = 300_000L
-        /** نردبان بوت موتور لنترن — تعداد پروسه‌های تازه‌ی متوالی قبل از اعلام شکست (V5.8) */
-        private const val LANTERN_BOOT_ATTEMPTS = 3
+
+        // ---- V5.9 — سیاست بوت لنترن (ضد «process is bad») ----
+        // خطای «Unable to launch app ... process is bad» یعنی پروسه‌ی :lantern چند بار پشت‌سرهم
+        // کرش کرده و اندروید اجرای دوباره‌اش را ممنوع کرده. ریشه: کرش‌های بومی Go (log.Fatalf/
+        // panic در flashlight) که با try/catch قابل‌گرفتن نیستند + ساخت پروسه‌های تازه‌ی پشت‌سرهم.
+        // پادزهر: حداکثر ۲ پروسه در هر جلسه + بوت مجدد درون-پروسه‌ای + فاصله‌ی امن بین spawnها.
+        /** حداکثر پروسه‌ی تازه‌ی :lantern در هر جلسه‌ی اتصال */
+        private const val LANTERN_MAX_SPAWNS = 2
+        /** حداکثر بوت مجدد درون-پروسه‌ای flashlight (بدون ساخت پروسه‌ی جدید — ریسک صفر) */
+        private const val LANTERN_MAX_REBOOTS = 2
+        /** انتظار برای پورت HTTP در هر بوت لنترن */
+        private const val LANTERN_BOOT_WAIT_MS = 55_000L
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -249,44 +259,39 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 val coreConfig = if (useLanternProc) {
                     // موتور لنترن در پروسه‌ی جدا «:lantern» بالا می‌آید و پورت پروکسی HTTP محلی‌اش
                     // را در فایل مشترک می‌نویسد؛ هسته‌ی sing-box ترافیک را به آن می‌فرستد
-                    // (tun → sing-box → لنترن). هیچ کتابخانه‌ی بومی مشترکی در این پروسه لود نمی‌شود.
+                    // (tun → sing-box → لنترن).
                     //
-                    // V5.8 — قانون «لنترن فقط لنترن» (درخواست صریح کاربر):
-                    //  • لنترن هیچ‌وقت به سرورهای خودمان فال‌بک نمی‌کند؛
-                    //  • هر تلاش = پروسه‌ی تازه‌ی :lantern = بوت تازه‌ی flashlight = انتخاب تازه‌ی
-                    //    بهترین سرور از شبکه‌ی ابری لنترن (فرانتینگ CDN + رله‌های پشتیبان).
+                    // V5.9 — قانون کاربر:
+                    //  • لنترن فقط لنترن — هر بوت = کانفیگ تازه = انتخاب تازه‌ی بهترین سرور
+                    //    از شبکه‌ی ابری لنترن؛ هیچ سرور خودمان در حالت عادی؛
+                    //  • سرور لنترن قطع شد → بوت مجدد درون-پروسه‌ای = سرور جایگزین، بی‌صدا؛
+                    //  • حداکثر ۲ پروسه + ۲ بوت درون-پروسه‌ای — هرگز «process is bad» نمی‌شویم؛
+                    //  • فقط وقتی لنترن «کلاً» نشد → فال‌بک نهایی و بی‌صدا به بهترین سرور خودمان.
                     val ctx = applicationContext
-                    var port = 0
-                    for (attempt in 1..LANTERN_BOOT_ATTEMPTS) {
-                        // همیشه بوت تمیز: پروسه‌ی قبلی/زامبی کامل کشته می‌شود تا flashlight
-                        // تازه با state نو بالا بیاید (قفل فایل کانفیگ هم آزاد می‌شود)
+                    val port = bootLantern(ctx, gen)
+                    if (port > 0) {
+                        lastEngineLantern = true // اطمینان: قطعِ بعدی، پروسه‌ی لنترن را هم جمع می‌کند
+                        if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
+                        else ConfigBuilder.buildLanternProxy(port, config)
+                    } else {
+                        synchronized(stateLock) { if (gen != generation) return@thread }
+                        // لنترن کلاً نشد — فال‌بک نهایی به بهترین سرور خودمان (خواسته‌ی صریح کاربر)
+                        lastEngineLantern = false
+                        fallbackDone = true
+                        pushCoreLog("لنترن: بوت موتور لنترن بعد از نردبان کامل ناموفق بود — فال‌بک نهایی به بهترین سرور Vex")
+                        pushCoreLog(LanternEngine.diagReport(applicationContext))
                         stopLanternQuiet()
-                        try { Thread.sleep(1200) } catch (_: InterruptedException) { return@thread }
-                        synchronized(stateLock) { if (gen != generation) return@thread }
-                        if (attempt > 1) {
-                            Log.w(TAG, "lantern boot attempt $attempt/$LANTERN_BOOT_ATTEMPTS — fresh process")
-                            startForeground(NOTIF_ID, notif(
-                                "در حال اتصال... (لنترن)",
-                                "راه‌اندازی مجدد موتور لنترن (تلاش $attempt از $LANTERN_BOOT_ATTEMPTS)..."))
+                        if (!quiet) startForeground(NOTIF_ID, notif(
+                            "در حال اتصال... (بهترین سرور Vex)",
+                            "لنترن برقرار نشد — سوییچ خودکار به بهترین سرور"))
+                        if (engMode == "hybrid") ConfigBuilder.build(config) // همان سرور انتخابی، بدون لنترن
+                        else {
+                            // payload لنترن استخر سرور ندارد — استخر از store ساخته می‌شود
+                            val fb = bestServerPayload(config)
+                                ?: throw Exception("لنترن برقرار نشد و هیچ سروری برای فال‌بک نهایی پیدا نشد")
+                            ConfigBuilder.buildAutoPool(fb) // بهترین سرور (urltest)
                         }
-                        ContextCompat.startForegroundService(
-                            ctx,
-                            Intent(ctx, LanternService::class.java).setAction(LanternService.ACTION_START)
-                        )
-                        port = awaitLanternPort(gen)
-                        synchronized(stateLock) { if (gen != generation) return@thread }
-                        if (port > 0) break
                     }
-                    if (port == 0) {
-                        // کاربر صریح خواسته: وقتی لنترن برقرار نشد، هرگز روی سرورهای خودمان
-                        // سوییچ نشود — پس پس از نردبان کامل تلاش، اتصال با پیام شفاف قطع
-                        // می‌شود و موتور لنترن هم انتخاب‌شده می‌ماند
-                        Log.e(TAG, "lantern boot failed after $LANTERN_BOOT_ATTEMPTS attempts — no Vex fallback (user policy)")
-                        throw Exception("اتصال به موتور لنترن برقرار نشد ($LANTERN_BOOT_ATTEMPTS تلاش متوالی) — دوباره امتحان کن")
-                    }
-                    lastEngineLantern = true // اطمینان: قطعِ بعدی، پروسه‌ی لنترن را هم جمع می‌کند
-                    if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
-                    else ConfigBuilder.buildLanternProxy(port, config)
                 } else if (engMode == "auto") {
                     // حالت خودکار: استخر سرورها داخل همین هسته بالا می‌آید (پروسه‌ی اضافی ندارد)
                     // و گروه urltest هسته، بهترین سرور را خودکار انتخاب/سوییچ می‌کند
@@ -421,14 +426,18 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         // لنترن با بوت تازه، «سرور جایگزین لنترن» برمی‌دارد (بی‌سروصدا)
                         if (System.currentTimeMillis() >= stabilizeUntilMs && failStreak >= 4) {
                             failStreak = 0
-                            if (healStage < 4) healStage++
+                            if (healStage < 5) healStage++
                             when (healStage) {
                                 // جریان تازه با همان موتور (سوکت‌های مرده دور ریخته می‌شود)
-                                // برای لنترن این یعنی بوت تازه‌ی flashlight = سرور تازه‌ی لنترن
-                                1, 3 -> lastPayload?.let { performQuietReload(it, "heal$healStage") }
-                                // لنترن → بازسازی کامل لنترن (سرور جایگزین) · بقیه → تغییر موتور
-                                2 -> healSwitchEngine()
-                                // مرحله‌ی ۴ به بعد: خودکار نمی‌چرخیم؛ فقط پایش —
+                                // برای لنترن: هسته‌ی sing-box نو، پروسه/نمونه‌ی لنترن دست‌نخورده
+                                1, 2 -> lastPayload?.let { performQuietReload(it, "heal$healStage") }
+                                // لنترن → بوت مجدد درون-پروسه‌ای (سرور جایگزین لنترن، بی‌صدا)
+                                // بقیه → فال‌بک موتور
+                                3 -> healSwitchEngine()
+                                // مرحله‌ی نهایی: لنترن چند بار سرور جایگزین گرفت و هنوز نشد →
+                                // فال‌بک نهایی به بهترین سرور خودمان (خواسته‌ی صریح کاربر، بی‌صدا)
+                                4 -> if (engineOf(lastPayload) == "lantern") fallbackToBestServerQuiet()
+                                // مرحله‌ی ۵ به بعد: خودکار نمی‌چرخیم؛ فقط پایش —
                                 // با برگشتن ترافیک واقعی یا اتصال مجدد دستی، لدر ریست می‌شود
                                 else -> {}
                             }
@@ -498,36 +507,105 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
     }
 
     /**
-     * مرحله‌ی ۲ نردبان نوسازی (V5.8):
-     *  • موتور لنترن → هرگز موتور عوض نمی‌شود؛ کل هسته‌ی لنترن تازه می‌شود و flashlight
-     *    «سرور جایگزین» را از شبکه‌ی ابری لنترن برمی‌دارد — کاملاً بی‌سروصدا.
+     * مرحله‌ی ۳ نردبان نوسازی (V5.9):
+     *  • موتور لنترن → بوت مجدد درون-پروسه‌ای flashlight (سرور جایگزین از شبکه‌ی ابری لنترن)
+     *    — بدون ساخت پروسه‌ی جدید، کاملاً بی‌سروصدا.
      *  • بقیه‌ی موتورها → فال‌بک موتور (مستقیم ↔ ترکیبی) مثل قبل.
      */
     private fun healSwitchEngine() {
-        val cur = try { JSONObject(lastPayload ?: "{}").optString("engine") } catch (_: Throwable) { "" }
-        if (cur == "lantern") restartLanternQuiet() else maybeFallbackEngine()
+        if (engineOf(lastPayload) == "lantern") restartLanternQuiet() else maybeFallbackEngine()
     }
 
+    /** خواندن موتور از payload — "lantern" | "hybrid" | "auto" | "" (مستقیم) */
+    private fun engineOf(payload: String?): String = try {
+        JSONObject(payload ?: "{}").optString("engine")
+    } catch (_: Throwable) { "" }
+
     /**
-     * بازسازی کامل موتور لنترن — بی‌سروصدا (V5.8، درخواست صریح کاربر):
-     * وقتی مسیر فعلی لنترن از کار می‌افتد (سرور لنترن قطع شده)، به‌جای سوییچ به سرورهای
-     * خودمان، کل هسته‌ی لنترن با یک بوت تازه بالا می‌آید — پروسه‌ی «:lantern» از نو ساخته
-     * می‌شود و flashlight از شبکه‌ی ابری لنترن «سرور جایگزین» را برمی‌دارد و به بهترین
-     * مسیر نو وصل می‌شود. وضعیت «متصل»، آمار جلسه و اعلان دست‌نخورده می‌ماند و هیچ پیامی
-     * به کاربر نشان داده نمی‌شود — کاربر فقط اینترنت بی‌وقفه می‌بیند.
+     * بازسازی بی‌صدای موتور لنترن — V5.9: بوت مجدد flashlight «درون همان پروسه».
+     * وقتی مسیر فعلی لنترن از کار می‌افتد (سرور لنترن قطع شده)، نمونه‌ی فعلی متوقف و نمونه‌ای
+     * نو با کانفیگ تازه در همان پروسه بوت می‌شود — flashlight از شبکه‌ی ابری لنترن «سرور
+     * جایگزین» برمی‌دارد و به بهترین مسیر نو وصل می‌شود.
+     *  • بدون ساخت پروسه‌ی جدید ⇒ ریسک «process is bad» = صفر (ریشه‌ی باگ V5.8)؛
+     *  • وضعیت «متصل»، آمار جلسه و اعلان دست‌نخورده می‌ماند و هیچ پیامی به کاربر نشان داده
+     *    نمی‌شود — کاربر فقط اینترنت بی‌وقفه می‌بیند (خواسته‌ی صریح کاربر).
      */
     private fun restartLanternQuiet() {
         val payload = lastPayload ?: return
         if (!reloadBusy.compareAndSet(false, true)) return
-        Log.w(TAG, "lantern path dead — silent lantern restart: fresh flashlight boot picks a replacement lantern server (no engine switch, no user notice)")
+        Log.w(TAG, "lantern path dead — silent in-process flashlight reboot (replacement lantern server, no spawn, no user notice)")
         thread(name = "vex-lnt-heal") {
             try {
-                stopCoreQuiet() // هسته + پروسه‌ی لنترن فعلی کامل جمع می‌شود
-                try { Thread.sleep(1500) } catch (_: InterruptedException) {}
-                // بوت تازه = انتخاب تازه‌ی بهترین سرور لنترن؛ quiet = وضعیت «متصل» و آمار حفظ می‌شود
+                val g = synchronized(stateLock) { generation }
+                if (uiState != "connected") return@thread
+                // بوت مجدد درون-پروسه‌ای: نمونه‌ی فعلی stop و نمونه‌ی نو با کانفیگ تازه boot می‌شود
+                safeStartLanternService(applicationContext, LanternService.ACTION_RESTART)
+                val port = awaitLanternBoot(applicationContext, g, LANTERN_BOOT_WAIT_MS)
+                if (port <= 0) {
+                    // بوت مجدد درون-پروسه‌ای هم نشد — نردبان نوسازی مرحله‌ی بعدی را تصمیم می‌گیرد
+                    Log.w(TAG, "lantern in-process reboot failed — heal ladder will escalate")
+                    return@thread
+                }
+                // هسته‌ی sing-box با پورت نو بالا می‌آید — quiet یعنی کاربر هیچ قطعی نمی‌بیند
+                stopCoreQuiet(keepLantern = true)
                 startVpn(payload, quiet = true)
                 failStreak = 0
                 stabilizeUntilMs = System.currentTimeMillis() + 180_000L
+            } finally {
+                reloadBusy.set(false)
+            }
+        }
+    }
+
+    /**
+     * payload «بهترین سرور» برای فال‌بک نهایی از جلسه‌ی لنترن —
+     * استخر: سرور انتخابی کاربر (اگر واقعی باشد) + کل سرورهای رایگان؛ گروه urltest هسته
+     * بهترین را خودکار انتخاب/سوییچ می‌کند. (payload لنترن هرگز استخر ندارد.)
+     * خروجی null = هیچ سروری در دسترس نیست.
+     */
+    private fun bestServerPayload(base: String): String? {
+        return try {
+            val o = JSONObject(base)
+            o.put("engine", "auto")
+            val arr = org.json.JSONArray()
+            val seen = HashSet<String>()
+            val st = ServersStore(applicationContext)
+            val selRaw = try { st.selected()?.raw?.trim().orEmpty() } catch (_: Throwable) { "" }
+            if (selRaw.isNotEmpty() && !selRaw.startsWith("lantern://") && !selRaw.startsWith("psiphon://") && seen.add(selRaw)) arr.put(selRaw)
+            try {
+                for (s in st.freeServers) {
+                    val r = try { s.raw.trim() } catch (_: Throwable) { "" }
+                    if (r.isNotEmpty() && seen.add(r)) arr.put(r)
+                }
+            } catch (_: Throwable) {}
+            if (arr.length() == 0) return null
+            o.put("lanternServers", arr)
+            o.toString()
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * فال‌بک نهایی (V5.9 — خواسته‌ی صریح کاربر): فقط وقتی لنترن «کلاً» نتوانست کار کند —
+     * بعد از نردبان بوت کامل (۲ پروسه + ۲ بوت درون-پروسه‌ای) و ۲ بوت مجدد جایگزین در
+     * نردبان نوسازی — سوییچ به بهترین سرور خودمان (استخر خودکار urltest).
+     * بی‌صدا: وضعیت «متصل» و آمار جلسه حفظ می‌شود، هیچ Toast/پیامی نشان داده نمی‌شود.
+     * در هر جلسه فقط یک‌بار — تا حلقه‌ی بی‌پایان ساخته نشود.
+     */
+    private fun fallbackToBestServerQuiet() {
+        if (fallbackDone) return
+        val payload = lastPayload ?: return
+        if (!reloadBusy.compareAndSet(false, true)) return
+        fallbackDone = true
+        Log.w(TAG, "lantern totally failed — final silent fallback to best own server (user policy)")
+        thread(name = "vex-final-fb") {
+            try {
+                val np = bestServerPayload(payload) ?: return@thread
+                lastEngineLantern = false
+                stopLanternQuiet()
+                stopCoreQuiet()
+                startVpn(np, quiet = true)
+                failStreak = 0
+                stabilizeUntilMs = System.currentTimeMillis() + 120_000L
             } finally {
                 reloadBusy.set(false)
             }
@@ -551,7 +629,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
      */
     private fun maybeFallbackEngine() {
         val payload = lastPayload ?: return
-        val cur = try { JSONObject(payload).optString("engine") } catch (_: Throwable) { "" }
+        if (fallbackDone) return // در هر جلسه فقط یک‌بار — تا حلقه‌ی بی‌پایان ساخته نشود
+        val cur = engineOf(payload)
         // لنترن → بازسازی لنترن (سرور جایگزین از شبکه‌ی ابری لنترن) — نه سرورهای خودمان
         if (cur == "lantern") { restartLanternQuiet(); return }
         // ترکیبی → مستقیم · خودکار → ترکیبی · مستقیم → ترکیبی
@@ -600,7 +679,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             if (System.currentTimeMillis() - lastReloadAt < 5_000L) return
             lastReloadAt = System.currentTimeMillis()
             Log.w(TAG, "quiet core reload ($reason) — fresh flows, VPN stays up (v2rayNG reloadCore pattern)")
-            stopCoreQuiet()
+            // V5.9: در جلسه‌ی لنترن، پروسه/نمونه‌ی لنترن زنده می‌ماند (پورت حفظ می‌شود) —
+            // فقط هسته‌ی sing-box با جریان‌های نو بالا می‌آید؛ bootLantern پورت موجود را reuse می‌کند
+            stopCoreQuiet(keepLantern = engineOf(payload) == "lantern")
             startVpn(payload, quiet = true)
         } finally {
             reloadBusy.set(false)
@@ -700,8 +781,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         performQuietReload(payload, "handover")
     }
 
-    /** توقف بی‌صدای هسته/تونل/لنترن — بدون تغییر وضعیت UI و بدون stopSelf (فقط برای فال‌بک) */
-    private fun stopCoreQuiet() {
+    /** توقف بی‌صدای هسته/تونل — بدون تغییر وضعیت UI و بدون stopSelf (فقط برای فال‌بک/نوسازی)
+     *  keepLantern = پروسه/نمونه‌ی لنترن زنده بماند (quiet-reload جلسه‌ی لنترن — پورت حفظ می‌شود) */
+    private fun stopCoreQuiet(keepLantern: Boolean = false) {
         synchronized(stateLock) { generation++ }
         timer?.cancel(); timer = null
         testThread?.interrupt(); testThread = null
@@ -712,7 +794,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
-        if (lastEngineLantern) {
+        if (lastEngineLantern && !keepLantern) {
             lastEngineLantern = false
             try {
                 applicationContext.startService(
@@ -741,6 +823,8 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
             "اتصال در میانه‌ی راه قطع شد (احتمالاً DPI) — اگر ادامه داشت، سرور یا پورت دیگری را امتحان کن"
         err.contains("timeout", true) || err.contains("timed out", true) ->
             "سرور پاسخ نداد — اینترنت گوشی یا پورت سرور را بررسی کن"
+        err.contains("process is bad") ->
+            "پروسه‌ی لنترن چند بار پشت‌سرهم کرش کرده و اندروید موقتاً اجرای دوباره‌اش را ممنوع کرده — حدود یک دقیقه صبر کن و دوباره وصل شو"
         err.contains("no route", true) || err.contains("network is unreachable", true) ||
                 err.contains("unreachable", true) ->
             "شبکه در دسترس نیست — اتصال اینترنت گوشی را بررسی کن"
@@ -755,32 +839,120 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         } catch (_: Throwable) {}
     }
 
+    // ================================================================ موتور لنترن (V5.9 — ضد «process is bad»)
+
     /**
-     * انتظار برای پورت HTTP لنترن (فایل مشترک بین پروسه‌ها) — حداکثر ۷۵ ثانیه در هر تلاش.
-     * fail-fast: اگر فایل وضعیت «failed» شود (مثلاً کرش هسته)، فوراً ۰ برمی‌گردد تا
-     * نردبان بوت، پروسه‌ی تازه‌ی لنترن را امتحان کند (V5.8 — بدون فال‌بک به سرورهای خودمان).
-     * اگر کاربر در این فاصله قطع کند (generation عوض شود)، ۰ برمی‌گردد.
+     * شروع امن سرویس لنترن — اگر سیستم درخواست را رد کند (مثلاً «process is bad» یا
+     * محدودیت startForegroundService) به‌جای کرش/خطای خام، false برمی‌گرداند تا سیاست
+     * بوت تصمیم بگیرد (تلاش دوباره با فاصله / فال‌بک نهایی).
      */
-    private fun awaitLanternPort(gen: Int): Int {
-        val deadline = System.currentTimeMillis() + 75_000L
+    private fun safeStartLanternService(ctx: android.content.Context, action: String): Boolean = try {
+        ContextCompat.startForegroundService(
+            ctx,
+            Intent(ctx, LanternService::class.java).setAction(action)
+        )
+        true
+    } catch (t: Throwable) {
+        Log.e(TAG, "start lantern service ($action) rejected: ${t.message}")
+        false
+    }
+
+    /** پورت سالم از یک نمونه‌ی زنده‌ی لنترن — برای استفاده‌ی مجدد (quiet-reload) بدون هیچ spawn */
+    private fun reuseLiveLantern(ctx: android.content.Context): Int {
+        val p = LanternEngine.readPort(ctx)
+        return if (p > 0 && LanternEngine.readState(ctx) == "ready" && LanternEngine.isProcessAlive(ctx)) p else 0
+    }
+
+    /**
+     * سیاست بوت لنترن V5.9 — ریشه‌ی «Unable to launch app ... process is bad»:
+     *  کرش‌های بومی Go (log.Fatalf/panic در flashlight) پروسه‌ی :lantern را می‌کشند و با
+     *  try/catch قابل‌گرفتن نیستند. V5.8 بعد از هر شکست فوراً پروسه‌ی تازه می‌ساخت؛ دو کرش
+     *  سریع پشت‌سرهم یعنی black-list شدن پروسه توسط اندروید. سیاست نو:
+     *  ۱) reuse: اگر نمونه‌ی زنده با پورت سالم هست → همان پورت، بدون هیچ spawn؛
+     *  ۲) بوت مجدد درون-پروسه‌ای (حداکثر ۲ بار) — پروسه زنده است، پس ساخت پروسه لازم نیست؛
+     *  ۳) حداکثر ۲ پروسه‌ی تازه در هر جلسه، با فاصله‌ی ۶ ثانیه + انتظار برای مرگ واقعی
+     *     پروسه‌ی قبلی (چک /proc/<pid>/cmdline)؛
+     *  ۴) اگر startForegroundService رد شد → یک تلاش دوباره بعد از ۱۲ ثانیه (پنجره‌ی
+     *     black-list اندروید حدود یک دقیقه است)؛ رد دوباره = خروج با 0 (فال‌بک نهایی).
+     * خروجی: پورت (>0) یا 0 = لنترن کلاً نشد.
+     */
+    private fun bootLantern(ctx: android.content.Context, gen: Int): Int {
+        val reused = reuseLiveLantern(ctx)
+        if (reused > 0) {
+            Log.i(TAG, "lantern already live on 127.0.0.1:$reused — reusing (no spawn)")
+            return reused
+        }
+        var spawns = 0
+        var reboots = 0
+        while (true) {
+            synchronized(stateLock) { if (gen != generation) return 0 }
+            val alive = LanternEngine.isProcessAlive(ctx)
+            if (alive && spawns == 0) {
+                // پروسه زنده است (مثلاً بعد از قطع قبلی هنوز kill نشده) → فقط بوت درون-پروسه‌ای
+                if (reboots >= LANTERN_MAX_REBOOTS) return 0
+                reboots++
+                Log.i(TAG, "lantern process alive — in-process boot #$reboots (no spawn)")
+                safeStartLanternService(ctx, LanternService.ACTION_START)
+            } else {
+                if (spawns >= LANTERN_MAX_SPAWNS) return 0
+                // قبل از هر spawn: مطمئن شو پروسه‌ی قبلی واقعاً مرده (ضد تداخل بوت/کانفیگ)
+                if (!alive) LanternEngine.waitProcessGone(ctx, 5_000L)
+                if (spawns > 0) {
+                    // فاصله‌ی امن بین spawnها — ضد black-list شدن پروسه توسط اندروید
+                    try { Thread.sleep(6_000) } catch (_: InterruptedException) { return 0 }
+                    synchronized(stateLock) { if (gen != generation) return 0 }
+                }
+                spawns++
+                Log.w(TAG, "lantern fresh process spawn #$spawns/$LANTERN_MAX_SPAWNS (fresh config dir = fresh best-server pick)")
+                if (!safeStartLanternService(ctx, LanternService.ACTION_START)) {
+                    // معمولاً «process is bad» یا محدودیت FGS — یک فرصت دوباره بعد از ۱۲ ثانیه
+                    try { Thread.sleep(12_000) } catch (_: InterruptedException) { return 0 }
+                    synchronized(stateLock) { if (gen != generation) return 0 }
+                    if (!safeStartLanternService(ctx, LanternService.ACTION_START)) return 0
+                }
+            }
+            val r = awaitLanternBoot(ctx, gen, LANTERN_BOOT_WAIT_MS)
+            if (r > 0) return r
+            if (r == -1) continue // پروسه در حین بوت مرد (کرش بومی) — spawn بعدی با فاصله‌ی امن
+            // r == 0: پروسه زنده است ولی بوت شکست خورد → بوت مجدد درون-پروسه‌ای
+            if (reboots < LANTERN_MAX_REBOOTS) {
+                reboots++
+                Log.w(TAG, "lantern boot failed while process alive — in-process reboot #$reboots (fresh config dir)")
+                safeStartLanternService(ctx, LanternService.ACTION_START)
+                val r2 = awaitLanternBoot(ctx, gen, LANTERN_BOOT_WAIT_MS)
+                if (r2 > 0) return r2
+                if (r2 == -1) continue
+            }
+        }
+    }
+
+    /**
+     * انتظار برای پورت HTTP لنترن (فایل مشترک بین پروسه‌ها).
+     * خروجی: >0 پورت · 0 = شکست قابل‌گرفتن (state=failed) یا تایم‌اوت یا قطع کاربر ·
+     * -1 = پروسه‌ی :lantern در حین بوت مرد (کرش بومی Go — قابل‌گرفتن نبود).
+     */
+    private fun awaitLanternBoot(ctx: android.content.Context, gen: Int, waitMs: Long): Int {
+        val deadline = System.currentTimeMillis() + waitMs
         while (System.currentTimeMillis() < deadline) {
             synchronized(stateLock) { if (gen != generation) return 0 }
-            val p = LanternEngine.readPort(applicationContext)
+            val p = LanternEngine.readPort(ctx)
             if (p > 0) return p
-            // شکست صریح پروسه‌ی لنترن → بدون انتظار، تلاش بعدی نردبان
-            if (LanternEngine.readState(applicationContext) == "failed") {
-                Log.w(TAG, "lantern state=failed — abort wait early")
-                return 0
+            // شکست صریح و قابل‌گرفتن بوت → تصمیم بعدی با bootLantern (بوت مجدد درون-پروسه‌ای)
+            if (LanternEngine.readState(ctx) == "failed") return 0
+            // مرگ پروسه (کرش بومی/بستن توسط سیستم) — جدا از شکست قابل‌گرفتن گزارش می‌شود
+            if (!LanternEngine.isProcessAlive(ctx)) {
+                Log.w(TAG, "lantern process DIED during boot (native/Go fatal) — will respawn with safe spacing")
+                return -1
             }
             try { Thread.sleep(500) } catch (_: InterruptedException) { return 0 }
         }
-        Log.w(TAG, "lantern port timeout")
+        Log.w(TAG, "lantern boot wait timeout (${waitMs}ms)")
         return 0
     }
 
-    /** توقف بی‌صدای فقط پروسه‌ی لنترن (بوت تمیزِ هر تلاشِ نردبان — V5.8) */
+    /** توقف بی‌صدای فقط پروسه‌ی لنترن (قبل از فال‌بک نهایی / بوت تازه) */
     private fun stopLanternQuiet() {
-        // نکته: lastEngineLantern عمداً دست نمی‌خورد — اگر کاربر وسط نردبان بوت قطع کند،
+        // نکته: lastEngineLantern عمداً دست نمی‌خورد — اگر کاربر وسط بوت قطع کند،
         // stopVpn باید بتواند پروسه‌ی لنترن را هم جمع کند (بدون زامبی پیش‌زمینه)
         try {
             applicationContext.startService(

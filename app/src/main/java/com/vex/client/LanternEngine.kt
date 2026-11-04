@@ -10,6 +10,10 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * اجراکننده‌ی موتور لنترن — فقط داخل پروسه‌ی جدا «:lantern».
@@ -24,11 +28,23 @@ import java.net.URL
  *  (filesDir/lantern_state.txt) انجام می‌شود — چون پروکسی محلی لنترن روی 127.0.0.1 گوش
  *  می‌دهد، هسته‌ی sing-box پروسه‌ی اصلی می‌تواند بدون هیچ واسطه‌ای به آن وصل شود.
  *
- * نکته‌ی حیاتی (رفع «اتصال برقرار نمیشه»):
- *  Go SDK فقط «یک» نمونه‌ی flashlight در هر پروسه بالا می‌آورد — پنجره‌ی داخلی Start فقط
- *  ۵ ثانیه است؛ اگر در این پنجره جا نیفتد، بوت در پس‌زمینه ادامه پیدا می‌کند. پس هرگز
- *  نمونه‌ی دوم نمی‌سازیم (نمونه‌ی دوم روی قفل فایل کانفیگ می‌میرد و پروسه را می‌کشد)
- *  و به‌جایش پورت را با httpProxyPort() تا آماده شدن واقعی پول می‌کنیم.
+ * V5.9 — ریشه‌یابی «process is bad» (خطای گزارش‌شده‌ی کاربر):
+ *  وقتی هسته‌ی Go (flashlight) در لحظه‌ی بوت خطای مرگبار می‌گیرد (log.Fatalf / panic)،
+ *  کل پروسه‌ی :lantern می‌میرد و هیچ try/catch جاوا نمی‌تواند جلویش را بگیرد. اگر بلافاصله
+ *  پروسه‌ی تازه ساخته شود و دوباره بمیرد، اندروید پروسه را «bad» علامت می‌زند و دیگر اجازه‌ی
+ *  اجرا نمی‌دهد: «Unable to launch app ... process is bad». سه پادزهر در این نسخه:
+ *   ۱) کانفیگ تازه برای هر بوت: هر بوتِ flashlight یک پوشه‌ی کانفیگ نو می‌گیرد
+ *      (lantern_config/b<timestamp>) — اگر کانفیگ قبلی خراب/مسوم شده باشد، دیگر بوت‌های
+ *      بعدی را نمی‌کشد و همیشه «بوت تمیز با state نو» یعنی همان چیزی که کاربر خواسته:
+ *      هر بار انتخاب تازه‌ی بهترین سرور از شبکه‌ی ابری لنترن.
+ *   ۲) بوت مجدد «درون-پروسه‌ای»: اگر بوت شکست بخورد ولی پروسه زنده باشد، همان پروسه با
+ *      نمونه‌ی نو دوباره بوت می‌شود — بدون ساخت پروسه‌ی جدید، بدون ریسک black-list.
+ *   ۳) PID + تشخیص مرگ پروسه: پروسه‌ی :lantern PID خودش را می‌نویسد؛ پروسه‌ی اصلی قبل از
+ *      هر spawn جدید مطمئن می‌شود پروسه‌ی قبلی واقعاً مرده (چک /proc/<pid>/cmdline) و
+ *      حداکثر ۲ پروسه در هر جلسه ساخته می‌شود — هرگز به «process is bad» نمی‌رسیم.
+ *
+ * نکته‌ی حیاتی: Go SDK فقط «یک» نمونه‌ی flashlight در هر لحظه بالا می‌آورد — هرگز نمونه‌ی
+ * دومِ هم‌زمان نمی‌سازیم (قفل guard داخلی). بوت مجدد فقط بعد از شکست/توقف نمونه‌ی قبلی.
  *
  * لنترن هیچ سروری از کاربر نمی‌خواهد — هسته‌ی flashlight خودش بهترین مسیر را از
  * شبکه‌ی ابری لنترن (دامنه‌های فرانتینگ CDN + رله‌های پشتیبان) انتخاب می‌کند.
@@ -37,11 +53,23 @@ object LanternEngine {
 
     private const val TAG = "VexLantern"
 
+    private val bootLogLock = Any()
+    private val tsFmt by lazy { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
+
     /** فایل پورت — بین پروسه‌ها مشترک است */
     fun portFile(ctx: Context): File = File(ctx.filesDir, "lantern_port.txt")
 
+    /** فایل PID پروسه‌ی :lantern — برای تشخیص مرگ پروسه از پروسه‌ی اصلی */
+    fun pidFile(ctx: Context): File = File(ctx.filesDir, "lantern_pid.txt")
+
     /** فایل وضعیت — starting | ready | failed | stopped */
     private fun stateFile(ctx: Context): File = File(ctx.filesDir, "lantern_state.txt")
+
+    /** لاگ بوت — برای نمایش در «جزئیات خطا» (دیگه لاگ‌کور کورکورانه نیستیم) */
+    fun bootLogFile(ctx: Context): File = File(ctx.filesDir, "lantern_bootlog.txt")
+
+    /** گزارش کرش — توسط سپر کرش LanternService نوشته می‌شود */
+    fun crashFile(ctx: Context): File = File(ctx.filesDir, "lantern_crash.txt")
 
     fun readState(ctx: Context): String {
         return try { stateFile(ctx).readText().trim() } catch (_: Throwable) { "" }
@@ -59,9 +87,48 @@ object LanternEngine {
         } catch (_: Throwable) { 0 }
     }
 
+    fun readPid(ctx: Context): Int {
+        return try { pidFile(ctx).readText().trim().toIntOrNull() ?: 0 } catch (_: Throwable) { 0 }
+    }
+
+    /** نوشتن PID — از داخل پروسه‌ی :lantern (LanternService.onCreate) */
+    fun writePid(ctx: Context) {
+        try { pidFile(ctx).writeText(android.os.Process.myPid().toString()) } catch (_: Throwable) {}
+    }
+
+    /**
+     * آیا پروسه‌ی :lantern واقعاً زنده است؟
+     * چک PID به‌تنهایی خطرناک است (PID بازیافتی ممکن است مال پروسه‌ی دیگری باشد) —
+     * برای همین /proc/<pid>/cmdline هم خوانده می‌شود؛ فقط اگر مال خودمان بود «زنده» است.
+     * PID نامعلوم (۰) → «زنده» فرض می‌شود تا مانع spawn نشویم.
+     */
+    fun isProcessAlive(ctx: Context): Boolean {
+        val pid = readPid(ctx)
+        if (pid <= 0) return true
+        val cmd = try {
+            val bytes = File("/proc/$pid/cmdline").readBytes()
+            String(bytes, Charsets.UTF_8)
+        } catch (_: Throwable) { "" }
+        return cmd.contains(":lantern")
+    }
+
+    /** انتظار برای مرگ واقعی پروسه‌ی :lantern (حداکثر timeoutMs) — قبل از هر spawn جدید */
+    fun waitProcessGone(ctx: Context, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val pid = readPid(ctx)
+            if (pid <= 0) return true
+            val cmd = try { String(File("/proc/$pid/cmdline").readBytes(), Charsets.UTF_8) } catch (_: Throwable) { "" }
+            if (!cmd.contains(":lantern")) return true
+            try { Thread.sleep(200) } catch (_: InterruptedException) { return true }
+        }
+        return !isProcessAlive(ctx)
+    }
+
     fun clearPort(ctx: Context) {
         try { portFile(ctx).delete() } catch (_: Throwable) {}
         try { stateFile(ctx).delete() } catch (_: Throwable) {}
+        try { pidFile(ctx).delete() } catch (_: Throwable) {}
     }
 
     /** پورت HTTP محلی لنترن — ۰ یعنی هنوز آماده نشده */
@@ -84,59 +151,138 @@ object LanternEngine {
     @Volatile
     private var appCtx: Context? = null
 
+    /** guard بوت — فقط یک بوت هم‌زمان؛ بعد از شکست false می‌شود تا بوت مجدد ممکن باشد */
+    private val booting = AtomicBoolean(false)
+
+    /** شمارنده‌ی بوت — commitِ تردهای بوتِ کهنه (بعد از stop/restart) نامعتبر می‌شود */
+    private val bootCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+    // ------------------------------------------------------------------ لاگ بوت
+
+    private fun ts(): String = try { tsFmt.format(Date()) } catch (_: Throwable) { "" }
+
+    private fun bootLogReset(app: Context?) {
+        val c = app ?: return
+        try { bootLogFile(c).writeText("") } catch (_: Throwable) {}
+    }
+
+    private fun bootLog(app: Context?, line: String) {
+        Log.i(TAG, line)
+        val c = app ?: return
+        try {
+            synchronized(bootLogLock) { bootLogFile(c).appendText("${ts()} | $line\n") }
+        } catch (_: Throwable) {}
+    }
+
+    /** گزارش تشخیصی برای «جزئیات خطا» — وضعیت + لاگ بوت + آخرین کرش */
+    fun diagReport(ctx: Context): String {
+        val sb = StringBuilder()
+        sb.append("وضعیت: ").append(if (state != "idle") state else readState(ctx)).append('\n')
+        sb.append("پورت: ").append(if (httpPort > 0) httpPort else readPort(ctx)).append('\n')
+        sb.append("پروسه‌ی :lantern: ").append(if (isProcessAlive(ctx)) "زنده" else "مرده").append('\n')
+        try {
+            val crash = crashFile(ctx)
+            if (crash.exists() && crash.length() > 0) {
+                sb.append("\n— آخرین کرش پروسه —\n").append(crash.readText().take(1200)).append('\n')
+            }
+        } catch (_: Throwable) {}
+        try {
+            val log = bootLogFile(ctx)
+            if (log.exists() && log.length() > 0) {
+                sb.append("\n— لاگ بوت لنترن —\n")
+                val lines = log.readText().lines()
+                sb.append(lines.takeLast(Math.min(30, lines.size)).joinToString("\n"))
+            }
+        } catch (_: Throwable) {}
+        return sb.toString()
+    }
+
+    // ------------------------------------------------------------------ کانفیگ تازه برای هر بوت
+
+    /**
+     * هر بوتِ flashlight یک پوشه‌ی کانفیگ نو می‌گیرد — اگر کانفیگ قبلی (user.conf/
+     * global.yaml/datab* نسخه‌های قبلی که وسط نوشتن کشته شده‌اند) خراب شده باشد،
+     * دیگر بوت‌های بعدی را نمی‌کشد. فقط ۲ پوشه‌ی آخر برای اشکال‌زدایی نگه داشته می‌شود.
+     */
+    private fun prepareFreshConfigDir(app: Context): File {
+        val root = File(app.filesDir, "lantern_config")
+        try { root.mkdirs() } catch (_: Throwable) {}
+        try {
+            // فایل‌های سرگردان نسخه‌های قدیمی (کـنفیگ در ریشه) — حذف
+            root.listFiles()?.filter { it.isFile }?.forEach { f -> try { f.delete() } catch (_: Throwable) {} }
+            // پوشه‌های بوت قبلی — فقط ۲ تای آخر می‌ماند
+            root.listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name }
+                ?.drop(2)?.forEach { d -> try { d.deleteRecursively() } catch (_: Throwable) {} }
+        } catch (_: Throwable) {}
+        val dir = File(root, "b" + System.currentTimeMillis())
+        try { dir.mkdirs() } catch (_: Throwable) {}
+        return dir
+    }
+
+    // ------------------------------------------------------------------ بوت
+
     /**
      * راه‌اندازی هسته‌ی لنترن (در پروسه‌ی :lantern) — بلاک نمی‌کند.
-     * حیاتی: فقط «یک» نمونه‌ی flashlight در عمر پروسه ساخته می‌شود.
-     *  • پنجره‌ی داخلی Start در Go فقط ۵ ثانیه است — اگر رد شد، بوت هنوز در جریان است؛
-     *    پس با httpProxyPort() تا ~۵۰ ثانیه پول می‌کنیم (هر فراخوانی خودش تا ۵ ثانیه صبر می‌کند).
-     *  • ساختن نمونه‌ی دوم flashlight ممنوع: روی قفل انحصاری فایل کانفیگ (bbolt) می‌میرد
-     *    و با log.Fatalf کل پروسه‌ی :lantern را می‌کشد — ریشه‌ی «اتصال برقرار نمیشه».
+     *  • هرگز دو نمونه‌ی هم‌زمان ساخته نمی‌شود (قفل client/pending/booting)؛
+     *  • بعد از شکستِ قابل‌گرفتن (state=failed) بوت مجدد در همان پروسه مجاز است —
+     *    پروسه‌ی زنده یعنی بدون spawn جدید و بدون ریسک «process is bad».
      */
     fun start(ctx: Context) {
         synchronized(this) {
             if (client != null || pending != null) return
+            if (!booting.compareAndSet(false, true)) return
             httpPort = 0
             state = "connecting"
             appCtx = ctx.applicationContext
-            clearPort(ctx)
-            val ctx0 = appCtx ?: return
-            writeState(ctx0, "starting")
+            val app = appCtx ?: run { booting.set(false); return }
+            val myBoot = bootCounter.incrementAndGet()
+            clearPort(app)
+            writePid(app)
+            writeState(app, "starting")
+            bootLogReset(app)
+            bootLog(app, "boot start — fresh config dir (V5.9)")
+            val cfgDir = prepareFreshConfigDir(app)
+            bootLog(app, "configDir=${cfgDir.absolutePath}")
             Thread {
                 var c: lantern.LanternClient? = null
                 try {
                     val c0 = lantern.Lantern.newLanternClient()
                     c = c0
                     synchronized(this@LanternEngine) {
-                        if (state == "stopped") return@Thread
+                        if (state == "stopped") { booting.set(false); return@Thread }
                         pending = c0
                     }
-                    val app = appCtx ?: return@Thread
-                    // کانفیگ لنترن داخل حافظه‌ی خود اپ — بدون برنامه‌ی جداگانه
-                    val cfgDir = File(app.filesDir, "lantern_config")
-                    try { cfgDir.mkdirs() } catch (_: Throwable) {}
+                    bootLog(app, "go runtime up — client created")
                     c0.setup("VexVPN", cfgDir.absolutePath)
+                    bootLog(app, "setup done — starting flashlight (:0, proxyAll=true)")
                     // پورت ۰ = سیستم خودش پورت آزاد انتخاب می‌کند؛ آدرس واقعی از StartResult می‌آید
                     // proxyAll=true ⇒ همه‌ی ترافیک از شبکه‌ی ضدسانچر لنترن عبور کند
                     var port = 0
                     try {
                         val res = c0.start(":0", true)
                         port = res?.getAddr()?.substringAfterLast(':')?.toIntOrNull() ?: 0
+                        bootLog(app, "start() returned addr-port=$port")
                     } catch (e: Throwable) {
                         // پنجره‌ی ۵ ثانیه‌ای رد شد — بوت flashlight هنوز ادامه دارد؛
                         // پول‌کردن پورت همین‌جا معنا دارد، ساختن نمونه‌ی جدید هرگز.
-                        Log.w(TAG, "start() window missed (${e.message}) — keep polling the same instance")
+                        bootLog(app, "start() window missed (${e.message}) — keep polling the same instance")
                     }
                     if (port <= 0) {
                         for (i in 0 until 9) {
-                            synchronized(this@LanternEngine) { if (state == "stopped") return@Thread }
+                            synchronized(this@LanternEngine) {
+                                if (state == "stopped" || bootCounter.get() != myBoot) {
+                                    booting.set(false); return@Thread
+                                }
+                            }
                             port = try { c0.httpProxyPort().toInt() } catch (_: Throwable) { 0 }
                             if (port > 0) break
-                            try { Thread.sleep(1200) } catch (_: InterruptedException) { return@Thread }
+                            try { Thread.sleep(1200) } catch (_: InterruptedException) { booting.set(false); return@Thread }
                         }
                     }
-                    if (port <= 0) throw Exception("Lantern HTTP proxy never became ready")
+                    if (port <= 0) throw Exception("Lantern HTTP proxy never became ready (poll timeout ~50s)")
                     synchronized(this@LanternEngine) {
-                        if (state == "stopped") { // کاربر وسط راه قطع کرده
+                        if (state == "stopped" || bootCounter.get() != myBoot) { // کاربر وسط راه قطع/ری‌استارت کرده
+                            booting.set(false)
                             try { c0.stop() } catch (_: Throwable) {}
                             return@Thread
                         }
@@ -144,29 +290,31 @@ object LanternEngine {
                         pending = null
                         httpPort = port
                         state = "connected"
+                        booting.set(false)
                         try { portFile(app).writeText(port.toString()) } catch (_: Throwable) {}
                         writeState(app, "ready")
-                        Log.i(TAG, "lantern http proxy listening on 127.0.0.1:$port")
+                        bootLog(app, "READY — lantern http proxy listening on 127.0.0.1:$port")
                         // گرم‌کردن مسیر در پس‌زمینه (اولین اتصال به کانفیگ ابری لنترن)
-                        warmUp(port)
+                        warmUp(app, port)
                     }
                 } catch (e: Throwable) {
-                    Log.e(TAG, "lantern start failed: ${e.message}")
+                    bootLog(app, "BOOT FAILED: ${e.javaClass.simpleName}: ${e.message}")
                     synchronized(this@LanternEngine) { pending = null }
                     try { c?.stop() } catch (_: Throwable) {}
-                    val app = appCtx
                     synchronized(this@LanternEngine) {
                         if (state != "stopped") state = "failed"
+                        booting.set(false) // بوت مجدد درون-پروسه‌ای مجاز است
                     }
-                    if (app != null) writeState(app, "failed")
+                    writeState(app, "failed")
                 }
             }.start()
         }
     }
 
     /** تست سبک HTTP از داخل پروکسی لنترن — فقط برای لاگ؛ مسیر را زودتر جا می‌اندازد */
-    private fun warmUp(port: Int) {
+    private fun warmUp(app: Context, port: Int) {
         Thread {
+            var code = -1
             try {
                 val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))
                 val url = URL("https://www.gstatic.com/generate_204")
@@ -175,28 +323,46 @@ object LanternEngine {
                 conn.readTimeout = 15000
                 conn.instanceFollowRedirects = false
                 conn.setRequestProperty("User-Agent", "VexVPN")
-                val code = try { conn.responseCode } catch (_: Throwable) { -1 }
+                code = try { conn.responseCode } catch (_: Throwable) { -1 }
                 try { conn.disconnect() } catch (_: Throwable) {}
-                Log.i(TAG, "lantern warm-up: HTTP $code")
             } catch (_: Throwable) {}
+            bootLog(app, "warm-up probe through lantern proxy: HTTP $code")
+        }.start()
+    }
+
+    /**
+     * بوت مجدد flashlight «درون همان پروسه» — قلب failover بی‌صدای لنترن (V5.9):
+     * وقتی سرور لنترن قطع می‌شود، نمونه‌ی فعلی متوقف و نمونه‌ای نو با کانفیگ تازه بوت
+     * می‌شود = انتخاب تازه‌ی بهترین سرور از شبکه‌ی ابری لنترن. بدون ساخت پروسه‌ی جدید
+     * (ریسک «process is bad» = صفر) و بدون هیچ پیامی به کاربر.
+     */
+    fun restartInProcess(ctx: Context) {
+        stop(ctx)
+        Thread {
+            try { Thread.sleep(400) } catch (_: InterruptedException) {}
+            start(ctx)
         }.start()
     }
 
     fun stop(ctx: Context?) {
-        val c = client
-        val pnd = pending
-        client = null
-        pending = null
-        httpPort = 0
-        state = "stopped"
-        if (ctx != null) {
-            clearPort(ctx)
-            writeState(ctx, "stopped")
+        synchronized(this) {
+            bootCounter.incrementAndGet() // هر بوتِ در جریان را نامعتبر کن
+            booting.set(false)
+            val c = client
+            val pnd = pending
+            client = null
+            pending = null
+            httpPort = 0
+            state = "stopped"
+            if (ctx != null) {
+                clearPort(ctx)
+                writeState(ctx, "stopped")
+            }
+            Thread {
+                try { c?.stop() } catch (_: Throwable) {}
+                try { pnd?.stop() } catch (_: Throwable) {}
+            }.start()
         }
-        Thread {
-            try { c?.stop() } catch (_: Throwable) {}
-            try { pnd?.stop() } catch (_: Throwable) {}
-        }.start()
     }
 
     fun isRunning(): Boolean = client != null || pending != null

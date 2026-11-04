@@ -6,6 +6,11 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * سرویس موتور لنترن — در پروسه‌ی جدا «:lantern» اجرا می‌شود.
@@ -15,32 +20,69 @@ import android.util.Log
  *  ۲) نوشتن پورت در فایل مشترک برای پروسه‌ی اصلی
  *  ۳) نگه‌داشتن هسته در حین اتصال (سرویس پیش‌زمینه با اعلان بی‌صدا)
  *
+ * V5.9 — سپر کرش پروسه (رفع ریشه‌ای «process is bad»):
+ *  هر استثنای گرفته‌نشده در هر تردی از این پروسه، توسط هندلر پیش‌فرض اندروید پروسه را
+ *  می‌کشد؛ اگر این اتفاق دو بار پشت‌سرهم بیفتد، اندروید پروسه را «bad» علامت می‌زند و
+ *  دیگر اجازه‌ی اجرا نمی‌دهد («Unable to launch app ... process is bad» — خطایی که کاربر
+ *  دید). سپر کرش اینجا استثناها را می‌گیرد، در فایل می‌نویسد (برای «جزئیات خطا») و
+ *  عمداً هندلر پیش‌فرض را صدا نمی‌زند ⇒ پروسه زنده می‌ماند و موتور قابل بازیابی است.
+ *
  * خاموش‌کردن: Intent با ACTION_STOP از پروسه‌ی اصلی (VexVpnService هنگام قطع).
- * پس از توقف، پروسه‌ی :lantern عمداً kill می‌شود تا:
- *  • هیچ نمونه‌ی زامبی flashlight در پس‌زمینه نماند (باتری/ترافیک)،
- *  • دفعه‌ی بعد همیشه بوتِ تمیز با state تازه شروع شود.
+ * پس از توقف، پروسه‌ی :lantern عمداً kill می‌شود تا هیچ نمونه‌ی زامبی flashlight در
+ * پس‌زمینه نماند. اگر قبل از kill، دستور ACTION_START/ACTION_RESTART برسد، kill لغو
+ * می‌شود (epoch guard) تا اتصال مجدد سریع، بدون spawn پروسه‌ی جدید انجام شود.
  */
 class LanternService : Service() {
 
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    /** هر ACTION_STOP یک epoch جدید می‌سازد؛ kill فقط اگر epoch عوض نشده باشد */
+    private val killEpoch = AtomicInteger(0)
+    private val crashShieldInstalled = AtomicBoolean(false)
+
     override fun onCreate() {
         super.onCreate()
+        installCrashShield()
+        try { LanternEngine.writePid(this) } catch (_: Throwable) {}
         try { Notifier.ensureChannels(this) } catch (_: Throwable) {}
     }
 
+    /**
+     * سپر کرش — اولین کدِ این پروسه که اجرا می‌شود.
+     * استثنای گرفته‌نشده = نوشتن در فایل کرش + زنده‌ماندن پروسه.
+     */
+    private fun installCrashShield() {
+        if (!crashShieldInstalled.compareAndSet(false, true)) return
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+                val sb = StringBuilder()
+                sb.append("[$ts] thread=${t?.name} exception=${e.javaClass.name}\n")
+                sb.append("message=${e.message ?: ""}\n")
+                sb.append(Log.getStackTraceString(e))
+                LanternEngine.crashFile(this).writeText(sb.toString())
+            } catch (_: Throwable) {}
+            // عمداً هندلر پیش‌فرض صدا زده نمی‌شود — مرگ پروسه یعنی «process is bad»
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // V5.8: کل بدنه در برابر هر استثنایی مقاوم شده — مرگ پروسه‌ی «:lantern» در لحظه‌ی
-        // بوت یعنی «هرچقدر می‌چرخد اتصال برقرار نمی‌شود»؛ هیچ استثنایی نباید اینجا کرش بدهد
+        // کل بدنه در برابر هر استثنایی مقاوم — هیچ استثنایی نباید اینجا پروسه را بکشد
         try {
             when {
                 intent?.action == ACTION_STOP -> {
+                    killEpoch.incrementAndGet()
                     LanternEngine.stop(this)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     // پروسه‌ی اختصاصی لنترن — پس از توقف، kill تمیز (بدون زامبی flashlight)
-                    mainHandler.postDelayed({
-                        try { android.os.Process.killProcess(android.os.Process.myPid()) } catch (_: Throwable) {}
-                    }, 400)
+                    scheduleProcessKill()
                     return START_NOT_STICKY
+                }
+                // V5.9 — بوت مجدد flashlight درون همان پروسه (سرور جایگزین لنترن، بی‌صدا)
+                intent?.action == ACTION_RESTART -> {
+                    killEpoch.incrementAndGet() // kill در انتظار را لغو کن — پروسه باید زنده بماند
+                    goForeground()
+                    LanternEngine.restartInProcess(this)
                 }
                 // رستارت توسط سیستم بدون Intent — یعنی کاربر قطع کرده و نباید دوباره بوت شود
                 intent == null -> {
@@ -48,6 +90,8 @@ class LanternService : Service() {
                     return START_NOT_STICKY
                 }
                 else -> {
+                    // START (و بوت مجدد بعد از شکست): kill در انتظار را لغو کن
+                    killEpoch.incrementAndGet()
                     // سرویس پیش‌زمینه — تا سیستم پروسه‌ی لنترن را وسط کار نکشد
                     goForeground()
                     if (!LanternEngine.isRunning()) LanternEngine.start(this)
@@ -60,14 +104,20 @@ class LanternService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun scheduleProcessKill() {
+        val ep = killEpoch.get()
+        mainHandler.postDelayed({
+            if (killEpoch.get() == ep) { // اگر بین STOP و kill یک START/RESTART آمده باشد، لغو
+                try { android.os.Process.killProcess(android.os.Process.myPid()) } catch (_: Throwable) {}
+            }
+        }, 800)
+    }
+
     /**
-     * V5.8 — ریشه‌ی واقعی «اتصال لنترن برقرار نمیشه»:
      * نوع سرویس «specialUse» فقط از API 34 شناخته می‌شود. روی اندروید ۱۰ تا ۱۳ (API 29..33)
      * پاس‌دادن FOREGROUND_SERVICE_TYPE_SPECIAL_USE به startForeground می‌تواند
      * IllegalArgumentException بدهد — و چون این کد در همان لحظه‌ی بوتِ پروسه‌ی «:lantern»
-     * اجرا می‌شود، کل پروسه می‌میرد، فایل پورت هرگز نوشته نمی‌شود و موتور لنترن هرگز بالا
-     * نمی‌آید (سرویس VPN اصلی از startForeground دوپارامتری استفاده می‌کند و برای همین
-     * موتور Vex روی همان گوشی‌ها سالم کار می‌کرد — فقط لنترن می‌سوخت).
+     * اجرا می‌شود، کل پروسه می‌میرد (رفع‌شده در V5.8 و همین‌طور حفظ شده).
      * راه‌حل: 34+ = specialUse · پایین‌تر = بدون نوع · هر خطا = تلاش دوباره بدون نوع.
      */
     private fun goForeground() {
@@ -93,11 +143,11 @@ class LanternService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
-
     companion object {
         const val ACTION_START = "com.vex.client.LANTERN_START"
         const val ACTION_STOP = "com.vex.client.LANTERN_STOP"
+        /** V5.9 — بوت مجدد flashlight درون همان پروسه (بدون spawn) — failover بی‌صدای لنترن */
+        const val ACTION_RESTART = "com.vex.client.LANTERN_RESTART"
         private const val NOTIF_ID = 2
     }
 }
