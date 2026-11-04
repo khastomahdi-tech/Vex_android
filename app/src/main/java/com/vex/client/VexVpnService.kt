@@ -292,67 +292,65 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                         if (engMode == "hybrid") ConfigBuilder.buildHybrid(port, config)
                         else ConfigBuilder.buildLanternProxy(port, config)
                     } else if (engMode == "free") {
-                        // V5.13 — زنجیره‌ی «فقط رایگان» — بازسازی‌شده (خواسته‌ی صریح کاربر: «وصل بشه»):
-                        //  A) لنترن (بوت سریع + اگر پورت بود ولی مسیر مرده، یک احیای درون-پروسه‌ای)
-                        //  B) وارپ (کلودفلر — ثبت‌نام کش‌شده یا تازه)
+                        // V5.14 — زنجیره‌ی «فقط رایگان» — سرعت‌بهینه (خواسته‌ی کاربر: «سرعت خیلی بالا»):
+                        //  A) لنترن (بوت سریع + تأیید مسیر واقعی) — اگر پورت بود ولی مسیر مرده،
+                        //     دیگر ۴۵ ثانیه برای احیای درون-پروسه‌ای معطل نمی‌شویم؛ مستقیم وارپ تا
+                        //     کاربر زودتر وصل شود (دورِ لنترن تازه در مرحله‌ی C همین کار را می‌کند)
+                        //  B) وارپ (کلودفلر — ثبت‌نام کش‌شده یا تازه؛ endpoint رسمی engage)
                         //  C) لنترن دوباره — بوت کاملاً تازه = انتخاب سرور جدید از شبکه‌ی ابری لنترن
-                        //  D) وارپ دوباره — با ثبت‌نام کاملاً نو (کلید و endpoint جدید)
+                        //  D) وارپ دوباره — ثبت‌نام کاملاً نو + endpoint مستقیم IP (بدون DNS؛
+                        //     رنج 188.114 edge کلودفلر — برای اپراتورهایی که engage را مسدود کرده‌اند)
                         //  هیچ مرحله‌ای به سرورهای خودمان نمی‌رود (قانون صریح کاربر)
                         // اگر A تا D کامل نشد، catch یک‌بار کل زنجیره را از نو اجرا می‌کند (freeChainRetried)
-                        var revived = 0
-                        if (port > 0) {
-                            // پورت باز بود ولی مسیر مرده — یک احیای درون-پروسه‌ای با کانفیگ تازه
-                            revived = reviveLanternAndVerify(ctx, gen)
+                        stopLanternQuiet()
+                        lastEngineLantern = false
+
+                        // نکته: کل «val coreConfig = if(...)...» یک عبارت است — پس هر شاخه باید
+                        // مقدار String بدهد؛ تابع‌های محلی کانفیگ را برمی‌گردانند (null = نشد)
+                        fun freeWarp(freshReg: Boolean, epHost: String? = null, epPort: Int = 0): String? {
+                            synchronized(stateLock) { if (gen != generation) return null }
+                            pushCoreLog(if (freshReg) "فقط‌رایگان: تلاش دوباره‌ی وارپ با ثبت‌نام کاملاً نو" else "فقط‌رایگان: لنترن برقرار نشد — سوییچ بی‌صدای وارپ (کلودفلر)")
+                            if (!quiet) startForeground(NOTIF_ID, notif(
+                                "در حال اتصال... (فقط رایگان · وارپ)",
+                                if (freshReg) "ثبت‌نام جدید وارپ و تلاش دوباره..." else "لنترن پاسخ نداد — تلاش با موتور وارپ"))
+                            val reg = try {
+                                WarpEngine.ensureRegistration(ctx, forceFresh = freshReg)
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "warp registration failed: ${t.message}")
+                                pushCoreLog("وارپ: ثبت‌نام ناموفق (${t.message})")
+                                null
+                            } ?: return null
+                            if (epHost != null) {
+                                // endpoint جایگزین در حافظه‌ی همین جلسه (کش ثبت‌نام دست نمی‌خورد)
+                                reg.put("endpoint_host", epHost)
+                                if (epPort > 0) reg.put("endpoint_port", epPort)
+                                pushCoreLog("وارپ: endpoint جایگزین $epHost:$epPort (مسیر مستقیم IP)")
+                            }
+                            lastEngineLantern = false
+                            smartStage = "warp"
+                            return ConfigBuilder.buildWarp(reg, config)
                         }
-                        if (revived > 0) {
+
+                        fun freeLanternFresh(): String? {
+                            synchronized(stateLock) { if (gen != generation) return null }
+                            stopLanternQuiet()
+                            pushCoreLog("فقط‌رایگان: تلاش دوباره‌ی لنترن با بوت کاملاً تازه (سرور ابری جدید)")
+                            if (!quiet) startForeground(NOTIF_ID, notif(
+                                "در حال اتصال... (فقط رایگان · لنترن)",
+                                "لنترن دوباره با انتخاب سرور تازه از شبکه‌ی ابری..."))
+                            val p = lanternReady(ctx, gen)
+                            if (p <= 0) return null
                             lastEngineLantern = true
                             smartStage = "lantern"
-                            ConfigBuilder.buildLanternProxy(revived, config)
-                        } else {
-                            stopLanternQuiet()
-                            lastEngineLantern = false
-
-                            // نکته: کل «val coreConfig = if(...)...» یک عبارت است — پس هر شاخه باید
-                            // مقدار String بدهد؛ تابع‌های محلی کانفیگ را برمی‌گردانند (null = نشد)
-                            fun freeWarp(freshReg: Boolean): String? {
-                                synchronized(stateLock) { if (gen != generation) return null }
-                                pushCoreLog(if (freshReg) "فقط‌رایگان: تلاش دوباره‌ی وارپ با ثبت‌نام کاملاً نو" else "فقط‌رایگان: لنترن برقرار نشد — سوییچ بی‌صدای وارپ (کلودفلر)")
-                                if (!quiet) startForeground(NOTIF_ID, notif(
-                                    "در حال اتصال... (فقط رایگان · وارپ)",
-                                    if (freshReg) "ثبت‌نام جدید وارپ و تلاش دوباره..." else "لنترن پاسخ نداد — تلاش با موتور وارپ"))
-                                val reg = try {
-                                    WarpEngine.ensureRegistration(ctx, forceFresh = freshReg)
-                                } catch (t: Throwable) {
-                                    Log.e(TAG, "warp registration failed: ${t.message}")
-                                    pushCoreLog("وارپ: ثبت‌نام ناموفق (${t.message})")
-                                    null
-                                } ?: return null
-                                lastEngineLantern = false
-                                smartStage = "warp"
-                                return ConfigBuilder.buildWarp(reg, config)
-                            }
-
-                            fun freeLanternFresh(): String? {
-                                synchronized(stateLock) { if (gen != generation) return null }
-                                stopLanternQuiet()
-                                pushCoreLog("فقط‌رایگان: تلاش دوباره‌ی لنترن با بوت کاملاً تازه (سرور ابری جدید)")
-                                if (!quiet) startForeground(NOTIF_ID, notif(
-                                    "در حال اتصال... (فقط رایگان · لنترن)",
-                                    "لنترن دوباره با انتخاب سرور تازه از شبکه‌ی ابری..."))
-                                val p = lanternReady(ctx, gen)
-                                if (p <= 0) return null
-                                lastEngineLantern = true
-                                smartStage = "lantern"
-                                return ConfigBuilder.buildLanternProxy(p, config)
-                            }
-
-                            // چهار تلاش بی‌صدا: وارپ ← لنترن تازه ← وارپ با ثبت‌نام نو — بعد پیام شفاف
-                            freeWarp(freshReg = false)
-                                ?: freeLanternFresh()
-                                ?: freeWarp(freshReg = true)
-                                ?: throw Exception(
-                                    "هیچ موتور رایگانی (لنترن/وارپ) با ۴ تلاش بی‌صدا برقرار نشد — طبق تنظیم «فقط رایگان» به سرورهای خودمان وصل نمی‌شویم؛ یک‌بار دیگر پاور را بزن یا موتور «هوشمند» را برگزین")
+                            return ConfigBuilder.buildLanternProxy(p, config)
                         }
+
+                        // چهار تلاش بی‌صدا: وارپ ← لنترن تازه ← وارپ با ثبت‌نام نو + IP مستقیم — بعد پیام شفاف
+                        freeWarp(freshReg = false)
+                            ?: freeLanternFresh()
+                            ?: freeWarp(freshReg = true, epHost = "188.114.97.1", epPort = 2408)
+                            ?: throw Exception(
+                                "هیچ موتور رایگانی (لنترن/وارپ) با ۴ تلاش بی‌صدا برقرار نشد — طبق تنظیم «فقط رایگان» به سرورهای خودمان وصل نمی‌شویم؛ یک‌بار دیگر پاور را بزن یا موتور «هوشمند» را برگزین")
                     } else if (engMode == "smart") {
                         // زنجیره‌ی هوشمند — مرحله‌ی بعدی: وارپ (کلودفلر، بدون انتخاب سرور)
                         synchronized(stateLock) { if (gen != generation) return@thread }

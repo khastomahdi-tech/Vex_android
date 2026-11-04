@@ -181,14 +181,23 @@ object LanternEngine {
 
     /**
      * یک پروب واقعی HTTP از داخل پروکسی لنترن (۱۲۷.۰.۰.۱:port) — خارج از تونل.
-     * خروجی: کد HTTP (۲۰۰..۳۹۹ = مسیر سالم) یا -1 = شکست اتصال/تایم‌اوت.
+     * V5.14 — پروب دوم پشتیبان: اگر gstatic پاسخ نداد، با cloudflare trace هم امتحان می‌شود
+     * (بعضی خروجی‌های ابری لنترن یک هاست را پاسخ نمی‌دهند ولی مسیر کاملاً سالم است —
+     * جلوگیری از «مرده‌انگاری کاذب» مسیر). خروجی: کد HTTP (۲۰۰..۳۹۹ = سالم) یا -1 = شکست.
      */
     fun probeThrough(port: Int): Int {
         if (port <= 0) return -1
+        val c1 = probeUrl(port, "https://www.gstatic.com/generate_204")
+        if (c1 in 200..399) return c1
+        val c2 = probeUrl(port, "https://www.cloudflare.com/cdn-cgi/trace")
+        return if (c2 in 200..399) c2 else c1
+    }
+
+    private fun probeUrl(port: Int, target: String): Int {
         var code = -1
         try {
             val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))
-            val conn = URL("https://www.gstatic.com/generate_204").openConnection(proxy) as HttpURLConnection
+            val conn = URL(target).openConnection(proxy) as HttpURLConnection
             conn.connectTimeout = PROBE_TIMEOUT_MS
             conn.readTimeout = PROBE_TIMEOUT_MS
             conn.instanceFollowRedirects = false

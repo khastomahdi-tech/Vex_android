@@ -95,6 +95,7 @@ object WarpEngine {
     // ------------------------------------------------------------------ ثبت‌نام
 
     private fun register(): JSONObject {
+        runRfcSelfTest()
         val (priv, pub) = generateKeyPair()
         val pubB64 = Base64Url.encode(pub)
         val body = JSONObject()
@@ -203,6 +204,55 @@ object WarpEngine {
 
     // ------------------------------------------------------------------ X25519 (RFC 7748)
 
+    // خودآزمایی یک‌باره با بردارهای رسمی RFC 7748 — اگر شکست بخورد ثبت‌نام متوقف می‌شود
+    // (کلید خراب یعنی تونل WireGuard بالا می‌آید ولی هرگز handshake نمی‌شود)
+    @Volatile
+    private var rfcSelfTestDone = false
+
+    private fun hexBytes(h: String): ByteArray {
+        val out = ByteArray(h.length / 2)
+        for (i in out.indices) out[i] = ((Character.digit(h[i * 2], 16) shl 4)
+                or Character.digit(h[i * 2 + 1], 16)).toByte()
+        return out
+    }
+
+    private fun runRfcSelfTest() {
+        if (rfcSelfTestDone) return
+        synchronized(this) {
+            if (rfcSelfTestDone) return
+            // بردارهای §5.2 — اسکالر باید مثل decodeScalar25519 کلمپ شود
+            val o1 = x25519(clampScalar(hexBytes("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4")),
+                hexBytes("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"))
+            val o2 = x25519(clampScalar(hexBytes("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d")),
+                hexBytes("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493"))
+            // §6.1 — کلید عمومی آلیس از نقطه‌ی پایه ۹
+            val o3 = x25519(clampScalar(hexBytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")),
+                BASE_POINT)
+            val h1 = hex(o1); val h2 = hex(o2); val h3 = hex(o3)
+            if (h1 != "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552" ||
+                h2 != "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957" ||
+                h3 != "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a") {
+                throw IllegalStateException("X25519 self-test FAILED: $h1 | $h2 | $h3")
+            }
+            Log.i(TAG, "X25519 self-test OK (RFC 7748 §5.2/§6.1)")
+            rfcSelfTestDone = true
+        }
+    }
+
+    private fun clampScalar(k: ByteArray): ByteArray {
+        val o = k.copyOf()
+        o[0] = (o[0].toInt() and 248).toByte()
+        o[31] = (o[31].toInt() and 127).toByte()
+        o[31] = (o[31].toInt() or 64).toByte()
+        return o
+    }
+
+    private fun hex(b: ByteArray): String {
+        val sb = StringBuilder(b.size * 2)
+        for (x in b) sb.append(String.format("%02x", x))
+        return sb.toString()
+    }
+
     private object Base64Url {
         fun encode(b: ByteArray): String =
             android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE)
@@ -214,7 +264,10 @@ object WarpEngine {
             android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)
     }
 
-    private val P: BigInteger = BigInteger.valueOf(2).pow(255).subtract(BigInteger.ONE) // 2^255-19
+    // ⚠️ V5.14 — ریشه‌ی «BigInteger not invertible»: قبلاً ۲^۲۵۵−۱ نوشته شده بود که عدد مرکّب است
+    // (شونده‌های کوچک ۷ و ۳۱ و … دارد) ⇒ modInverse تقریباً همیشه می‌میرد و «هیچ ثبت‌نامی»
+    // انجام نمی‌شود. مقدار درست فیلد Curve25519 طبق RFC 7748 دقیقاً ۲^۲۵۵−۱۹ است.
+    private val P: BigInteger = BigInteger.valueOf(2).pow(255).subtract(BigInteger.valueOf(19L))
     private val A24: BigInteger = BigInteger.valueOf(121665L)
     private val BASE_POINT: ByteArray = run {
         val b = ByteArray(32); b[0] = 9; b
@@ -277,6 +330,8 @@ object WarpEngine {
             val tx = x2; x2 = x3; x3 = tx
             val tz = z2; z2 = z3; z3 = tz
         }
+        // نقطه‌ی بی‌نهایت (z2=0؛ مثلاً ورودی u=0) — خروجی صفر مطابق RFC 7748، بدون modInverse
+        if (z2.signum() == 0) return ByteArray(32)
         val out = x2.multiply(z2.modInverse(p)).mod(p)
         val res = out.toByteArray() // big-endian با علامت — باید به ۳۲ بایت little-endian تبدیل شود
         val le = ByteArray(32)
