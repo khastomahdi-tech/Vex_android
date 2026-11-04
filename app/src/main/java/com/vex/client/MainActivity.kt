@@ -1129,17 +1129,16 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Payload موتور لنترن (هسته‌ی رسمی Lantern) — علاوه بر engine، استخر سرورها را هم
-     * ضمیمه می‌کند تا در صورت شکست لنترن، فال‌بک خودکار به «اتصال خودکار» فوراً کار کند.
+     * Payload موتور لنترن — V5.8 قانون «لنترن فقط لنترن» (درخواست صریح کاربر):
+     * هیچ سروری از استخر ما ضمیمه نمی‌شود و ترافیک صددرصد از هسته‌ی رسمی Lantern
+     * می‌گذرد — flashlight خودش بهترین سرور را از شبکه‌ی ابری لنترن (فرانتینگ CDN +
+     * رله‌های پشتیبان) انتخاب می‌کند و در صورت قطع سرور، سرویس با بوت تازه سرور
+     * جایگزین لنترن برمی‌دارد. هیچ فال‌بکی به سرورهای Vex وجود ندارد.
      */
     private fun realLanternPayload(payload0: String): String {
         return try {
-            val o = org.json.JSONObject(autoPoolPayload(payload0))
-            o.put("engine", "lantern")
-            o.toString()
-        } catch (_: Throwable) {
-            try { org.json.JSONObject(payload0).put("engine", "lantern").toString() } catch (_: Throwable) { payload0 }
-        }
+            org.json.JSONObject(payload0).put("engine", "lantern").toString()
+        } catch (_: Throwable) { payload0 }
     }
 
     fun requestStart(s: Server) {
