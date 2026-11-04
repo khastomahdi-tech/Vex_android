@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      channel_edition:
+        description: "ساخت ادیشن کم‌حجم arm64 (زیر سقف ۵۰MB تلگرام — برای آپلود مستقیم فایل در کانال)"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -247,10 +252,41 @@ jobs:
           print('APK structure OK:', len(z.namelist()), 'entries')
           PY
 
+      - name: Keep universal APK safe (release/mirror source — قبل از بیلد ادیشن کانال)
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk /tmp/vex-universal.apk
+          ls -l /tmp/vex-universal.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: vex-client-apk
           path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Build arm64-only channel edition (زیر سقف ۵۰MB تلگرام)
+        if: github.event_name == 'workflow_dispatch' && inputs.channel_edition == true
+        run: |
+          gradle :app:assembleRelease -PvexAbi64=true --no-daemon
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          "$BT/apksigner" verify app/build/outputs/apk/release/app-release.apk
+          TAG="v${{ steps.ver.outputs.v }}"
+          cp app/build/outputs/apk/release/app-release.apk "Vex-Client-${TAG}-arm64.apk"
+          SHA64=$(sha256sum "Vex-Client-${TAG}-arm64.apk" | cut -d' ' -f1)
+          MB64=$(( ($(stat -c%s "Vex-Client-${TAG}-arm64.apk") + 1048575) / 1048576 ))
+          {
+            echo "ARM64_APK=Vex-Client-${TAG}-arm64.apk"
+            echo "ARM64_SHA=$SHA64"
+            echo "ARM64_MB=$MB64"
+          } >> "$GITHUB_ENV"
+          ls -l "Vex-Client-${TAG}-arm64.apk"
+          python3 - <<'PY'
+          import zipfile, os
+          p = 'app/build/outputs/apk/release/app-release.apk'
+          z = zipfile.ZipFile(p)
+          abis = {n.split('/')[1] for n in z.namelist() if n.startswith('lib/')}
+          assert abis == {'arm64-v8a'}, f'channel edition ABIs wrong: {abis}'
+          assert os.path.getsize(p) < 50_000_000, f'channel edition too big: {os.path.getsize(p)}'
+          print('CHANNEL EDITION OK — arm64-only,', os.path.getsize(p), 'bytes')
+          PY
 
       - name: Publish GitHub Release (public download link)
         # [V5.10-TEST] انتشار فقط با اجازه‌ی صریح (workflow_dispatch با publish_release=true)
@@ -260,15 +296,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.ver.outputs.v }}"
-          SRC=app/build/outputs/apk/release/app-release.apk
+          SRC=/tmp/vex-universal.apk
           NAME="Vex-Client-${TAG}.apk"
+          EXTRA_ARGS=""
+          if [ -n "$ARM64_APK" ] && [ -f "$ARM64_APK" ]; then
+            # ادیشن کم‌حجم arm64 (زیر سقف ۵۰MB تلگرام) — به‌عنوان asset جداگانه به Release پیوست می‌شود
+            EXTRA_ARGS="$ARM64_APK"
+          fi
           cp "$SRC" "$NAME"
           cp "$SRC" "Vex-Client-latest.apk"
           SHA=$(sha256sum "$NAME" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$NAME")
           MB=$(( (SIZE + 1048575) / 1048576 ))
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" "$NAME" "Vex-Client-latest.apk" \
+          gh release create "$TAG" "$NAME" "Vex-Client-latest.apk" $EXTRA_ARGS \
             --title "VEX CLIENT $TAG" \
             --notes "دانلود مستقیم APK — هسته‌ی واقعی sing-box v1.11.15 ✅ امضای verified
           ➖➖➖➖➖➖➖➖➖➖➖➖➖➖
@@ -282,6 +323,7 @@ jobs:
           **SHA-256 (برای اطمینان):** ${SHA}
 
           تازه در این نسخه (V5.14 — ریشه‌ی کامل «ثبت‌نام وارپ ناموفق» + زنجیره‌ی سریع‌تر فقط‌رایگان): باگ کلیدی X25519 رفع شد — ثابت فیلد Curve25519 اشتباهاً ۲^۲۵۵−۱ بود (عدد مرکّب) که خطای «BigInteger not invertible» می‌داد و هیچ ثبت‌نام وارپی هرگز انجام نمی‌شد؛ الان دقیقاً ۲^۲۵۵−۱۹ طبق RFC 7748 است و خودآزمایی خودکار با بردارهای رسمی RFC هم اضافه شد · زنجیره‌ی «فقط رایگان» سریع‌تر شد: لنترن ← وارپ ← لنترن تازه ← وارپ با ثبت‌نام نو + endpoint مستقیم IP کلودفلر (بدون DNS، رنج 188.114) برای اپراتورهایی که engage مسدود است · پروب سلامت لنترن با هاست پشتیبان هم چک می‌شود تا مسیر سالم «مرده» تشخیص داده نشود · موتور پیش‌فرض ورود اول: «فقط رایگان» — بدون هیچ سروری از خودمان
+          ${{ env.ARM64_APK != '' && format('📦 ادیشن کم‌حجم مخصوص گوشی‌های ۶۴ بیتی (همه گوشی‌های جدید): **{0}** — {1} مگابایت · SHA-256: {2}', env.ARM64_APK, env.ARM64_MB, env.ARM64_SHA) || ' ' }}
 
           پروتکل‌ها: VLESS (TLS/Reality/Vision/WS/gRPC/HTTPUpgrade) · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard"
 
@@ -293,7 +335,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           TAG="v${{ steps.ver.outputs.v }}"
-          SRC=app/build/outputs/apk/release/app-release.apk
+          # حتماً نسخه‌ی universal — مسیر خروجی گریدل بعد از بیلد ادیشن کانال، arm64 است
+          SRC=/tmp/vex-universal.apk
           NAME="Vex-Client-${TAG}.apk"
           rm -rf /tmp/vex-cf
           mkdir -p /tmp/vex-cf/parts

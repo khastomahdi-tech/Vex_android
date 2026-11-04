@@ -15,8 +15,11 @@ android {
         versionName = "5.14"
         // فقط گوشی‌های ARM — حذف کتابخانه‌های x86/x86_64 شبیه‌ساز → APK حدود ۱۶MB کوچک‌تر
         // (دانلود سبک‌تر = ریسک خرابی و خطای «بسته معتبر نیست» به‌مراتب کمتر)
+        // VexAbi64=true → فقط arm64 (نسخه‌ی کم‌حجم «ادیشن کانال» — زیر سقف ۵۰ مگابایت تلگرام)
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            abiFilters += if ((findProperty("vexAbi64") as? String) == "true" ||
+                             (findProperty("vexAbi64") as? Boolean) == true)
+                listOf("arm64-v8a") else listOf("armeabi-v7a", "arm64-v8a")
         }
     }
 
