@@ -39,6 +39,31 @@ class LanternService : Service() {
     private val killEpoch = AtomicInteger(0)
     private val crashShieldInstalled = AtomicBoolean(false)
 
+    /**
+     * V5.11 — WakeLock جزئی پروسه‌ی لنترن (الگوی SagerNet/NekoBox):
+     * وقتی CPU به خواب می‌رود (Doze)، گوروتین‌های flashlight هم ست می‌شوند ⇒ مسیر لنترن
+     * وسط کار «یخ» می‌زند و کاربر قطعی می‌بیند. سرویس پیش‌زمینه بودن کافی نیست؛ این
+     * WakeLock تا وقتی موتور روشن است CPU را بیدار نگه می‌دارد (در stop آزاد می‌شود).
+     */
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
+    @android.annotation.SuppressLint("WakelockTimeout")
+    private fun acquireWakelock() {
+        if (wakeLock?.isHeld == true) return
+        try {
+            val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+            wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vex:lnt").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun releaseWakelock() {
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
+        wakeLock = null
+    }
+
     override fun onCreate() {
         super.onCreate()
         installCrashShield()
@@ -72,6 +97,7 @@ class LanternService : Service() {
                 intent?.action == ACTION_STOP -> {
                     killEpoch.incrementAndGet()
                     LanternEngine.stop(this)
+                    releaseWakelock()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     // پروسه‌ی اختصاصی لنترن — پس از توقف، kill تمیز (بدون زامبی flashlight)
@@ -82,6 +108,7 @@ class LanternService : Service() {
                 intent?.action == ACTION_RESTART -> {
                     killEpoch.incrementAndGet() // kill در انتظار را لغو کن — پروسه باید زنده بماند
                     goForeground()
+                    acquireWakelock()
                     LanternEngine.restartInProcess(this)
                 }
                 // رستارت توسط سیستم بدون Intent — یعنی کاربر قطع کرده و نباید دوباره بوت شود
@@ -94,6 +121,7 @@ class LanternService : Service() {
                     killEpoch.incrementAndGet()
                     // سرویس پیش‌زمینه — تا سیستم پروسه‌ی لنترن را وسط کار نکشد
                     goForeground()
+                    acquireWakelock() // V5.11 — CPU بیدار بماند؛ ست‌شدن flashlight یعنی قطعی
                     if (!LanternEngine.isRunning()) LanternEngine.start(this)
                 }
             }
@@ -138,6 +166,7 @@ class LanternService : Service() {
         // اگر پروسه کشته شد، پورت کهنه نباید گول پروسه‌ی اصلی را بزند
         if (LanternEngine.isRunning()) LanternEngine.stop(this)
         LanternEngine.clearPort(this)
+        releaseWakelock()
         super.onDestroy()
     }
 

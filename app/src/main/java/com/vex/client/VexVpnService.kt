@@ -384,6 +384,9 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
                 else startForeground(NOTIF_ID, notif("متصل است", "تست خودکار اینترنت خاموش است"))
                 // پایش شبکه‌ی زیرین: هنداور WiFi↔موبایل → نوسازی بی‌صدا (الگوی v2rayNG)
                 startHandoverWatcher(gen)
+                // V5.11 — نگهبان سریع حیات پروسه‌ی لنترن (فقط موتورهای خانواده‌ی لنترن؛ وارپ ندارند)
+                val engNow = engineOf(lastPayload)
+                if (engNow == "lantern" || engNow == "hybrid" || engNow == "smart") startLanternGuard(gen)
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 if (gen == generation) {
@@ -881,6 +884,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         trafficThread?.interrupt(); trafficThread = null
         freeWatchThread?.interrupt(); freeWatchThread = null
         stopHandoverWatcher()
+        stopLanternGuard()
         try { tun?.close() } catch (_: Exception) {}
         tun = null
         try { engine?.stop() } catch (_: Exception) {}
@@ -1101,6 +1105,57 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         }
     }
 
+    // ------------------------------------------------------------------ نگهبان سریع حیات پروسه‌ی لنترن (V5.11)
+
+    private var lntGuardThread: Thread? = null
+
+    /**
+     * V5.11 — نگهبان سریع حیات «:lantern» — آخرین حلقه‌ی گمشده برای «اتصال بدون قطعی»:
+     *  اگر کل پروسه‌ی :lantern توسط سیستم/ممری کشته شود، پروب‌های داخل همان پروسه (واچ‌داگ
+     *  V5.10) هم می‌میرند و تنها پایشگر، حلقه‌ی نت‌تست است که با لرزش شبکه ممکن است
+     *  ۴۵ تا ۶۰ ثانیه طول بکشد تا بازیابی کند. این نگهبان هر ۸ ثانیه فقط دو چک سبک و
+     *  برون‌تونلی می‌کند: پروسه زنده است؟ (proc/cmdline) · پورت مشترک هنوز هست؟
+     *  دو خواندن بد پشت‌سرهم ⇒ تعمیر فوری و بی‌صدای همان مسیر restartLanternQuiet —
+     *  یعنی ریکاوری در حدود ۱۰ تا ۱۶ ثانیه به‌جای یک دقیقه، بدون هیچ چیزِ قابل‌دیدنی برای کاربر.
+     *  نکته: reloadBusy داخل restartLanternQuiet جلوی تداخل با نردبان نوسازی را می‌گیرد؛
+     *  و دو تأیید پشت‌سرهم هم حذف «کاذب» وسط بوت را ناممکن می‌کند.
+     */
+    private fun startLanternGuard(gen: Int) {
+        stopLanternGuard()
+        lntGuardThread = thread(name = "vex-lnt-guard") {
+            var badStreak = 0
+            while (true) {
+                // ۸ ثانیه در قطعه‌های ۱ ثانیه‌ای تا توقف فوری در stop/quiet-reload
+                for (i in 0 until 8) {
+                    synchronized(stateLock) { if (gen != generation) return@thread }
+                    try { Thread.sleep(1000) } catch (_: InterruptedException) { return@thread }
+                }
+                synchronized(stateLock) { if (gen != generation) return@thread }
+                val eng = engineOf(lastPayload)
+                if (eng != "lantern" && eng != "hybrid" && eng != "smart") return@thread
+                if (uiState != "connected") continue
+                // بوت در جریان است؟ این دور را بی‌اثر رد کن
+                val st = LanternEngine.readState(applicationContext)
+                if (st == "starting") { badStreak = 0; continue }
+                val alive = LanternEngine.isProcessAlive(applicationContext)
+                val port = LanternEngine.readPort(applicationContext)
+                if (alive && port > 0) { badStreak = 0; continue }
+                badStreak++
+                Log.w(TAG, "lantern guard: alive=$alive port=$port streak=$badStreak — silent repair pending")
+                if (badStreak >= 2) {
+                    badStreak = 0
+                    Log.w(TAG, "lantern guard: process/port lost — immediate silent repair")
+                    restartLanternQuiet()
+                }
+            }
+        }
+    }
+
+    private fun stopLanternGuard() {
+        try { lntGuardThread?.interrupt() } catch (_: Throwable) {}
+        lntGuardThread = null
+    }
+
     private fun stopVpn(error: String? = null, includeLogs: Boolean = false) {
         synchronized(stateLock) { generation++ }
         uiState = "stopped"
@@ -1114,6 +1169,7 @@ class VexVpnService : VpnService(), io.nekohasekai.libbox.PlatformInterface {
         trafficThread?.interrupt(); trafficThread = null
         freeWatchThread?.interrupt(); freeWatchThread = null
         stopHandoverWatcher()
+        stopLanternGuard()
         // آخرین دلتای جلسه به بک‌اند ربات می‌رود — حتی اگر UI اصلاً باز نبوده باشد
         try { TrafficStore.init(applicationContext) } catch (_: Throwable) {}
         try { TrafficStore.flushAsync(applicationContext) } catch (_: Throwable) {}

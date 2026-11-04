@@ -182,6 +182,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------------- V5.11 — معافیت از بهینه‌سازی باتری (قدم صفر «اتصال بدون قطعی») ----------------
+
+    /**
+     * چرا این مجوز برای «اتصال بدون قطعی» حیاتی است؟
+     *  اندروید (Doze) و به‌خصوص پوسته‌های شیائومی/سامسونگ/هوآوی، پروسه‌های پس‌زمینه را
+     *  در حین اتصال «فریز» یا می‌کُشند ⇒ تونل وسط کار قطع می‌شود. VPN ما سرویس
+     *  پیش‌زمینه است ولی این روی گوشی‌های ایرانی کافی نیست؛ معافیت از بهینه‌سازی
+     *  باتری همان چیزی است که کلاینت‌های معتبر VPN هم می‌خواهند.
+     * فقط حداکثر ۲ بار در کل عمر اپ پرسیده می‌شود؛ انصراف هم اتصال را متوقف نمی‌کند.
+     */
+    private val batteryOptLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val cfg = pendingPayload
+        pendingPayload = null
+        if (cfg != null) continueAfterBattery(cfg)
+    }
+
+    /** true یعنی باید همین الان پرسیده شود (معاف نیستیم و سهمیه‌ی پرسش باقی است) */
+    private fun batteryOptimizationShouldAsk(): Boolean = try {
+        val pm = getSystemService(android.os.PowerManager::class.java) ?: return false
+        if (Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(packageName)) return false
+        val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
+        prefs.getInt("battery_ask_count", 0) < 2
+    } catch (_: Throwable) { false }
+
+    private fun markBatteryAsked() {
+        try {
+            val prefs = getSharedPreferences("vex_gate", MODE_PRIVATE)
+            prefs.edit().putInt("battery_ask_count", prefs.getInt("battery_ask_count", 0) + 1).apply()
+        } catch (_: Throwable) {}
+    }
+
+    private fun batteryOptIntent(): Intent? = try {
+        Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData(android.net.Uri.parse("package:$packageName"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    } catch (_: Throwable) { null }
+
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) qrScanLauncher.launch(Intent(this, QrScanActivity::class.java))
         else UI.toast(this, "دسترسی دوربین داده نشد")
@@ -1210,6 +1247,20 @@ class MainActivity : ComponentActivity() {
         VexVpnService.showNotifSpeed = store.settings.showNotifSpeed
         VexVpnService.perAppMode = store.settings.perAppMode
         VexVpnService.perAppPackages = store.settings.perAppPackages.toSet()
+        // V5.11 — قدم صفر پایداری: یک‌بار در عمر اپ، معافیت باتری بپرس (انصراف = ادامه)
+        if (batteryOptimizationShouldAsk()) {
+            val bi = batteryOptIntent()
+            if (bi != null) {
+                markBatteryAsked()
+                pendingPayload = payload
+                try { batteryOptLauncher.launch(bi); return } catch (_: Throwable) {}
+            }
+        }
+        continueAfterBattery(payload)
+    }
+
+    /** بعد از قدم باتری: مجوز اعلان (اندروید ۱۳+) و بعد ادامه‌ی مسیر اتصال */
+    private fun continueAfterBattery(payload: String) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             pendingPayload = payload

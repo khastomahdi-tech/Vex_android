@@ -361,19 +361,60 @@ object LanternEngine {
         return sb.toString()
     }
 
-    // ------------------------------------------------------------------ کانفیگ تازه برای هر بوت
+    // ------------------------------------------------------------------ کانفیگ بوت (V5.11 — بازاستفاده از آخرین بوت سالم)
 
     /**
-     * هر بوتِ flashlight یک پوشه‌ی کانفیگ نو می‌گیرد — اگر کانفیگ قبلی (user.conf/
-     * global.yaml/datab* نسخه‌های قبلی که وسط نوشتن کشته شده‌اند) خراب شده باشد،
-     * دیگر بوت‌های بعدی را نمی‌کشد. فقط ۲ پوشه‌ی آخر برای اشکال‌زدایی نگه داشته می‌شود.
+     * V5.11 — فایل «آخرین بوت سالم»:
+     * هر بار بوت لنترن به READY و تأیید پروب رسید، مسیر پوشه‌ی کانفیگش با نشان boot_ok
+     * ثبت می‌شود. بوتِ اولِ هر جلسه از همین کانفیگ بازاستفاده می‌کند ⇒ handshake ابری
+     * (فرانتینگ) که قبلاً انجام شده از کش برمی‌گردد و اتصال چند برابر سریع‌تر و لرزش
+     * کمتر می‌شود. در بوت‌مجدها/تعویض‌های مسیر (restartInProcess) عمداً کانفیگ «تازه»
+     * ساخته می‌شود تا flashlight مجبور شود بهترین سرورِ دیگری از شبکه‌ی ابری برشدارد
+     * (مکانیزم failover بی‌صدای لنترن — همان قانون V5.9).
      */
-    private fun prepareFreshConfigDir(app: Context): File {
+    private fun lastGoodFile(app: Context): File = File(app.filesDir, "lantern_lastgood.txt")
+
+    /** ثبت بوت سالم — فقط بعد از READY واقعی (پورت باز + پروب موفق) */
+    private fun markLastGood(app: Context, dir: File) {
+        try { File(dir, "boot_ok").writeText("ok") } catch (_: Throwable) {}
+        try { lastGoodFile(app).writeText(dir.absolutePath) } catch (_: Throwable) {}
+    }
+
+    /** پاک‌کردن ثبت آخرین بوت سالم — بعد از هر شکست بوت (بوت بعدی تازه می‌گیرد) */
+    private fun clearLastGood(app: Context?) {
+        val c = app ?: return
+        try { lastGoodFile(c).delete() } catch (_: Throwable) {}
+    }
+
+    /**
+     * پوشه‌ی کانفیگ برای این بوت:
+     *  • reuse=true و «آخرین بوت سالم» موجود → همان پوشه (بوت سریع از کش ابری)؛
+     *  • وگرنه پوشه‌ی تازه b<timestamp> — اگر کانفیگ قبلی خراب/مسوم شده باشد، بوت‌های
+     *    بعدی را نمی‌کشد. فقط ۲ پوشه‌ی آخر برای اشکال‌زدایی نگه داشته می‌شود.
+     */
+    private fun prepareConfigDir(app: Context, reuse: Boolean): File {
         val root = File(app.filesDir, "lantern_config")
         try { root.mkdirs() } catch (_: Throwable) {}
+        if (reuse) {
+            val lg = try {
+                val p = lastGoodFile(app).readText().trim()
+                val d = if (p.isNotEmpty()) File(p) else null
+                if (d != null && d.isDirectory && d.parentFile == root && File(d, "boot_ok").isFile) d else null
+            } catch (_: Throwable) { null }
+            if (lg != null) {
+                // پاک‌سازی پوشه‌های بوت دیگر — lastgood می‌ماند
+                try {
+                    root.listFiles()?.filter { it.isDirectory && it != lg }
+                        ?.forEach { d -> try { d.deleteRecursively() } catch (_: Throwable) {} }
+                    root.listFiles()?.filter { it.isFile && it.name.startsWith("b") }
+                        ?.forEach { f -> try { f.delete() } catch (_: Throwable) {} }
+                } catch (_: Throwable) {}
+                return lg
+            }
+        }
         try {
             // فایل‌های سرگردان نسخه‌های قدیمی (کـنفیگ در ریشه) — حذف
-            root.listFiles()?.filter { it.isFile }?.forEach { f -> try { f.delete() } catch (_: Throwable) {} }
+            root.listFiles()?.filter { it.isFile && !it.name.startsWith("lantern") }?.forEach { f -> try { f.delete() } catch (_: Throwable) {} }
             // پوشه‌های بوت قبلی — فقط ۲ تای آخر می‌ماند
             root.listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name }
                 ?.drop(2)?.forEach { d -> try { d.deleteRecursively() } catch (_: Throwable) {} }
@@ -389,9 +430,11 @@ object LanternEngine {
      * راه‌اندازی هسته‌ی لنترن (در پروسه‌ی :lantern) — بلاک نمی‌کند.
      *  • هرگز دو نمونه‌ی هم‌زمان ساخته نمی‌شود (قفل client/pending/booting)؛
      *  • بعد از شکستِ قابل‌گرفتن (state=failed) بوت مجدد در همان پروسه مجاز است —
-     *    پروسه‌ی زنده یعنی بدون spawn جدید و بدون ریسک «process is bad».
+     *    پروسه‌ی زنده یعنی بدون spawn جدید و بدون ریسک «process is bad»؛
+     *  • V5.11 — reuse=true فقط در بوت اولِ جلسه: بازاستفاده از کانفیگ آخرین بوت سالم
+     *    (اتصال سریع‌تر) · بوت‌مجدها همیشه کانفیگ تازه می‌گیرند (انتخاب سرور جدید).
      */
-    fun start(ctx: Context) {
+    fun start(ctx: Context, reuseLastGood: Boolean = true) {
         synchronized(this) {
             if (client != null || pending != null) return
             if (!booting.compareAndSet(false, true)) return
@@ -404,8 +447,8 @@ object LanternEngine {
             writePid(app)
             writeState(app, "starting")
             bootLogReset(app)
-            bootLog(app, "boot start — fresh config dir (V5.9)")
-            val cfgDir = prepareFreshConfigDir(app)
+            bootLog(app, "boot start — config dir (reuse=$reuseLastGood, V5.11)")
+            val cfgDir = prepareConfigDir(app, reuseLastGood)
             bootLog(app, "configDir=${cfgDir.absolutePath}")
             Thread {
                 var c: lantern.LanternClient? = null
@@ -457,6 +500,8 @@ object LanternEngine {
                         booting.set(false)
                         try { portFile(app).writeText(port.toString()) } catch (_: Throwable) {}
                         writeState(app, "ready")
+                        // V5.11 — ثبت «آخرین بوت سالم» برای بازاستفاده‌ی سریع در جلسه‌ی بعد
+                        markLastGood(app, cfgDir)
                         bootLog(app, "READY — lantern http proxy listening on 127.0.0.1:$port")
                         // V5.10 — واچ‌داگ سلامت مسیر: پروب هر ۵ ثانیه + بوت مجدد بی‌صدای
                         // flashlight روی مسیر مرده (ریشه‌ی «وصل میشه ولی کار نمیکنه»)
@@ -472,6 +517,8 @@ object LanternEngine {
                         if (state != "stopped") state = "failed"
                         booting.set(false) // بوت مجدد درون-پروسه‌ای مجاز است
                     }
+                    // V5.11 — کانفیگ خراب دیگر «آخرین بوت سالم» نیست؛ بوت بعدی تازه می‌گیرد
+                    clearLastGood(app)
                     writeState(app, "failed")
                 }
             }.start()
@@ -504,6 +551,8 @@ object LanternEngine {
      * (ریسک «process is bad» = صفر) و بدون هیچ پیامی به کاربر.
      *
      * V5.10 — واچ‌داگ در این مسیر «زنده می‌ماند» (فقط نمونه عوض می‌شود، نه پایش).
+     * V5.11 — بوتِ درون-پروسه‌ای همیشه کانفیگ «تازه» می‌گیرد (reuseLastGood=false) تا
+     * flashlight مجبور شود بهترین سرورِ دیگری از شبکه‌ی ابری لنترن برشدارد.
      */
     fun restartInProcess(ctx: Context) {
         synchronized(this) {
@@ -527,7 +576,7 @@ object LanternEngine {
         }
         Thread {
             try { Thread.sleep(400) } catch (_: InterruptedException) {}
-            start(ctx)
+            start(ctx, reuseLastGood = false)
         }.start()
     }
 
